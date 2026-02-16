@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 set -Eeuo pipefail
 
 dd if=/dev/zero of=fat.img bs=1K count=3136

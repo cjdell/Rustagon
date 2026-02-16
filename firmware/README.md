@@ -17,3 +17,5 @@ Then source the environment
 After that, you should be able to build and flash your badge with:
 
     cargo run -r --bin rustagon
+
+(Make sure the `web` firmware has been built first as it is injected into the binary)

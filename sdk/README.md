@@ -2,6 +2,10 @@
 
 ## Quick Start
 
+You will need the `wasm32-unknown-unknown` target installed:
+
+    rustup target add wasm32-unknown-unknown
+
 Build all examples:
 
     ./build.sh
