@@ -1,0 +1,45 @@
+[package]
+name = "rust-wasm-examples"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
+serde-json-core = "0.6.0"
+postcard = { version = "1.1.3", default-features = false, features = ["alloc"] }
+
+pasts = { version = "0.14.3", default-features = false }
+nostd_async = { git = "https://github.com/sammhicks/nostd_async.git",  default-features = false }
+wasi = "0.12.1"
+wasi-async-runtime = "0.1.2"
+futures-concurrency = "7.7.0"
+wasip1 = { version = "1.0.0" }
+rmp-serde = "1.3.1"
+bytes = { version = "1.11.0", default-features = false }
+fixed_deque = "1.4.0"
+lol_alloc = "0.4.1"
+embedded-graphics = "0.8.1"
+embassy-sync = "0.7.2"
+anyhow = { version = "1.0.100", default-feature = false }
+static_cell = "2.1.1"
+makepad-zune-jpeg = { version = "0.3.17", default-features = false }
+libm = "0.2.16"
+embedded-3dgfx = "0.1.2"
+nalgebra = { version = "0.34", default-features = false, features = [ "libm" ] }
+
+# [[bin]]
+# name = "future_std"
+# path = "src/bin/future_std.rs"
+
+[profile.release]
+lto             = true
+# panic           = "abort"
+# debug           = true
+# incremental     = false
+# codegen-units   = 1
+opt-level       = 's'
+
+# [lib]
+# test = false
+# bench = false

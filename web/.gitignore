@@ -1,0 +1,6 @@
+node_modules/
+dist/
+bundle/
+public/wasm/*.wsm
+
+.DS_Store

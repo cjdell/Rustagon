@@ -1,0 +1,3 @@
+[toolchain]
+channel = "esp"
+version = "1.92.0.0"

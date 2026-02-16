@@ -1,0 +1,12 @@
+{
+  "name": "Rustagon",
+  "version": "Latest",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "improv": false,
+      "chipFamily": "ESP32-S3",
+      "parts": [{ "path": "merged.bin", "offset": 0 }]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+/target/
+/partitions-macro/target/
+*.bin
+.DS_Store
+output.map

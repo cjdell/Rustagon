@@ -1,0 +1,18 @@
+[target.xtensa-esp32s3-none-elf]
+runner = "espflash flash --partition-table partitions.csv --monitor"
+
+[env]
+ESP_LOG = "INFO"
+FIRMWARE_VERSION = "0"
+
+[build]
+rustflags = [
+  "-C", "link-arg=-nostartfiles",
+  "-C", "link-arg=-Wl,-Map=output.map",
+  "-Z", "stack-protector=all",
+]
+
+target = "xtensa-esp32s3-none-elf"
+
+[unstable]
+build-std = ["alloc", "core"]

@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Rustagon Firmware Tool</title>
+    <script
+      type="module"
+      src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+    ></script>
+    <style>
+      body {
+        font-family: sans-serif;
+      }
+    </style>
+    <script
+      defer
+      data-domain="firmware.rustagon.chrisdell.info"
+      src="https://analytics.home.chrisdell.info/js/script.js"
+    ></script>
+  </head>
+  <body>
+    <h1>Rustagon Firmware Tool</h1>
+
+    <p>
+      Click the "Connect" button to begin. Please specify "Erase device" when
+      prompted.
+    </p>
+
+    <p>
+      If you're having trouble installed the firmware, force the badge into DFU
+      mode using the "boop/reboop" buttons labelled on the back:
+    </p>
+
+    <ol>
+      <li>Hold in "boop" button</li>
+      <li>Press and release "reboop" button</li>
+      <li>Release "boop" button</li>
+    </ol>
+
+    <p>
+      After firmware update is complete. You may need to press the "reboop"
+      button.
+    </p>
+
+    <p>
+      Upon first boot, the badge will attempt to format the filesystem. This
+      takes about 3 minutes.
+    </p>
+
+    <p>
+      Please see the
+      <a href="https://github.com/cjdell/Rustagon/">Git repo</a> for usage
+      instructions.
+    </p>
+
+    <esp-web-install-button manifest="manifest.json">
+      Install Rustagon
+    </esp-web-install-button>
+  </body>
+</html>

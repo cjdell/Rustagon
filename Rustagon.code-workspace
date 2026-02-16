@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "./emulator"
+		},
+		{
+			"path": "./firmware"
+		},
+		{
+			"path": "./sdk"
+		},
+		{
+			"path": "./web"
+		}
+	],
+	"settings": {
+		"git.openRepositoryInParentFolders": "always"
+	}
+}
