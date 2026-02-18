@@ -40,9 +40,10 @@ use esp_hal::{
 use esp_println::println;
 use esp_storage::FlashStorage;
 use lib::{
-  DeviceConfig, DeviceState, HexButtonChannel, HexButtonSender, HostIpcChannel, HttpChannel, I2cMessage, Icon40,
-  LcdScreen, LedChannel, LedRequest, PowerCtrlChannel, SystemSender, SystemWatch, WasmIpcChannel,
-  WebSocketIncomingChannel, WebSocketIncomingMessage, WebSocketIncomingReceiver, WifiMode, reset_device,
+  DeviceConfig, DeviceState, HexButtonChannel, HexButtonSender, HostIpcChannel, HttpChannel, I2C_0, I2C_1, I2C_2,
+  I2cMessage, Icon40, LcdScreen, LedChannel, LedRequest, PowerCtrlChannel, SystemSender, SystemWatch, WasmIpcChannel,
+  WebSocketIncomingChannel, WebSocketIncomingMessage, WebSocketIncomingReceiver, WifiMode, init_gpio, reset_device,
+  scan_devices,
 };
 use log::{error, info, warn};
 use picoserve::make_static;
@@ -57,7 +58,7 @@ use tasks::{
   wasm::second_core_task,
   wifi::{ScanWatch, WifiCommandChannel, WifiStatusChannel, captive_task, connection_task, dhcp_task, net_task},
 };
-use utils::{i2c::SharedI2cBus, led_service::LedState, local_fs::LocalFs, print_memory_info, sleep};
+use utils::{MultiplexedI2cBus, led_service::LedState, local_fs::LocalFs, print_memory_info, sleep};
 
 extern crate alloc;
 extern crate core;
@@ -98,11 +99,18 @@ async fn main(spawner: Spawner) {
   .with_sda(peripherals.GPIO45)
   .with_scl(peripherals.GPIO46);
 
-  let shared_i2c_bus = SharedI2cBus::new(i2c);
+  let multiplexed_i2c_bus = MultiplexedI2cBus::new(i2c);
 
+  let sys_bus = multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::SYS_BUS);
+
+  // I2C won't work until reset
   reset_device(peripherals.GPIO9);
 
-  shared_i2c_bus.configure_switch(SharedI2cBus::SYS_BUS);
+  scan_devices(sys_bus.clone());
+
+  init_gpio(sys_bus.clone(), I2C_0).await;
+  init_gpio(sys_bus.clone(), I2C_1).await;
+  init_gpio(sys_bus.clone(), I2C_2).await;
 
   let system_watch = mk_static!(SystemWatch, SystemWatch::new());
   let lcd_signal = mk_static!(LcdSignal, LcdSignal::new());
@@ -122,16 +130,9 @@ async fn main(spawner: Spawner) {
   let i2c_publisher = i2c_channel.publisher().unwrap();
   let power_ctrl_receiver = power_ctrl_channel.receiver();
 
-  spawner.spawn(i2c_task(shared_i2c_bus, i2c_publisher, power_ctrl_receiver)).ok();
+  spawner.spawn(i2c_task(sys_bus.clone(), i2c_publisher, power_ctrl_receiver)).ok();
 
-  loop {
-    // Wait for the display to be RESET...
-    if let I2cMessage::DisplayReset = i2c_channel.subscriber().unwrap().next_message_pure().await {
-      break;
-    }
-  }
-
-  spawner.spawn(lcd_task(lcd_signal)).ok();
+  spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal)).ok();
 
   lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Init".to_string()));
   sleep(1_000).await;

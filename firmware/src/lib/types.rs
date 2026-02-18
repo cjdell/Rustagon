@@ -185,7 +185,6 @@ pub enum HexButton {
 #[derive(Clone, Debug)]
 pub enum I2cMessage {
   HexButton(HexButton),
-  DisplayReset,
 }
 
 pub type HexButtonChannel = PubSubChannel<CriticalSectionRawMutex, I2cMessage, 10, 2, 2>;

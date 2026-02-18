@@ -3,15 +3,14 @@ use core::cell::RefCell;
 use embassy_sync::blocking_mutex::{Mutex, raw::NoopRawMutex};
 use embedded_hal::i2c::Operation;
 use esp_hal::Blocking;
-use log::{error, info};
 
-#[derive(Clone)]
-pub struct SharedI2cBus {
-  i2c: Arc<Mutex<NoopRawMutex, RefCell<esp_hal::i2c::master::I2c<'static, Blocking>>>>,
+type SharedI2cBus = Arc<Mutex<NoopRawMutex, RefCell<esp_hal::i2c::master::I2c<'static, Blocking>>>>;
+
+pub struct MultiplexedI2cBus {
+  i2c: SharedI2cBus,
 }
 
-impl SharedI2cBus {
-  pub const MUX_ADDR: u8 = 0x77;
+impl MultiplexedI2cBus {
   pub const SYS_BUS: u8 = 0b10000000;
 
   pub fn new(i2c: esp_hal::i2c::master::I2c<'static, Blocking>) -> Self {
@@ -20,26 +19,36 @@ impl SharedI2cBus {
     }
   }
 
-  pub fn configure_switch(&self, mux_bits: u8) {
-    match self.i2c.lock(|i2c| i2c.borrow_mut().write(Self::MUX_ADDR, &[mux_bits])) {
-      Ok(_) => {
-        info!("configure_switch: {mux_bits}");
-      }
-      Err(err) => {
-        error!("configure_switch: Error: {err:?}");
-      }
-    };
+  pub fn new_masked_i2c_bus(&self, mux_bits: u8) -> MaskedI2cBus {
+    MaskedI2cBus::new(self.i2c.clone(), mux_bits)
   }
 }
 
-impl embedded_hal::i2c::ErrorType for SharedI2cBus {
+#[derive(Clone)]
+pub struct MaskedI2cBus {
+  i2c: SharedI2cBus,
+  mux_bits: u8,
+}
+
+impl MaskedI2cBus {
+  pub const MUX_ADDR: u8 = 0x77;
+
+  fn new(i2c: SharedI2cBus, mux_bits: u8) -> Self {
+    Self { i2c, mux_bits }
+  }
+}
+
+impl embedded_hal::i2c::ErrorType for MaskedI2cBus {
   type Error = esp_hal::i2c::master::Error;
 }
 
-impl embedded_hal::i2c::I2c for SharedI2cBus {
+impl embedded_hal::i2c::I2c for MaskedI2cBus {
   fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
     self.i2c.lock(|i2c| -> Result<(), Self::Error> {
       let mut i2c = i2c.borrow_mut();
+
+      // Set the multiplexer bits to enable channels we want for this instance
+      i2c.write(Self::MUX_ADDR, &[self.mux_bits])?;
 
       for operation in operations {
         match operation {

@@ -1,12 +1,12 @@
 pub mod common;
 
-use crate::lib::{DisplayInterface, Image, LcdScreen};
+use crate::lib::{DisplayInterface, I2C_2, Image, LcdScreen};
 use crate::tasks::lcd::common::draw_icon;
-use crate::utils::VecHelper;
 use crate::utils::graphics::{SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::utils::{Aw9523bGpioPin, MaskedI2cBus, VecHelper};
 use crate::utils::{graphics::BufferTarget, sleep, spi::SpiExclusiveDevice};
 use alloc::{format, vec::Vec};
-use core::convert::Infallible;
+use aw9523b::Pin;
 use core::ptr;
 use core::slice::from_raw_parts_mut;
 use display_interface::{DataFormat, WriteOnlyDataCommand};
@@ -23,7 +23,6 @@ use embedded_graphics::{
   primitives::{Arc, PrimitiveStyle, StyledDrawable},
   text::{Baseline, Text},
 };
-use embedded_hal::digital::OutputPin;
 use esp_alloc::ExternalMemory;
 use esp_hal::{
   gpio::{Level, Output, OutputConfig},
@@ -34,7 +33,6 @@ use esp_hal::{
   },
   time::{Instant, Rate},
 };
-use gc9a01::command::Logical;
 use gc9a01::{
   Gc9a01, SPIDisplayInterface,
   command::Command,
@@ -62,31 +60,16 @@ pub static mut SPI_DISPLAY_INTERFACE: *mut SPIInterface<SpiExclusiveDevice<'_>, 
 
 pub type LcdSignal = Signal<CriticalSectionRawMutex, LcdScreen>;
 
-struct DummyOutput;
-
-impl embedded_hal::digital::ErrorType for DummyOutput {
-  type Error = Infallible;
-}
-
-impl OutputPin for DummyOutput {
-  fn set_low(&mut self) -> Result<(), Self::Error> {
-    Ok(())
-  }
-
-  fn set_high(&mut self) -> Result<(), Self::Error> {
-    Ok(())
-  }
-}
-
 #[embassy_executor::task]
-pub async fn lcd_task(signal: &'static LcdSignal) {
+pub async fn lcd_task(i2c_bus: MaskedI2cBus, signal: &'static LcdSignal) {
   info!("Starting LCD Task...");
 
   info!("LCD: Initialising display");
 
   let p = unsafe { Peripherals::steal() };
 
-  let mut reset = DummyOutput;
+  let mut reset = Aw9523bGpioPin::new(i2c_bus, I2C_2, Pin::P16);
+
   let cs = Output::new(p.GPIO1, Level::High, OutputConfig::default());
   let dc = Output::new(p.GPIO2, Level::High, OutputConfig::default());
 
@@ -111,9 +94,9 @@ pub async fn lcd_task(signal: &'static LcdSignal) {
 
   let mut display = Gc9a01::new(interface, DisplayResolution240x240, DisplayRotation::Rotate0);
 
-  display.reset(&mut reset, &mut Delay);
+  display.reset(&mut reset, &mut Delay).unwrap();
   display.init(&mut Delay).unwrap();
-  display.clear().ok();
+  display.clear().unwrap();
 
   let raw_buffer = unsafe { from_raw_parts_mut(BUFFER, (SCREEN_WIDTH * SCREEN_HEIGHT * 2) as usize) };
   let interface: &mut DisplayInterface = unsafe { core::mem::transmute(SPI_DISPLAY_INTERFACE) };

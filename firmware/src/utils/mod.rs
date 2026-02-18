@@ -2,6 +2,7 @@ pub mod bq25895;
 pub mod cpu_guard;
 pub mod dns;
 pub mod flash_stream;
+pub mod gpio;
 pub mod graphics;
 pub mod http;
 pub mod i2c;
@@ -10,6 +11,9 @@ pub mod local_fs;
 pub mod ota;
 pub mod spi;
 pub mod state;
+
+pub use gpio::Aw9523bGpioPin;
+pub use i2c::{MaskedI2cBus, MultiplexedI2cBus};
 
 use alloc::alloc::Global;
 use alloc::vec::Vec;
