@@ -1,14 +1,12 @@
 use crate::{
-  lib::{HexButton, HexButtonSender, I2cMessage, I2cMutux, PowerCtrl, PowerCtrlReceiver},
-  utils::{bq25895::Bq25895, sleep},
+  lib::{HexButton, HexButtonSender, I2cMessage, PowerCtrl, PowerCtrlReceiver},
+  utils::{bq25895::Bq25895, i2c::SharedI2cBus, sleep},
 };
 use aw9523b::{Aw9523b, Dir, OutputMode, Pin, Register};
 use core::future::join;
-use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
 use esp_hal::{
-  gpio::{Level, Output, OutputConfig},
   i2c::master::{Config, I2c},
   peripherals::Peripherals,
   time::Rate,
@@ -50,28 +48,25 @@ macro_rules! handle_button {
 
 #[embassy_executor::task]
 pub async fn i2c_task(
-  i2c_mutex: &'static I2cMutux,
+  shared_i2c_bus: SharedI2cBus,
   input_sender: HexButtonSender,
   power_ctrl_receiver: PowerCtrlReceiver,
 ) {
   info!("Starting I2C Task...");
 
-  let mut i2c_device = I2cDevice::new(i2c_mutex);
+  scan_devices(shared_i2c_bus.clone());
 
-  setup_switch(&mut i2c_device);
-  scan_devices(&mut i2c_device);
-
-  init_chip(&mut i2c_device, I2C_1).await;
-  init_chip(&mut i2c_device, I2C_2).await;
+  init_chip(shared_i2c_bus.clone(), I2C_1).await;
+  init_chip(shared_i2c_bus.clone(), I2C_2).await;
 
   join!(
-    power_task(i2c_device, power_ctrl_receiver),
-    button_task(I2cDevice::new(i2c_mutex), I2cDevice::new(i2c_mutex), input_sender)
+    power_task(shared_i2c_bus.clone(), power_ctrl_receiver),
+    button_task(shared_i2c_bus.clone(), shared_i2c_bus.clone(), input_sender)
   )
   .await;
 }
 
-async fn init_chip(i2c: &mut impl embedded_hal::i2c::I2c, address: u8) {
+async fn init_chip(i2c: impl embedded_hal::i2c::I2c, address: u8) {
   let mut driver = Aw9523b::new(i2c, address);
 
   // Software reset (register 0x7f = SW_RSTN, value 0x00)
@@ -197,26 +192,7 @@ async fn button_task(
   }
 }
 
-fn setup_switch(i2c0: &mut impl embedded_hal::i2c::I2c) {
-  let p = unsafe { Peripherals::steal() };
-
-  let mut reset = Output::new(p.GPIO9, Level::High, OutputConfig::default());
-  reset.set_high();
-
-  let mux_addr = 0x77;
-  let aw9523b_port = 7;
-
-  match i2c0.write(mux_addr, &[1 << aw9523b_port]) {
-    Ok(_) => {
-      info!("Wrote to Switch");
-    }
-    Err(err) => {
-      error!("Switch: {err:?}");
-    }
-  };
-}
-
-fn scan_devices(i2c0: &mut impl embedded_hal::i2c::I2c) {
+fn scan_devices(mut i2c0: impl embedded_hal::i2c::I2c) {
   info!("Scanning I2C bus...");
 
   for addr in 0x00..0x80 {

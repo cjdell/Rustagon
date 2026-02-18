@@ -4,6 +4,7 @@ pub mod dns;
 pub mod flash_stream;
 pub mod graphics;
 pub mod http;
+pub mod i2c;
 pub mod led_service;
 pub mod local_fs;
 pub mod ota;

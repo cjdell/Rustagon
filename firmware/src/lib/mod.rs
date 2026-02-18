@@ -2,6 +2,11 @@ mod device;
 mod protocol;
 mod types;
 
+use esp_hal::{
+  gpio::{Level, Output, OutputConfig},
+  peripherals::GPIO9,
+};
+
 pub use device::DeviceConfigurator;
 pub use protocol::{HostIpcMessage, WasmIpcMessage};
 pub use types::{
@@ -14,6 +19,11 @@ pub use types::{
 };
 
 pub const FIRMWARE_VERSION: &str = env!("FIRMWARE_VERSION");
+
+pub fn reset_device(pin: GPIO9<'static>) {
+  let mut reset = Output::new(pin, Level::High, OutputConfig::default());
+  reset.set_high();
+}
 
 // When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
 #[macro_export]

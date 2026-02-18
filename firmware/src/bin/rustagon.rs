@@ -26,9 +26,7 @@ mod tasks;
 mod utils;
 
 use alloc::{borrow::ToOwned as _, string::ToString as _};
-use core::cell::RefCell;
-use core::net::Ipv4Addr;
-use core::str::FromStr;
+use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
@@ -42,9 +40,9 @@ use esp_hal::{
 use esp_println::println;
 use esp_storage::FlashStorage;
 use lib::{
-  DeviceConfig, DeviceState, HexButtonChannel, HexButtonSender, HostIpcChannel, HttpChannel, I2cMessage, I2cMutux,
-  Icon40, LcdScreen, LedChannel, LedRequest, PowerCtrlChannel, SystemSender, SystemWatch, WasmIpcChannel,
-  WebSocketIncomingChannel, WebSocketIncomingMessage, WebSocketIncomingReceiver, WifiMode,
+  DeviceConfig, DeviceState, HexButtonChannel, HexButtonSender, HostIpcChannel, HttpChannel, I2cMessage, Icon40,
+  LcdScreen, LedChannel, LedRequest, PowerCtrlChannel, SystemSender, SystemWatch, WasmIpcChannel,
+  WebSocketIncomingChannel, WebSocketIncomingMessage, WebSocketIncomingReceiver, WifiMode, reset_device,
 };
 use log::{error, info, warn};
 use picoserve::make_static;
@@ -59,7 +57,7 @@ use tasks::{
   wasm::second_core_task,
   wifi::{ScanWatch, WifiCommandChannel, WifiStatusChannel, captive_task, connection_task, dhcp_task, net_task},
 };
-use utils::{led_service::LedState, local_fs::LocalFs, print_memory_info, sleep};
+use utils::{i2c::SharedI2cBus, led_service::LedState, local_fs::LocalFs, print_memory_info, sleep};
 
 extern crate alloc;
 extern crate core;
@@ -100,7 +98,11 @@ async fn main(spawner: Spawner) {
   .with_sda(peripherals.GPIO45)
   .with_scl(peripherals.GPIO46);
 
-  let i2c_mutex = make_static!(I2cMutux, I2cMutux::new(RefCell::new(i2c)));
+  let shared_i2c_bus = SharedI2cBus::new(i2c);
+
+  reset_device(peripherals.GPIO9);
+
+  shared_i2c_bus.configure_switch(SharedI2cBus::SYS_BUS);
 
   let system_watch = mk_static!(SystemWatch, SystemWatch::new());
   let lcd_signal = mk_static!(LcdSignal, LcdSignal::new());
@@ -120,7 +122,7 @@ async fn main(spawner: Spawner) {
   let i2c_publisher = i2c_channel.publisher().unwrap();
   let power_ctrl_receiver = power_ctrl_channel.receiver();
 
-  spawner.spawn(i2c_task(i2c_mutex, i2c_publisher, power_ctrl_receiver)).ok();
+  spawner.spawn(i2c_task(shared_i2c_bus, i2c_publisher, power_ctrl_receiver)).ok();
 
   loop {
     // Wait for the display to be RESET...
