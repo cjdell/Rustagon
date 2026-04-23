@@ -7,11 +7,13 @@ FIRMWARE_VERSION = "0"
 
 [build]
 rustflags = [
-  "-C", "link-arg=-nostartfiles",
-  "-C", "link-arg=-Wl,-Map=output.map",
-  "-Z", "stack-protector=all",
+  "-C",
+  "link-arg=-nostartfiles",
+  "-C",
+  "link-arg=-Wl,-Map=output.map",
+  "-Z",
+  "stack-protector=all",
 ]
-
 target = "xtensa-esp32s3-none-elf"
 
 [unstable]

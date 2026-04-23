@@ -1,7 +1,4 @@
-use crate::tasks::{
-  http::common::json_response,
-  wifi::{ScanWatch, WifiCommandMessage, WifiCommandSender},
-};
+use crate::{lib::*, tasks::http::common::json_response};
 use alloc::vec;
 use embedded_io_async::Read;
 use picoserve::{

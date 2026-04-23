@@ -8,6 +8,7 @@ use alloc::{
   vec::Vec,
 };
 use core::cell::RefCell;
+use core::net::Ipv4Addr;
 use display_interface_spi::SPIInterface;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -78,7 +79,7 @@ pub type DeviceState = PersistentStateService<DeviceConfig>;
 
 #[derive(Debug, Clone)]
 pub enum HttpStatusMessage {
-  None,
+  Idle,
   Progress(u32, u32),
   ReceivedFile(Vec<u8>),
 }
@@ -89,6 +90,41 @@ pub type HttpSender = Sender<'static, CriticalSectionRawMutex, HttpStatusMessage
 pub type HttpReceiver = Receiver<'static, CriticalSectionRawMutex, HttpStatusMessage, 10>;
 
 // ================================ Wifi ================================
+
+#[derive(Debug)]
+pub enum WifiCommandMessage {
+  ChangeState(WifiDesiredState),
+  Scan,
+  OverrideConnect(String, String),
+}
+
+#[derive(Debug)]
+pub enum WifiStatusMessage {
+  Connected(Ipv4Addr),
+  AccessPointActive,
+  NoNetworksFound,
+  Interrupted,
+  Disconnected,
+  Reset,
+}
+
+#[derive(Debug)]
+pub enum WifiDesiredState {
+  Online,
+  Offline,
+}
+
+pub type WifiCommandChannel = Channel<CriticalSectionRawMutex, WifiCommandMessage, 10>;
+pub type WifiCommandSender = Sender<'static, CriticalSectionRawMutex, WifiCommandMessage, 10>;
+pub type WifiCommandReceiver = Receiver<'static, CriticalSectionRawMutex, WifiCommandMessage, 10>;
+
+pub type WifiStatusChannel = Channel<CriticalSectionRawMutex, WifiStatusMessage, 10>;
+pub type WifiStatusSender = Sender<'static, CriticalSectionRawMutex, WifiStatusMessage, 10>;
+pub type WifiStatusReceiver = Receiver<'static, CriticalSectionRawMutex, WifiStatusMessage, 10>;
+
+pub type ScanWatch = watch::Watch<CriticalSectionRawMutex, Vec<WifiResult>, 2>;
+pub type ScanSender = watch::Sender<'static, CriticalSectionRawMutex, Vec<WifiResult>, 2>;
+pub type ScanReceiver = watch::Receiver<'static, CriticalSectionRawMutex, Vec<WifiResult>, 2>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WifiResult {

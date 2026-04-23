@@ -3,7 +3,7 @@ pub mod common;
 use crate::lib::{DisplayInterface, I2C_2, Image, LcdScreen};
 use crate::tasks::lcd::common::draw_icon;
 use crate::utils::graphics::{SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::utils::{Aw9523bGpioPin, MaskedI2cBus, VecHelper};
+use crate::utils::{Aw9523bOutputPin, MaskedI2cBus, VecHelper};
 use crate::utils::{graphics::BufferTarget, sleep, spi::SpiExclusiveDevice};
 use alloc::{format, vec::Vec};
 use aw9523b::Pin;
@@ -61,14 +61,14 @@ pub static mut SPI_DISPLAY_INTERFACE: *mut SPIInterface<SpiExclusiveDevice<'_>, 
 pub type LcdSignal = Signal<CriticalSectionRawMutex, LcdScreen>;
 
 #[embassy_executor::task]
-pub async fn lcd_task(i2c_bus: MaskedI2cBus, signal: &'static LcdSignal) {
+pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
   info!("Starting LCD Task...");
 
   info!("LCD: Initialising display");
 
   let p = unsafe { Peripherals::steal() };
 
-  let mut reset = Aw9523bGpioPin::new(i2c_bus, I2C_2, Pin::P16);
+  let mut reset = Aw9523bOutputPin::new(sys_bus, I2C_2, Pin::P16);
 
   let cs = Output::new(p.GPIO1, Level::High, OutputConfig::default());
   let dc = Output::new(p.GPIO2, Level::High, OutputConfig::default());

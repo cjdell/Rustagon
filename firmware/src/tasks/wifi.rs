@@ -1,8 +1,5 @@
-use crate::{
-  lib::{DeviceConfig, WifiMode, WifiResult},
-  utils::state::PersistentStateService,
-};
-use alloc::{format, string::String, vec::Vec};
+use crate::{lib::*, utils::state::PersistentStateService};
+use alloc::{format, string::String};
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use edge_dhcp::{
   io::{self, DEFAULT_SERVER_PORT},
@@ -11,11 +8,6 @@ use edge_dhcp::{
 use edge_nal::UdpBind;
 use edge_nal_embassy::{Udp, UdpBuffers};
 use embassy_net::{ConfigV4, Ipv4Cidr, Runner, Stack, StaticConfigV4};
-use embassy_sync::{
-  blocking_mutex::raw::CriticalSectionRawMutex,
-  channel::{Channel, Receiver, Sender},
-  watch::{self},
-};
 use embassy_time::{Duration, Timer};
 use esp_hal::time::Instant;
 use esp_println::{print, println};
@@ -27,41 +19,6 @@ use esp_radio::wifi::{
 };
 use log::{error, info, warn};
 use smoltcp::wire::DnsQueryType;
-
-#[derive(Debug)]
-pub enum WifiCommandMessage {
-  ChangeState(WifiDesiredState),
-  Scan,
-  OverrideConnect(String, String),
-}
-
-#[derive(Debug)]
-pub enum WifiStatusMessage {
-  Connected(Ipv4Addr),
-  AccessPointActive,
-  NoNetworksFound,
-  Interrupted,
-  Disconnected,
-  Reset,
-}
-
-#[derive(Debug)]
-pub enum WifiDesiredState {
-  Online,
-  Offline,
-}
-
-pub type WifiCommandChannel = Channel<CriticalSectionRawMutex, WifiCommandMessage, 10>;
-pub type WifiCommandSender = Sender<'static, CriticalSectionRawMutex, WifiCommandMessage, 10>;
-pub type WifiCommandReceiver = Receiver<'static, CriticalSectionRawMutex, WifiCommandMessage, 10>;
-
-pub type WifiStatusChannel = Channel<CriticalSectionRawMutex, WifiStatusMessage, 10>;
-pub type WifiStatusSender = Sender<'static, CriticalSectionRawMutex, WifiStatusMessage, 10>;
-pub type WifiStatusReceiver = Receiver<'static, CriticalSectionRawMutex, WifiStatusMessage, 10>;
-
-pub type ScanWatch = watch::Watch<CriticalSectionRawMutex, Vec<WifiResult>, 2>;
-pub type ScanSender = watch::Sender<'static, CriticalSectionRawMutex, Vec<WifiResult>, 2>;
-pub type ScanReceiver = watch::Receiver<'static, CriticalSectionRawMutex, Vec<WifiResult>, 2>;
 
 const RETRY_INTERVAL: u64 = 60_000;
 
@@ -82,11 +39,7 @@ pub async fn connection_task(
   let mut was_connected = false;
   let mut retry_in: u64 = 0;
 
-  let mut wifi_mode = device_config.get_data().wifi_mode;
-
-  if device_config.get_data().known_wifi_networks.len() == 0 {
-    wifi_mode = WifiMode::AccessPoint;
-  }
+  let wifi_mode = device_config.get_data().wifi_mode;
 
   loop {
     Timer::after(Duration::from_millis(1_000)).await;

@@ -2,7 +2,7 @@ use crate::{
   lib::{HexButton, HexButtonSender, I2C_1, I2C_2, I2cMessage, PowerCtrl, PowerCtrlReceiver},
   utils::{MaskedI2cBus, bq25895::Bq25895, sleep},
 };
-use aw9523b::{Aw9523b, Dir, OutputMode, Pin, Register};
+use aw9523b::{Aw9523b, Dir, Pin};
 use core::future::join;
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
@@ -12,7 +12,7 @@ use esp_hal::{
   time::Rate,
 };
 use esp_println::{print, println};
-use log::{error, info};
+use log::info;
 
 // 0x58
 // 0x59
@@ -43,12 +43,12 @@ macro_rules! handle_button {
 }
 
 #[embassy_executor::task]
-pub async fn i2c_task(i2c_bus: MaskedI2cBus, input_sender: HexButtonSender, power_ctrl_receiver: PowerCtrlReceiver) {
+pub async fn i2c_task(sys_bus: MaskedI2cBus, input_sender: HexButtonSender, power_ctrl_receiver: PowerCtrlReceiver) {
   info!("Starting I2C Task...");
 
   join!(
-    power_task(i2c_bus.clone(), power_ctrl_receiver),
-    button_task(i2c_bus.clone(), i2c_bus.clone(), input_sender)
+    power_task(sys_bus.clone(), power_ctrl_receiver),
+    button_task(sys_bus.clone(), sys_bus.clone(), input_sender)
   )
   .await;
 }
@@ -98,13 +98,13 @@ async fn button_task(
   gpio_i2c_1.set_io_direction(Pin::P02, Dir::INPUT).unwrap(); // E
   gpio_i2c_1.set_io_direction(Pin::P03, Dir::INPUT).unwrap(); // F
 
-  gpio_i2c_2.pin_gpio_mode(Pin::P02).unwrap();
+  // gpio_i2c_2.pin_gpio_mode(Pin::P02).unwrap();
   // ic_2.pin_gpio_mode(Pin::P04).unwrap();
   // ic_2.pin_gpio_mode(Pin::P05).unwrap();
-  gpio_i2c_2.set_io_direction(Pin::P02, Dir::OUTPUT).unwrap(); // LED_PWR_EN
+  // gpio_i2c_2.set_io_direction(Pin::P02, Dir::OUTPUT).unwrap(); // LED_PWR_EN
   // ic_2.set_io_direction(Pin::P04, Dir::OUTPUT).unwrap(); // VBUS_SW
   // ic_2.set_io_direction(Pin::P05, Dir::OUTPUT).unwrap(); // USBSEL
-  gpio_i2c_2.set_pin_high(Pin::P02).unwrap(); // LEDs ON
+  // gpio_i2c_2.set_pin_high(Pin::P02).unwrap(); // LEDs ON
 
   let mut button_a_down = false;
   let mut button_b_down = false;

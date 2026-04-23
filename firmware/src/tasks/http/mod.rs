@@ -13,22 +13,19 @@ mod wifi_scan;
 mod write_file;
 
 use crate::{
-  lib::{DeviceState, HttpSender, WebSocketIncomingSender},
-  tasks::{
-    http::{
-      common::{CustomNotFound, cors_options_response, html_app_response, redirect_home_response},
-      config::{GetConfigHandler, SaveConfigHandler},
-      delete_file::DeleteFileHandler,
-      list_files::HandleFileList,
-      ota::OtaUpdateHandler,
-      read_file::ReadFileHandler,
-      receive_file::ReceiveFileHandler,
-      web_socket::WebSocketHandler,
-      wifi_join::HandleWifiJoin,
-      wifi_scan::HandleWifiScan,
-      write_file::WriteFileHandler,
-    },
-    wifi::{ScanWatch, WifiCommandSender},
+  lib::*,
+  tasks::http::{
+    common::{CustomNotFound, cors_options_response, html_app_response, redirect_home_response},
+    config::{GetConfigHandler, SaveConfigHandler},
+    delete_file::DeleteFileHandler,
+    list_files::HandleFileList,
+    ota::OtaUpdateHandler,
+    read_file::ReadFileHandler,
+    receive_file::ReceiveFileHandler,
+    web_socket::WebSocketHandler,
+    wifi_join::HandleWifiJoin,
+    wifi_scan::HandleWifiScan,
+    write_file::WriteFileHandler,
   },
   utils::local_fs::LocalFs,
 };

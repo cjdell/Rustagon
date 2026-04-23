@@ -18,12 +18,12 @@ impl OutputPin for DummyOutput {
   }
 }
 
-pub struct Aw9523bGpioPin<I2C> {
+pub struct Aw9523bOutputPin<I2C> {
   pin: aw9523b::Pin,
   aw9523b: Aw9523b<I2C>,
 }
 
-impl<I2C, E> Aw9523bGpioPin<I2C>
+impl<I2C, E> Aw9523bOutputPin<I2C>
 where
   I2C: embedded_hal::i2c::I2c<Error = E>,
 {
@@ -49,14 +49,14 @@ impl embedded_hal::digital::Error for Aw9523bGpioPinError {
   }
 }
 
-impl<I2C, E> embedded_hal::digital::ErrorType for Aw9523bGpioPin<I2C>
+impl<I2C, E> embedded_hal::digital::ErrorType for Aw9523bOutputPin<I2C>
 where
   I2C: embedded_hal::i2c::I2c<Error = E>,
 {
   type Error = Aw9523bGpioPinError;
 }
 
-impl<I2C, E> OutputPin for Aw9523bGpioPin<I2C>
+impl<I2C, E> OutputPin for Aw9523bOutputPin<I2C>
 where
   I2C: embedded_hal::i2c::I2c<Error = E>,
 {

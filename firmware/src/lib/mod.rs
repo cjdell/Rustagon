@@ -6,14 +6,7 @@ mod types;
 pub use device::DeviceConfigurator;
 pub use i2c::{I2C_0, I2C_1, I2C_2, init_gpio, reset_device, scan_devices};
 pub use protocol::{HostIpcMessage, WasmIpcMessage};
-pub use types::{
-  DeviceConfig, DeviceState, DisplayInterface, HexButton, HexButtonChannel, HexButtonReceiver, HexButtonSender,
-  HostIpcChannel, HostIpcReceiver, HostIpcSender, HttpChannel, HttpReceiver, HttpSender, HttpStatusMessage, I2cMessage,
-  I2cMutux, Icon20, Icon40, Image, KnownWifiNetwork, LcdScreen, LedChannel, LedReceiver, LedRequest, LedSender,
-  MenuLine, NUM_LEDS, PowerCtrl, PowerCtrlChannel, PowerCtrlReceiver, PowerCtrlSender, SystemMessage, SystemReceiver,
-  SystemSender, SystemWatch, WasmIpcChannel, WasmIpcReceiver, WasmIpcSender, WebSocketIncomingChannel,
-  WebSocketIncomingMessage, WebSocketIncomingReceiver, WebSocketIncomingSender, WifiMode, WifiResult,
-};
+pub use types::*;
 
 pub const FIRMWARE_VERSION: &str = env!("FIRMWARE_VERSION");
 

@@ -1,13 +1,10 @@
 use crate::{
   apps::MenuAppInput,
-  lib::{DeviceConfigurator as _, HostIpcMessage, Icon40, LcdScreen, PowerCtrl, WifiMode},
-  tasks::{
-    menu::{
-      menus::MenuProvider as _,
-      state::MenuState,
-      types::{AppType, ItemType, Menu, MenuOption, Setting, WifiStatus},
-    },
-    wifi::{WifiCommandMessage, WifiDesiredState},
+  lib::*,
+  tasks::menu::{
+    menus::MenuProvider as _,
+    state::MenuState,
+    types::{AppType, ItemType, Menu, MenuOption, Setting, WifiStatus},
   },
   utils::local_fs::LocalFs,
 };

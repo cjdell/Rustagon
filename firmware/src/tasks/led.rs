@@ -1,17 +1,26 @@
 use crate::{
-  lib::{LedReceiver, LedRequest, NUM_LEDS},
-  utils::led_service::{LedService, LedState},
+  lib::{I2C_2, LedReceiver, LedRequest, NUM_LEDS},
+  utils::{
+    Aw9523bOutputPin, MaskedI2cBus,
+    led_service::{LedService, LedState},
+  },
 };
 use alloc::boxed::Box;
 use alloc::vec;
+use aw9523b::Pin;
 use embassy_time::{Duration, Timer};
+use embedded_hal::digital::OutputPin as _;
 use esp_hal::time::Instant;
 use esp_println::println;
 use log::info;
 
 #[embassy_executor::task]
-pub async fn led_task(led_receiver: LedReceiver) {
+pub async fn led_task(sys_bus: MaskedI2cBus, led_receiver: LedReceiver) {
   info!("Starting LED Task...");
+
+  let mut led_power_enable = Aw9523bOutputPin::new(sys_bus, I2C_2, Pin::P02);
+
+  led_power_enable.set_high().unwrap();
 
   let mut led_service = LedService::new();
 

@@ -68,7 +68,7 @@ impl picoserve::routing::RequestHandlerService<()> for WriteFileHandler {
       }
 
       if chunk_bytes == 0 {
-        self.sender.send(HttpStatusMessage::None).await;
+        self.sender.send(HttpStatusMessage::Idle).await;
         return format!("Expecting more data: file_size={file_size} written_bytes={written_bytes}")
           .write_to(request.body_connection.finalize().await?, response_writer)
           .await;
@@ -79,7 +79,7 @@ impl picoserve::routing::RequestHandlerService<()> for WriteFileHandler {
       if let Err(err) =
         self.local_fs.write_binary_chunk(&file_name, written_bytes as u64, &buffer[0..chunk_bytes], last_chunk)
       {
-        self.sender.send(HttpStatusMessage::None).await;
+        self.sender.send(HttpStatusMessage::Idle).await;
         return format!("Write Error: {err:?}")
           .write_to(request.body_connection.finalize().await?, response_writer)
           .await;
@@ -96,7 +96,7 @@ impl picoserve::routing::RequestHandlerService<()> for WriteFileHandler {
     }
 
     let connection = request.body_connection.finalize().await?;
-    self.sender.send(HttpStatusMessage::None).await;
+    self.sender.send(HttpStatusMessage::Idle).await;
 
     #[derive(Serialize)]
     struct ResponseJson {

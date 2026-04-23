@@ -121,52 +121,6 @@ impl Chunks for FileChunks {
     self,
     mut chunk_writer: ChunkWriter<W>,
   ) -> Result<ChunksWritten, W::Error> {
-    // let mut flash = FlashStorage::new(unsafe { Peripherals::steal() }.FLASH);
-
-    // let local_fs = match LocalFs::new(&mut flash) {
-    //   Ok(fs) => fs,
-    //   Err(err) => {
-    //     write!(chunk_writer, "LocalFs Init Error: {err:?}").await.expect("Error writing error!");
-    //     return chunk_writer.finalize().await;
-    //   }
-    // };
-
-    // struct Guard {
-    //   state: critical_section::RestoreState,
-    // }
-
-    // print!("acquire acquire acquire acquire acquire acquire acquire acquire");
-    // let state = unsafe { critical_section::acquire() };
-
-    // let _guard = Guard { state };
-
-    // impl Drop for Guard {
-    //   #[inline(always)]
-    //   fn drop(&mut self) {
-    //     unsafe {
-    //       print!("release release release release release release release release");
-    //       critical_section::release(self.state)
-    //     }
-    //   }
-    // }
-
-    // let cs = unsafe { critical_section::CriticalSection::new() };
-
-    // let mut file = {
-    //   match local_fs.open_file(cs, &self.file_name) {
-    //     Ok(file) => file,
-    //     Err(err) => {
-    //       write!(chunk_writer, "Open Error: {err:?}")
-    //         .await
-    //         .expect("Error writing error!");
-    //       return chunk_writer.finalize().await;
-    //     }
-    //   }
-    // };
-
-    // let mut buffer = Vec::new_in(ExternalMemory);
-    // buffer.resize(FlashStorage::SECTOR_SIZE as usize, 0);
-
     let mut read_bytes = 0u64;
 
     loop {
@@ -175,7 +129,7 @@ impl Chunks for FileChunks {
           Ok(buffer) => buffer,
           Err(err) => {
             write!(chunk_writer, "Read Error: {err:?}").await.expect("Error writing error!");
-            self.sender.send(HttpStatusMessage::None).await;
+            self.sender.send(HttpStatusMessage::Idle).await;
             return chunk_writer.finalize().await;
           }
         }
@@ -192,7 +146,7 @@ impl Chunks for FileChunks {
       }
     }
 
-    self.sender.send(HttpStatusMessage::None).await;
+    self.sender.send(HttpStatusMessage::Idle).await;
     chunk_writer.finalize().await
   }
 }

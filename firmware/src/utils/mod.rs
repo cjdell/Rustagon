@@ -12,7 +12,7 @@ pub mod ota;
 pub mod spi;
 pub mod state;
 
-pub use gpio::Aw9523bGpioPin;
+pub use gpio::Aw9523bOutputPin;
 pub use i2c::{MaskedI2cBus, MultiplexedI2cBus};
 
 use alloc::alloc::Global;

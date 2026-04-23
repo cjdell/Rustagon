@@ -5,11 +5,7 @@ pub mod types;
 
 use crate::{
   apps::{MenuAppAsync, MenuAppContext, MenuAppInput, MenuAppInputChannel, MenuAppType},
-  lib::{
-    HexButton, HostIpcMessage, HttpStatusMessage, I2cMessage, Icon40, LcdScreen, LedRequest, SystemMessage,
-    WasmIpcMessage,
-  },
-  tasks::wifi::{WifiCommandMessage, WifiDesiredState, WifiStatusMessage},
+  lib::*,
   utils::{http::perform_http_request_streaming, led_service::LedState, sleep},
 };
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
@@ -56,7 +52,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
     menu_options: Vec::new(),
     selected: 0,
     wifi_status: WifiStatus::Offline,
-    http_message: HttpStatusMessage::None,
+    http_message: HttpStatusMessage::Idle,
   };
 
   let menu_runner = async {
@@ -191,7 +187,6 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             }
           }
         }
-        Either5::Third(_) => {}
         Either5::Fourth((wasm_req_id, wasm_ipc_message)) => {
           // println!("Fourth: {:?}", wasm_ipc_message);
           match wasm_ipc_message {
@@ -239,7 +234,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
 
               runner_ctx.host_ipc_sender.send((0, HostIpcMessage::StartWasmWithBuffer(buffer))).await;
 
-              state.http_message = HttpStatusMessage::None;
+              state.http_message = HttpStatusMessage::Idle;
             }
             _ => {
               state.http_message = http_message;

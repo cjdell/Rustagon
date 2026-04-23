@@ -1,15 +1,4 @@
-use crate::{
-  apps::MenuAppInputChannel,
-  lib::{
-    DeviceState, HexButtonReceiver, HostIpcSender, HttpReceiver, LedSender, PowerCtrlSender, SystemReceiver,
-    WasmIpcChannel,
-  },
-  tasks::{
-    lcd::LcdSignal,
-    wifi::{ScanWatch, WifiCommandSender, WifiStatusReceiver},
-  },
-  utils::local_fs::LocalFs,
-};
+use crate::{apps::MenuAppInputChannel, lib::*, tasks::lcd::LcdSignal, utils::local_fs::LocalFs};
 use alloc::string::{String, ToString};
 use core::net::Ipv4Addr;
 use embassy_net::Stack;

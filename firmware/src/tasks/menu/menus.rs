@@ -1,12 +1,9 @@
-use crate::lib::WifiResult;
+use crate::lib::*;
 use crate::tasks::menu::types::ItemType;
-use crate::tasks::wifi::{ScanWatch, WifiCommandMessage, WifiCommandSender};
 use crate::utils::local_fs::FileEntry;
 use crate::{tasks::menu::types::MenuOption, utils::local_fs::LocalFs};
 use alloc::vec;
 use alloc::{boxed::Box, string::String, vec::Vec};
-use esp_hal::peripherals::Peripherals;
-use esp_storage::FlashStorage;
 
 // Menu provider trait for both static and dynamic menus
 pub trait MenuProvider {

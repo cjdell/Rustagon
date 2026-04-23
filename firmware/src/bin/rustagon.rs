@@ -5,13 +5,13 @@
   impl_trait_in_assoc_type,
   error_generic_member_access,
   future_join,
-  slice_as_array,
   allocator_api,
   box_vec_non_null,
   async_trait_bounds,
   impl_trait_in_bindings,
   substr_range
 )]
+#![recursion_limit = "256"]
 
 #[path = "../lib/mod.rs"]
 #[macro_use]
@@ -39,12 +39,7 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage;
-use lib::{
-  DeviceConfig, DeviceState, HexButtonChannel, HexButtonSender, HostIpcChannel, HttpChannel, I2C_0, I2C_1, I2C_2,
-  I2cMessage, Icon40, LcdScreen, LedChannel, LedRequest, PowerCtrlChannel, SystemSender, SystemWatch, WasmIpcChannel,
-  WebSocketIncomingChannel, WebSocketIncomingMessage, WebSocketIncomingReceiver, WifiMode, init_gpio, reset_device,
-  scan_devices,
-};
+use lib::*;
 use log::{error, info, warn};
 use picoserve::make_static;
 use static_cell::StaticCell;
@@ -56,7 +51,7 @@ use tasks::{
   menu::{menu_task, types::MenuRunnerContext},
   system::system_task,
   wasm::second_core_task,
-  wifi::{ScanWatch, WifiCommandChannel, WifiStatusChannel, captive_task, connection_task, dhcp_task, net_task},
+  wifi::{captive_task, connection_task, dhcp_task, net_task},
 };
 use utils::{MultiplexedI2cBus, led_service::LedState, local_fs::LocalFs, print_memory_info, sleep};
 
@@ -208,7 +203,7 @@ async fn main(spawner: Spawner) {
 
   print_memory_info();
 
-  spawner.spawn(led_task(led_channel.receiver())).ok();
+  spawner.spawn(led_task(sys_bus.clone(), led_channel.receiver())).ok();
 
   print_memory_info();
 
