@@ -36,7 +36,7 @@ export function IndexRoute() {
       </Show>
 
       <p>
-        <a href="/config">Click here to configure WiFi networks</a>
+        <a href="/wifi">Click here to join a WiFi network</a>
       </p>
     </div>
   );

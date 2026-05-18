@@ -8,6 +8,7 @@ import { EmulatorRoute } from "./routes/emulator.tsx";
 import { FilesRoute } from "./routes/files.tsx";
 import { IndexRoute } from "./routes/index.tsx";
 import { RemoteRoute } from "./routes/remote.tsx";
+import { WifiRoute } from "./routes/wifi.tsx";
 import "./sass/bootstrap.scss";
 
 const Routes: readonly RouteDefinition[] = [
@@ -40,6 +41,11 @@ const Routes: readonly RouteDefinition[] = [
     label: "Config",
     path: "/config",
     component: ConfigRoute,
+  },
+  {
+    label: "WiFi",
+    path: "/wifi",
+    component: WifiRoute,
   },
 ];
 
