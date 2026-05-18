@@ -6,7 +6,7 @@ pub mod types;
 use crate::{
   apps::{MenuAppAsync, MenuAppContext, MenuAppInput, MenuAppInputChannel, MenuAppType},
   lib::*,
-  utils::{http::perform_http_request_streaming, led_service::LedState, sleep},
+  utils::{http::perform_http_request_streaming, sleep},
 };
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use core::future::join;
@@ -19,6 +19,7 @@ use esp_alloc::ExternalMemory;
 use esp_println::{print, println};
 use log::info;
 use menus::MenuProvider as _;
+use picoserve::make_static;
 use state::{AppState, MenuState};
 use types::{Menu, MenuContext, MenuRunnerContext, WifiStatus};
 
@@ -26,7 +27,7 @@ use types::{Menu, MenuContext, MenuRunnerContext, WifiStatus};
 pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
   info!("Starting Menu Task...");
 
-  let menu_app_input_channel = mk_static!(MenuAppInputChannel, MenuAppInputChannel::new());
+  let menu_app_input_channel = make_static!(MenuAppInputChannel, MenuAppInputChannel::new());
 
   let ctx = MenuContext {
     stack: runner_ctx.stack,

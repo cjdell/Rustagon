@@ -1,3 +1,4 @@
+use crate::lib::LedState;
 use alloc::vec::Vec;
 use esp_hal::{
   Async,
@@ -20,13 +21,6 @@ pub struct LedService<'a> {
   channel: Channel<'a, Async, Tx>,
   zero: PulseCode,
   one: PulseCode,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct LedState {
-  pub r: u8,
-  pub g: u8,
-  pub b: u8,
 }
 
 impl LedService<'_> {

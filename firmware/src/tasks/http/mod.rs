@@ -36,7 +36,7 @@ use embassy_time::Duration;
 use esp_alloc::ExternalMemory;
 use log::info;
 use picoserve::{
-  AppBuilder, AppRouter, Router, Server,
+  AppBuilder, AppRouter, Router, Server, make_static,
   response::WebSocketUpgrade,
   routing::{PathRouter, get, get_service, post, post_service},
 };
@@ -183,7 +183,7 @@ pub fn start_http(
   wifi_command_sender: WifiCommandSender,
   scan_signal: &'static ScanWatch,
 ) {
-  let app = mk_static!(
+  let app = make_static!(
     AppRouter<AppProps>,
     AppProps::new(
       local_fs,

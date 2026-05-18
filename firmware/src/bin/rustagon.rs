@@ -28,6 +28,7 @@ mod utils;
 use alloc::{borrow::ToOwned as _, string::ToString as _};
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
 use esp_hal::{
@@ -53,7 +54,7 @@ use tasks::{
   wasm::second_core_task,
   wifi::{captive_task, connection_task, dhcp_task, net_task},
 };
-use utils::{MultiplexedI2cBus, led_service::LedState, local_fs::LocalFs, print_memory_info, sleep};
+use utils::{MultiplexedI2cBus, local_fs::LocalFs, print_memory_info, sleep};
 
 extern crate alloc;
 extern crate core;
@@ -107,18 +108,19 @@ async fn main(spawner: Spawner) {
   init_gpio(sys_bus.clone(), I2C_1).await;
   init_gpio(sys_bus.clone(), I2C_2).await;
 
-  let system_watch = mk_static!(SystemWatch, SystemWatch::new());
-  let lcd_signal = mk_static!(LcdSignal, LcdSignal::new());
-  let led_channel = mk_static!(LedChannel, LedChannel::new());
-  let wifi_command_channel = mk_static!(WifiCommandChannel, WifiCommandChannel::new());
-  let wifi_status_channel = mk_static!(WifiStatusChannel, WifiStatusChannel::new());
-  let wifi_scan_watch = mk_static!(ScanWatch, ScanWatch::new());
-  let i2c_channel = mk_static!(HexButtonChannel, HexButtonChannel::new());
-  let wasm_ipc_channel = mk_static!(WasmIpcChannel, WasmIpcChannel::new());
-  let host_ipc_channel = mk_static!(HostIpcChannel, HostIpcChannel::new());
-  let http_channel = mk_static!(HttpChannel, HttpChannel::new());
-  let web_socket_incoming_channel = mk_static!(WebSocketIncomingChannel, WebSocketIncomingChannel::new());
-  let power_ctrl_channel = mk_static!(PowerCtrlChannel, PowerCtrlChannel::new());
+  let system_watch: &mut embassy_sync::watch::Watch<CriticalSectionRawMutex, SystemMessage, 1> =
+    make_static!(SystemWatch, SystemWatch::new());
+  let lcd_signal = make_static!(LcdSignal, LcdSignal::new());
+  let led_channel = make_static!(LedChannel, LedChannel::new());
+  let wifi_command_channel = make_static!(WifiCommandChannel, WifiCommandChannel::new());
+  let wifi_status_channel = make_static!(WifiStatusChannel, WifiStatusChannel::new());
+  let wifi_scan_watch = make_static!(ScanWatch, ScanWatch::new());
+  let i2c_channel = make_static!(HexButtonChannel, HexButtonChannel::new());
+  let wasm_ipc_channel = make_static!(WasmIpcChannel, WasmIpcChannel::new());
+  let host_ipc_channel = make_static!(HostIpcChannel, HostIpcChannel::new());
+  let http_channel = make_static!(HttpChannel, HttpChannel::new());
+  let web_socket_incoming_channel = make_static!(WebSocketIncomingChannel, WebSocketIncomingChannel::new());
+  let power_ctrl_channel = make_static!(PowerCtrlChannel, PowerCtrlChannel::new());
 
   spawner.spawn(system_task(peripherals.GPIO0, system_watch.sender())).ok();
 
@@ -136,7 +138,7 @@ async fn main(spawner: Spawner) {
 
   lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Checking filesystem...".to_owned()));
 
-  let flash = mk_static!(FlashStorage, FlashStorage::new(peripherals.FLASH));
+  let flash = make_static!(FlashStorage, FlashStorage::new(peripherals.FLASH));
 
   let local_fs = match LocalFs::new(flash) {
     Ok(local_fs) => {
@@ -197,7 +199,7 @@ async fn main(spawner: Spawner) {
   let (stack, runner) = embassy_net::new(
     wifi_interface,
     embassy_net::Config::dhcpv4(Default::default()),
-    mk_static!(embassy_net::StackResources<8>, embassy_net::StackResources::<8>::new()),
+    make_static!(embassy_net::StackResources<8>, embassy_net::StackResources::<8>::new()),
     seed,
   );
 

@@ -1,9 +1,6 @@
 use crate::{
-  lib::{I2C_2, LedReceiver, LedRequest, NUM_LEDS},
-  utils::{
-    Aw9523bOutputPin, MaskedI2cBus,
-    led_service::{LedService, LedState},
-  },
+  lib::{I2C_2, LedReceiver, LedRequest, LedState, NUM_LEDS},
+  utils::{Aw9523bOutputPin, MaskedI2cBus, led_service::LedService},
 };
 use alloc::boxed::Box;
 use alloc::vec;

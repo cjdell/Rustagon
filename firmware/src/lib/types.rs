@@ -1,5 +1,4 @@
 use crate::lib::protocol::{HostIpcMessage, WasmIpcMessage};
-use crate::utils::led_service::LedState;
 use crate::utils::spi::SpiExclusiveDevice;
 use crate::utils::state::PersistentStateService;
 use alloc::vec;
@@ -179,6 +178,13 @@ pub const NUM_LEDS: usize = 12; // 1 internal + 12 of front. 6 more on back disa
 #[derive(Debug, Clone)]
 pub struct LedStates {
   pub leds: [LedState; NUM_LEDS],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LedState {
+  pub r: u8,
+  pub g: u8,
+  pub b: u8,
 }
 
 impl LedState {
