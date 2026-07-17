@@ -1,9 +1,5 @@
-use crate::{
-  lib::{HttpSender, HttpStatusMessage},
-  tasks::http::common::json_response,
-  utils::VecHelper,
-};
-use alloc::{format, vec::Vec};
+use crate::{tasks::http::common::json_response_fn, types::*, utils::*};
+use alloc::vec::Vec;
 use esp_alloc::ExternalMemory;
 use esp_println::print;
 use picoserve::{
@@ -47,26 +43,20 @@ impl RequestHandlerService<()> for ReceiveFileHandler {
         break;
       }
 
-      self
-        .sender
-        .send(HttpStatusMessage::Progress(received_bytes as u32, file_size as u32))
-        .await;
+      self.sender.send(HttpStatusMessage::Progress(received_bytes as u32, file_size as u32)).await;
       print!(".");
     }
 
     let connection = request.body_connection.finalize().await?;
 
-    self
-      .sender
-      .send(HttpStatusMessage::ReceivedFile(VecHelper::to_global_vec(buffer)))
-      .await;
+    self.sender.send(HttpStatusMessage::ReceivedFile(VecHelper::to_global_vec(buffer))).await;
 
     #[derive(Serialize)]
     struct ResponseJson {
       pub received_bytes: usize,
     }
 
-    json_response(&serde_json::to_string(&ResponseJson { received_bytes }).unwrap())
+    json_response_fn(&serde_json::to_string(&ResponseJson { received_bytes }).unwrap())
       .write_to(connection, response_writer)
       .await
   }

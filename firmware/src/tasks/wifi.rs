@@ -1,4 +1,4 @@
-use crate::{lib::*, utils::state::PersistentStateService};
+use crate::{timeout, types::*, utils::*};
 use alloc::{format, string::String};
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use edge_dhcp::{
@@ -7,6 +7,7 @@ use edge_dhcp::{
 };
 use edge_nal::UdpBind;
 use edge_nal_embassy::{Udp, UdpBuffers};
+use embassy_net::dns::DnsQueryType;
 use embassy_net::{ConfigV4, Ipv4Cidr, Runner, Stack, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 use esp_hal::time::Instant;
@@ -18,7 +19,6 @@ use esp_radio::wifi::{
   sta::StationConfig,
 };
 use log::{error, info, warn};
-use smoltcp::wire::DnsQueryType;
 
 const RETRY_INTERVAL: u64 = 60_000;
 

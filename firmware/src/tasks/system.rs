@@ -1,4 +1,4 @@
-use crate::lib::{SystemMessage, SystemSender};
+use crate::types::*;
 use esp_hal::{
   gpio::{Input, InputConfig, Pull},
   peripherals::GPIO0,

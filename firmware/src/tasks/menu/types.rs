@@ -1,4 +1,4 @@
-use crate::{apps::MenuAppInputChannel, lib::*, tasks::lcd::LcdSignal, utils::local_fs::LocalFs};
+use crate::{apps::MenuAppInputChannel, tasks::lcd::LcdSignal, types::*, utils::*};
 use alloc::string::{String, ToString};
 use core::net::Ipv4Addr;
 use embassy_net::Stack;

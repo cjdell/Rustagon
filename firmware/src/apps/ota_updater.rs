@@ -1,6 +1,7 @@
 use super::{AppName, MenuAppAsync, MenuAppContext, MenuAppInput};
 use crate::{
-  lib::{FIRMWARE_VERSION, HexButton, Icon40, LcdScreen},
+  FIRMWARE_VERSION,
+  types::*,
   utils::{
     cpu_guard::CpuGuard,
     http::{HttpEvent, HttpRequest, perform_http_request, perform_http_request_channel},

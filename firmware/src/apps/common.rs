@@ -1,8 +1,4 @@
-use crate::{
-  lib::{DeviceState, HexButton, LcdScreen},
-  tasks::lcd::LcdSignal,
-  utils::local_fs::LocalFs,
-};
+use crate::{tasks::lcd::LcdSignal, types::*, utils::local_fs::LocalFs};
 use alloc::string::String;
 use embassy_net::Stack;
 use embassy_sync::{

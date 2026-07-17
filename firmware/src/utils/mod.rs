@@ -12,8 +12,14 @@ pub mod ota;
 pub mod spi;
 pub mod state;
 
-pub use gpio::Aw9523bOutputPin;
-pub use i2c::{MaskedI2cBus, MultiplexedI2cBus};
+pub use bq25895::*;
+pub use gpio::*;
+pub use graphics::*;
+pub use http::*;
+pub use i2c::*;
+pub use led_service::*;
+pub use local_fs::*;
+pub use state::*;
 
 use alloc::alloc::Global;
 use alloc::vec::Vec;
@@ -91,4 +97,26 @@ impl ConvertBE16 for Rgb565 {
   fn to_be16(&self) -> u16 {
     IntoStorage::into_storage(*self).to_be()
   }
+}
+
+#[macro_export]
+macro_rules! timeout {
+  ($future:expr, $duration:expr, $prefix:literal) => {
+    match embassy_futures::select::select(
+      $future,
+      embassy_time::Timer::after(embassy_time::Duration::from_millis($duration)),
+    )
+    .await
+    {
+      embassy_futures::select::Either::First(res) => res.map_err(|err| anyhow::anyhow!("{} Error: {err:?}", $prefix)),
+      embassy_futures::select::Either::Second(()) => Err(anyhow::anyhow!("{} Error: Timed out", $prefix)),
+    }
+  };
+}
+
+#[macro_export]
+macro_rules! timeout_result {
+  ($future:expr, $duration:expr, $prefix:literal) => {
+    crate::timeout!(async { Ok::<_, anyhow::Error>($future.await) }, $duration, $prefix)
+  };
 }

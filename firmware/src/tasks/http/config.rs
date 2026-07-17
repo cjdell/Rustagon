@@ -1,4 +1,4 @@
-use crate::{lib::DeviceState, tasks::http::common::json_response};
+use crate::types::*;
 use alloc::{format, vec::Vec};
 use esp_alloc::ExternalMemory;
 use picoserve::{
@@ -34,7 +34,7 @@ impl RequestHandlerService<()> for GetConfigHandler {
       }
     };
 
-    json_response!(request, response_writer, &json)
+    json_response!(request, response_writer, json.as_str())
   }
 }
 
@@ -58,7 +58,7 @@ impl RequestHandlerService<()> for SaveConfigHandler {
   ) -> Result<ResponseSent, W::Error> {
     let buffer = read_request_to_buffer!(request, response_writer);
 
-    if let Err(err) = self.device_state.set_json(&buffer) {
+    if let Err(err) = self.device_state.set_json(buffer.as_slice()) {
       return format_response!(request, response_writer, "Error applying JSON: {err:?}");
     }
 

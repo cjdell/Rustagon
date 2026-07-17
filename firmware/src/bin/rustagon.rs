@@ -13,18 +13,6 @@
 )]
 #![recursion_limit = "256"]
 
-#[path = "../lib/mod.rs"]
-#[macro_use]
-mod lib;
-#[path = "../apps/mod.rs"]
-mod apps;
-#[path = "../native/mod.rs"]
-mod native;
-#[path = "../tasks/mod.rs"]
-mod tasks;
-#[path = "../utils/mod.rs"]
-mod utils;
-
 use alloc::{borrow::ToOwned as _, string::ToString as _};
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
@@ -40,21 +28,13 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage;
-use lib::*;
+use esp32s3_wasm_test::d_i2c::*;
+use esp32s3_wasm_test::tasks::*;
+use esp32s3_wasm_test::types::*;
+use esp32s3_wasm_test::utils::*;
 use log::{error, info, warn};
 use picoserve::make_static;
 use static_cell::StaticCell;
-use tasks::{
-  http::start_http,
-  i2c::i2c_task,
-  lcd::{LcdSignal, lcd_task},
-  led::led_task,
-  menu::{menu_task, types::MenuRunnerContext},
-  system::system_task,
-  wasm::second_core_task,
-  wifi::{captive_task, connection_task, dhcp_task, net_task},
-};
-use utils::{MultiplexedI2cBus, local_fs::LocalFs, print_memory_info, sleep};
 
 extern crate alloc;
 extern crate core;

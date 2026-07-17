@@ -1,10 +1,15 @@
 pub mod common;
 
-use crate::lib::{DisplayInterface, I2C_2, Image, LcdScreen};
-use crate::tasks::lcd::common::draw_icon;
-use crate::utils::graphics::{SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::utils::{Aw9523bOutputPin, MaskedI2cBus, VecHelper};
-use crate::utils::{graphics::BufferTarget, sleep, spi::SpiExclusiveDevice};
+use crate::{
+  d_i2c::*,
+  tasks::lcd::common::draw_icon,
+  types::*,
+  utils::{
+    graphics::{BufferTarget, SCREEN_HEIGHT, SCREEN_WIDTH},
+    spi::SpiExclusiveDevice,
+    *,
+  },
+};
 use alloc::{format, vec::Vec};
 use aw9523b::Pin;
 use core::ptr;

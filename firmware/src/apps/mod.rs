@@ -2,10 +2,10 @@ pub mod app_store;
 pub mod common;
 pub mod ota_updater;
 
+pub use common::{MenuAppAsync, MenuAppContext, MenuAppInput, MenuAppInputChannel, MenuAppInputReceiver};
+
 use crate::apps::{app_store::AppStoreApp, common::AppName, ota_updater::OtaUpdaterApp};
 use alloc::string::String;
-
-pub use common::{MenuAppAsync, MenuAppContext, MenuAppInput, MenuAppInputChannel, MenuAppInputReceiver};
 
 pub enum MenuAppType {
   AppStoreApp(AppStoreApp),

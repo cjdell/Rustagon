@@ -1,8 +1,4 @@
-use crate::{
-  lib::{HttpSender, HttpStatusMessage},
-  tasks::http::common::json_response,
-  utils::local_fs::LocalFs,
-};
+use crate::{tasks::http::common::json_response_fn, types::*, utils::*};
 use alloc::{format, vec::Vec};
 use esp_alloc::ExternalMemory;
 use esp_println::print;
@@ -36,17 +32,6 @@ impl picoserve::routing::RequestHandlerService<()> for WriteFileHandler {
     let file_size = request.body_connection.content_length();
 
     info!("Write file: {}", file_name);
-
-    // let mut flash = FlashStorage::new(unsafe { Peripherals::steal() }.FLASH); // Allow safe write whilst 2nd core enabled
-
-    // let local_fs = match LocalFs::new(&mut flash) {
-    //   Ok(fs) => fs,
-    //   Err(err) => {
-    //     return format!("LocalFs Init Error: {err:?}")
-    //       .write_to(request.body_connection.finalize().await?, response_writer)
-    //       .await;
-    //   }
-    // };
 
     let mut reader = request.body_connection.body().reader();
 
@@ -103,7 +88,7 @@ impl picoserve::routing::RequestHandlerService<()> for WriteFileHandler {
       pub written_bytes: usize,
     }
 
-    json_response(&serde_json::to_string(&ResponseJson { written_bytes }).unwrap())
+    json_response_fn(&serde_json::to_string(&ResponseJson { written_bytes }).unwrap())
       .write_to(connection, response_writer)
       .await
   }

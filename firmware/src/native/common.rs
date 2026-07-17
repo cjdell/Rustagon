@@ -1,10 +1,4 @@
-use crate::{
-  lib::{HostIpcMessage, HostIpcReceiver, LcdScreen, WasmIpcMessage, WasmIpcSender},
-  utils::{
-    http::{HttpRequest, HttpResponseMeta},
-    local_fs::LocalFs,
-  },
-};
+use crate::{protocol::*, types::*, utils::*};
 use alloc::{
   string::{String, ToString as _},
   vec::Vec,

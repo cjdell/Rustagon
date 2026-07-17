@@ -1,10 +1,12 @@
 use crate::{
-  lib::{HexButton, HostIpcMessage, Icon40, LcdScreen},
   native::{
     NativeAppContext,
     common::{NativeApp, NativeAppName, make_http_request},
   },
-  utils::http::HttpRequest,
+  protocol::*,
+  timeout, timeout_result,
+  types::*,
+  utils::*,
 };
 use alloc::{
   format,

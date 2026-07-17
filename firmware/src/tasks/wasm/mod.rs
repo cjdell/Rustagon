@@ -1,23 +1,10 @@
 pub mod context;
 pub mod timers;
 
-use crate::{
-  lib::{DisplayInterface, HostIpcMessage, HostIpcReceiver, Icon40, LcdScreen, WasmIpcMessage, WasmIpcSender},
-  native::{NativeApp, NativeAppContext, NativeAppType},
-  tasks::{
-    lcd::{BUFFER, SPI_DISPLAY_INTERFACE},
-    wasm::{
-      context::{MyLimiter, ReadWasmBuffer as _, WasmCtx},
-      timers::{TimerRegistry, add_timers_to_linker},
-    },
-  },
-  utils::{
-    VecHelper,
-    graphics::{SCREEN_HEIGHT, SCREEN_WIDTH},
-    local_fs::LocalFs,
-    print_memory_info, sleep,
-  },
-};
+pub use context::*;
+pub use timers::*;
+
+use crate::{native::*, protocol::*, tasks::*, types::*, utils::*};
 use alloc::{
   boxed::Box,
   format,
@@ -107,7 +94,7 @@ async fn wasmi_runner(
         info!("Wasm: Started");
         print_memory_info();
 
-        let buf = local_fs.read_binary_chunk(&filename, 0, 256 * 1024).unwrap(); // TODO
+        let buf = local_fs.read_binary_chunk(filename.as_str(), 0, 256 * 1024).unwrap(); // TODO
 
         info!("WASM: File size: {}", buf.len());
 

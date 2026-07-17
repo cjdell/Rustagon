@@ -1,7 +1,4 @@
-use crate::{
-  lib::{Icon20, Icon40, Image},
-  utils::graphics::BufferTarget,
-};
+use crate::{types::*, utils::graphics::BufferTarget};
 use embedded_graphics::prelude::{Point, Size};
 use partitions_macro::include_rgb565_icon;
 

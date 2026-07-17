@@ -1,11 +1,10 @@
 use crate::{
+  FIRMWARE_VERSION,
   apps::{MenuAppInput, MenuAppType},
-  lib::{DeviceConfigurator, FIRMWARE_VERSION, HttpStatusMessage, Icon20, LcdScreen, MenuLine, WifiMode},
+  device::DeviceConfigurator as _,
   native::NativeAppType,
-  tasks::menu::{
-    menus::{DynamicFilesystemMenu, DynamicWifiMenu, MenuTypes, StaticMenu},
-    types::{AppType, ItemType, Menu, MenuContext, MenuOption, Setting, SettingType, WifiStatus},
-  },
+  tasks::menu::{menus::*, types::*},
+  types::*,
 };
 use alloc::vec;
 use alloc::{borrow::ToOwned as _, boxed::Box, format, string::ToString as _, sync::Arc, vec::Vec};
@@ -48,7 +47,7 @@ impl MenuState {
   }
 
   pub fn get_menu_provider(&self) -> MenuTypes {
-    match self.current_menu {
+    match &self.current_menu {
       Menu::Root => MenuTypes::StaticMenu(Box::new(StaticMenu {
         items: vec![
           MenuAppType::list_apps()
@@ -125,7 +124,7 @@ impl MenuState {
           MenuOption::Back,
         ],
       })),
-      Menu::Files(ref path) => MenuTypes::DynamicFilesystemMenu(Box::new(DynamicFilesystemMenu {
+      Menu::Files(path) => MenuTypes::DynamicFilesystemMenu(Box::new(DynamicFilesystemMenu {
         local_fs: self.ctx.local_fs.clone(),
         path: path.clone(),
       })),

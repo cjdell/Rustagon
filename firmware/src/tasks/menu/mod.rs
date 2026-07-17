@@ -3,11 +3,9 @@ pub mod menus;
 pub mod state;
 pub mod types;
 
-use crate::{
-  apps::{MenuAppAsync, MenuAppContext, MenuAppInput, MenuAppInputChannel, MenuAppType},
-  lib::*,
-  utils::{http::perform_http_request_streaming, sleep},
-};
+pub use types::*;
+
+use crate::{apps::*, protocol::*, types::*, utils::*};
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use core::future::join;
 use embassy_futures::{
@@ -21,7 +19,6 @@ use log::info;
 use menus::MenuProvider as _;
 use picoserve::make_static;
 use state::{AppState, MenuState};
-use types::{Menu, MenuContext, MenuRunnerContext, WifiStatus};
 
 #[embassy_executor::task]
 pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {

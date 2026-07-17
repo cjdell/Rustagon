@@ -1,11 +1,9 @@
 use crate::{
-  apps::MenuAppInput,
-  lib::*,
-  tasks::menu::{
-    menus::MenuProvider as _,
-    state::MenuState,
-    types::{AppType, ItemType, Menu, MenuOption, Setting, WifiStatus},
-  },
+  apps::*,
+  device::DeviceConfigurator as _,
+  protocol::*,
+  tasks::menu::{menus::MenuProvider as _, state::MenuState, types::*},
+  types::*,
   utils::local_fs::LocalFs,
 };
 use alloc::string::ToString as _;

@@ -1,7 +1,4 @@
-use crate::{
-  lib::{HexButton, HexButtonSender, I2C_1, I2C_2, I2cMessage, PowerCtrl, PowerCtrlReceiver},
-  utils::{MaskedI2cBus, bq25895::Bq25895, sleep},
-};
+use crate::{d_i2c::*, types::*, utils::*};
 use aw9523b::{Aw9523b, Dir, Pin};
 use core::future::join;
 use embassy_futures::select::{Either, select};

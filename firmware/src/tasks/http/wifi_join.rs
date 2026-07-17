@@ -1,4 +1,4 @@
-use crate::lib::*;
+use crate::{device::DeviceConfigurator as _, types::*};
 use alloc::{format, vec::Vec};
 use embedded_io_async::Read;
 use esp_alloc::ExternalMemory;

@@ -75,7 +75,9 @@ macro_rules! format_response {
 
 macro_rules! json_response {
   ($request:expr, $response_writer:expr, $json:expr) => {
-    json_response($json).write_to($request.body_connection.finalize().await?, $response_writer).await
+    crate::tasks::http::common::json_response_fn($json)
+      .write_to($request.body_connection.finalize().await?, $response_writer)
+      .await
   };
 }
 
@@ -138,7 +140,7 @@ pub fn cors_options_response() -> impl IntoResponse {
   ])
 }
 
-pub fn json_response(json: &str) -> impl IntoResponse {
+pub fn json_response_fn(json: &str) -> impl IntoResponse {
   Response::new(StatusCode::OK, json).with_headers([
     ("Access-Control-Allow-Origin", "*"),
     ("Content-Type", "application/json"),

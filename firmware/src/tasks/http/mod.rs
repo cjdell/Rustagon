@@ -13,21 +13,13 @@ mod wifi_scan;
 mod write_file;
 
 use crate::{
-  lib::*,
   tasks::http::{
-    common::{CustomNotFound, cors_options_response, html_app_response, redirect_home_response},
-    config::{GetConfigHandler, SaveConfigHandler},
-    delete_file::DeleteFileHandler,
-    list_files::HandleFileList,
-    ota::OtaUpdateHandler,
-    read_file::ReadFileHandler,
-    receive_file::ReceiveFileHandler,
-    web_socket::WebSocketHandler,
-    wifi_join::HandleWifiJoin,
-    wifi_scan::HandleWifiScan,
-    write_file::WriteFileHandler,
+    common::*, config::*, delete_file::DeleteFileHandler, list_files::HandleFileList, ota::OtaUpdateHandler,
+    read_file::ReadFileHandler, receive_file::ReceiveFileHandler, web_socket::WebSocketHandler,
+    wifi_join::HandleWifiJoin, wifi_scan::HandleWifiScan, write_file::WriteFileHandler,
   },
-  utils::local_fs::LocalFs,
+  types::*,
+  utils::*,
 };
 use alloc::{boxed::Box, vec::Vec};
 use embassy_executor::Spawner;

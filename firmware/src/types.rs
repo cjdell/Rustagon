@@ -1,6 +1,7 @@
-use crate::lib::protocol::{HostIpcMessage, WasmIpcMessage};
-use crate::utils::spi::SpiExclusiveDevice;
-use crate::utils::state::PersistentStateService;
+use crate::{
+  protocol::*,
+  utils::{led_service::LedState, spi::SpiExclusiveDevice, state::PersistentStateService},
+};
 use alloc::vec;
 use alloc::{
   string::{String, ToString},
@@ -180,18 +181,18 @@ pub struct LedStates {
   pub leds: [LedState; NUM_LEDS],
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct LedState {
-  pub r: u8,
-  pub g: u8,
-  pub b: u8,
-}
+// #[derive(Debug, Clone, Copy)]
+// pub struct LedState {
+//   pub r: u8,
+//   pub g: u8,
+//   pub b: u8,
+// }
 
-impl LedState {
-  pub fn new(r: u8, g: u8, b: u8) -> Self {
-    Self { r, g, b }
-  }
-}
+// impl LedState {
+//   pub fn new(r: u8, g: u8, b: u8) -> Self {
+//     Self { r, g, b }
+//   }
+// }
 
 #[derive(Debug, Clone)]
 pub enum LedRequest {

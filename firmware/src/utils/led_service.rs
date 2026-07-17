@@ -1,4 +1,3 @@
-use crate::lib::LedState;
 use alloc::vec::Vec;
 use esp_hal::{
   Async,
@@ -16,6 +15,19 @@ const SK68XX_T1H_NS: u32 = 850;
 const SK68XX_T1L_NS: u32 = SK68XX_CODE_PERIOD - SK68XX_T1H_NS;
 
 const BITS_PER_LED: usize = 24; // 8 bits each for G, R, B
+
+#[derive(Debug, Clone, Copy)]
+pub struct LedState {
+  pub r: u8,
+  pub g: u8,
+  pub b: u8,
+}
+
+impl LedState {
+  pub fn new(r: u8, g: u8, b: u8) -> Self {
+    Self { r, g, b }
+  }
+}
 
 pub struct LedService<'a> {
   channel: Channel<'a, Async, Tx>,

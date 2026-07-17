@@ -1,4 +1,7 @@
-use crate::utils::http::{HttpRequest, HttpResponseMeta};
+use crate::{
+  types::*,
+  utils::http::{HttpRequest, HttpResponseMeta},
+};
 use alloc::{string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +10,7 @@ pub enum WasmIpcMessage {
   Started,
   MenuAppStarted,
   Stopped,
-  LcdScreen(super::LcdScreen),
+  LcdScreen(LcdScreen),
   HttpRequest(HttpRequest),
 }
 
@@ -17,7 +20,7 @@ pub enum HostIpcMessage {
   StartWasmWithBuffer(Vec<u8>),
   StartNative(String),
   Stop,
-  HexButton(super::HexButton),
+  HexButton(HexButton),
   HttpError,
   HttpResponseMeta(HttpResponseMeta),
   HttpResponseBody(Vec<u8>),
