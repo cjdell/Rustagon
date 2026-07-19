@@ -178,10 +178,10 @@ fn wasm_main() {
 
       last_tick = now;
 
-      // Stop after animation duration
-      if now - start > ANIMATION_DURATION as u32 {
-        break;
-      }
+      // // Stop after animation duration
+      // if now - start > ANIMATION_DURATION as u32 {
+      //   break;
+      // }
 
       // Calculate rotation angles based on elapsed time
       // Rotate around X, Y, and Z axes simultaneously for a more interesting effect

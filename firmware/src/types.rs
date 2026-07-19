@@ -223,6 +223,12 @@ pub enum HexButton {
   D,
   E,
   F,
+  HexA,
+  HexB,
+  HexC,
+  HexD,
+  HexE,
+  HexF,
 }
 
 #[derive(Clone, Debug)]

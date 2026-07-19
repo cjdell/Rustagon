@@ -1,4 +1,4 @@
-#![feature(future_join, type_alias_impl_trait, mpmc_channel)]
+#![feature(future_join, mpmc_channel)]
 
 #[path = "../tasks/mod.rs"]
 mod tasks;
@@ -108,13 +108,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   };
 
   let render_task = async {
-    let mut last_time = SystemTime::now();
+    // let mut last_time = SystemTime::now();
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
       let time = SystemTime::now();
-      let time_delta = time.duration_since(last_time).unwrap();
+      // let time_delta = time.duration_since(last_time).unwrap();
 
-      last_time = time;
+      // last_time = time;
 
       if window.is_key_down(Key::Space) {}
 
@@ -143,6 +143,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
       sleep(Duration::from_millis(20)).await;
     }
+
+    std::process::exit(0);
   };
 
   join!(ipc_task, render_task).await;

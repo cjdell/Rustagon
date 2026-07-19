@@ -139,9 +139,8 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
           state.menu_options = state.get_menu_provider().get_items().await;
         }
         Either5::Third(I2cMessage::HexButton(hex)) => {
-          // println!("Third: {:?}", hex);
-          let app_running =
-            app.try_read().map(|app| if let AppState::None = *app { false } else { true }).unwrap_or(true);
+          println!("Third: {:?}", hex);
+          let app_running = app.try_read().map(|app| if let AppState::None = *app { false } else { true }).unwrap_or(true);
 
           if app_running {
             match *app.write().await {
@@ -182,6 +181,12 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
               HexButton::F => {
                 println!("Menu: Pressed F");
               }
+              HexButton::HexA => todo!(),
+              HexButton::HexB => todo!(),
+              HexButton::HexC => todo!(),
+              HexButton::HexD => todo!(),
+              HexButton::HexE => todo!(),
+              HexButton::HexF => todo!(),
             }
           }
         }

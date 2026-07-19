@@ -2,6 +2,7 @@ use crate::{tasks::http::common::json_response_fn, types::*, utils::*};
 use alloc::vec::Vec;
 use esp_alloc::ExternalMemory;
 use esp_println::print;
+use log::info;
 use picoserve::{
   io::Read,
   request::Request,
@@ -29,6 +30,8 @@ impl RequestHandlerService<()> for ReceiveFileHandler {
     response_writer: W,
   ) -> Result<picoserve::ResponseSent, W::Error> {
     let file_size = request.body_connection.content_length();
+    info!("ReceiveFileHandler: file_size = {}", file_size);
+
     let mut reader = request.body_connection.body().reader();
 
     let mut buffer = Vec::new_in(ExternalMemory);
@@ -47,6 +50,8 @@ impl RequestHandlerService<()> for ReceiveFileHandler {
       print!(".");
     }
 
+    info!("ReceiveFileHandler: received_bytes = {}", received_bytes);
+
     let connection = request.body_connection.finalize().await?;
 
     self.sender.send(HttpStatusMessage::ReceivedFile(VecHelper::to_global_vec(buffer))).await;
@@ -56,8 +61,6 @@ impl RequestHandlerService<()> for ReceiveFileHandler {
       pub received_bytes: usize,
     }
 
-    json_response_fn(&serde_json::to_string(&ResponseJson { received_bytes }).unwrap())
-      .write_to(connection, response_writer)
-      .await
+    json_response_fn(&serde_json::to_string(&ResponseJson { received_bytes }).unwrap()).write_to(connection, response_writer).await
   }
 }

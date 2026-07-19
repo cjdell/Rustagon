@@ -11,6 +11,7 @@ pub struct MultiplexedI2cBus {
 }
 
 impl MultiplexedI2cBus {
+  pub const TOP_BUS: u8 = 0b00000001;
   pub const SYS_BUS: u8 = 0b10000000;
 
   pub fn new(i2c: esp_hal::i2c::master::I2c<'static, Blocking>) -> Self {

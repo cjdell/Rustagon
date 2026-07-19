@@ -54,11 +54,7 @@ impl ExampleNativeAsyncApp {
   async fn refresh(&self, url: String) {
     println!("ExampleNativeApp.refresh()");
 
-    let response = timeout!(
-      make_http_request(&self.ctx, HttpRequest::new(url)),
-      5_000,
-      "HTTP Timeout"
-    );
+    let response = timeout!(make_http_request(&self.ctx, HttpRequest::new(url)), 5_000, "HTTP Timeout");
 
     let state = timeout_result!(self.state.write(), 1_000, "Refresh: State Lock Timeout");
 
@@ -118,6 +114,7 @@ impl NativeApp for ExampleNativeAsyncApp {
                   state.display = None;
                 }
               }
+              _ => {}
             };
           }
           _ => {}

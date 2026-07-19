@@ -1,5 +1,5 @@
 [package]
-name    = "esp32s3-wasm-test"
+name    = "firmware"
 version = "0.0.0"
 edition = "2024"
 publish = false

@@ -19,7 +19,7 @@ pub fn partition_offset(input: TokenStream) -> TokenStream {
     _ => abort_call_site!("Expected a partition name as string"),
   };
 
-  let csv = std::fs::read_to_string("partitions.csv").unwrap();
+  let csv = std::fs::read_to_string("firmware/partitions.csv").unwrap();
   let table = PartitionTable::try_from_str(csv).unwrap();
 
   let part = table.find(&partname).expect("No partition found");
@@ -44,7 +44,7 @@ pub fn partition_size(input: TokenStream) -> TokenStream {
     _ => abort_call_site!("Expected a partition name as string"),
   };
 
-  let csv = std::fs::read_to_string("partitions.csv").unwrap();
+  let csv = std::fs::read_to_string("firmware/partitions.csv").unwrap();
   let table = PartitionTable::try_from_str(csv).unwrap();
 
   let part = table.find(&partname).expect("No partition found");

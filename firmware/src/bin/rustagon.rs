@@ -28,10 +28,10 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage;
-use esp32s3_wasm_test::d_i2c::*;
-use esp32s3_wasm_test::tasks::*;
-use esp32s3_wasm_test::types::*;
-use esp32s3_wasm_test::utils::*;
+use firmware::d_i2c::*;
+use firmware::tasks::*;
+use firmware::types::*;
+use firmware::utils::*;
 use log::{error, info, warn};
 use picoserve::make_static;
 use static_cell::StaticCell;

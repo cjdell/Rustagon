@@ -22,6 +22,13 @@ use log::info;
 // E = 0x59 2
 // F = 0x59 3
 
+// EPIN_ND_A = (2, 12)
+// EPIN_ND_B = (2, 13)
+// EPIN_ND_C = (1, 8)
+// EPIN_ND_D = (1, 9)
+// EPIN_ND_E = (1, 10)
+// EPIN_ND_F = (1, 11)
+
 macro_rules! handle_button {
   ($sender:expr, $pressed:expr, $state:expr, $name:expr) => {
     match ($pressed, $state) {
@@ -80,28 +87,23 @@ async fn power_task(i2c: impl embedded_hal::i2c::I2c, power_ctrl_receiver: Power
   }
 }
 
-async fn button_task(
-  i2c_d1: impl embedded_hal::i2c::I2c,
-  i2c_d2: impl embedded_hal::i2c::I2c,
-  sender: HexButtonSender,
-) {
+async fn button_task(i2c_d1: impl embedded_hal::i2c::I2c, i2c_d2: impl embedded_hal::i2c::I2c, sender: HexButtonSender) {
   let mut gpio_i2c_1 = Aw9523b::new(i2c_d1, I2C_1);
   let mut gpio_i2c_2 = Aw9523b::new(i2c_d2, I2C_2);
 
-  gpio_i2c_2.set_io_direction(Pin::P06, Dir::INPUT).unwrap(); // A
-  gpio_i2c_2.set_io_direction(Pin::P07, Dir::INPUT).unwrap(); // B
-  gpio_i2c_1.set_io_direction(Pin::P00, Dir::INPUT).unwrap(); // C
-  gpio_i2c_1.set_io_direction(Pin::P01, Dir::INPUT).unwrap(); // D
-  gpio_i2c_1.set_io_direction(Pin::P02, Dir::INPUT).unwrap(); // E
-  gpio_i2c_1.set_io_direction(Pin::P03, Dir::INPUT).unwrap(); // F
+  gpio_i2c_2.set_io_direction(Pin::P06, Dir::INPUT).unwrap(); // A / Up
+  gpio_i2c_2.set_io_direction(Pin::P07, Dir::INPUT).unwrap(); // B / Right
+  gpio_i2c_1.set_io_direction(Pin::P00, Dir::INPUT).unwrap(); // C / Fire
+  gpio_i2c_1.set_io_direction(Pin::P01, Dir::INPUT).unwrap(); // D / Down
+  gpio_i2c_1.set_io_direction(Pin::P02, Dir::INPUT).unwrap(); // E / ????
+  gpio_i2c_1.set_io_direction(Pin::P03, Dir::INPUT).unwrap(); // F / Left
 
-  // gpio_i2c_2.pin_gpio_mode(Pin::P02).unwrap();
-  // ic_2.pin_gpio_mode(Pin::P04).unwrap();
-  // ic_2.pin_gpio_mode(Pin::P05).unwrap();
-  // gpio_i2c_2.set_io_direction(Pin::P02, Dir::OUTPUT).unwrap(); // LED_PWR_EN
-  // ic_2.set_io_direction(Pin::P04, Dir::OUTPUT).unwrap(); // VBUS_SW
-  // ic_2.set_io_direction(Pin::P05, Dir::OUTPUT).unwrap(); // USBSEL
-  // gpio_i2c_2.set_pin_high(Pin::P02).unwrap(); // LEDs ON
+  gpio_i2c_2.set_io_direction(Pin::P10, Dir::INPUT).unwrap(); // HexA
+  gpio_i2c_2.set_io_direction(Pin::P15, Dir::INPUT).unwrap(); // HexB
+  gpio_i2c_1.set_io_direction(Pin::P10, Dir::INPUT).unwrap(); // HexC
+  gpio_i2c_1.set_io_direction(Pin::P11, Dir::INPUT).unwrap(); // HexD
+  gpio_i2c_1.set_io_direction(Pin::P12, Dir::INPUT).unwrap(); // HexE
+  gpio_i2c_1.set_io_direction(Pin::P13, Dir::INPUT).unwrap(); // HexF
 
   let mut button_a_down = false;
   let mut button_b_down = false;
@@ -109,6 +111,13 @@ async fn button_task(
   let mut button_d_down = false;
   let mut button_e_down = false;
   let mut button_f_down = false;
+
+  let mut hex_a_down = false;
+  let mut hex_b_down = false;
+  let mut hex_c_down = false;
+  let mut hex_d_down = false;
+  let mut hex_e_down = false;
+  let mut hex_f_down = false;
 
   loop {
     let a_pressed = gpio_i2c_2.pin_is_low(Pin::P06).unwrap_or_default();
@@ -118,12 +127,26 @@ async fn button_task(
     let e_pressed = gpio_i2c_1.pin_is_low(Pin::P02).unwrap_or_default();
     let f_pressed = gpio_i2c_1.pin_is_low(Pin::P03).unwrap_or_default();
 
+    let hex_a_pressed = gpio_i2c_2.pin_is_low(Pin::P10).unwrap_or_default();
+    let hex_b_pressed = gpio_i2c_2.pin_is_low(Pin::P15).unwrap_or_default();
+    let hex_c_pressed = gpio_i2c_1.pin_is_low(Pin::P10).unwrap_or_default();
+    let hex_d_pressed = gpio_i2c_1.pin_is_low(Pin::P11).unwrap_or_default();
+    let hex_e_pressed = gpio_i2c_1.pin_is_low(Pin::P12).unwrap_or_default();
+    let hex_f_pressed = gpio_i2c_1.pin_is_low(Pin::P13).unwrap_or_default();
+
     handle_button!(sender, a_pressed, button_a_down, I2cMessage::HexButton(HexButton::A));
     handle_button!(sender, b_pressed, button_b_down, I2cMessage::HexButton(HexButton::B));
     handle_button!(sender, c_pressed, button_c_down, I2cMessage::HexButton(HexButton::C));
     handle_button!(sender, d_pressed, button_d_down, I2cMessage::HexButton(HexButton::D));
     handle_button!(sender, e_pressed, button_e_down, I2cMessage::HexButton(HexButton::E));
     handle_button!(sender, f_pressed, button_f_down, I2cMessage::HexButton(HexButton::F));
+
+    handle_button!(sender, hex_a_pressed, hex_a_down, I2cMessage::HexButton(HexButton::HexA));
+    handle_button!(sender, hex_b_pressed, hex_b_down, I2cMessage::HexButton(HexButton::HexB));
+    handle_button!(sender, hex_c_pressed, hex_c_down, I2cMessage::HexButton(HexButton::HexC));
+    handle_button!(sender, hex_d_pressed, hex_d_down, I2cMessage::HexButton(HexButton::HexD));
+    handle_button!(sender, hex_e_pressed, hex_e_down, I2cMessage::HexButton(HexButton::HexE));
+    handle_button!(sender, hex_f_pressed, hex_f_down, I2cMessage::HexButton(HexButton::HexF));
 
     Timer::after(Duration::from_millis(10)).await;
   }
@@ -134,10 +157,7 @@ async fn test_i2c() {
     for addr in 0x58..=0x5a {
       let p = unsafe { Peripherals::steal() };
 
-      let i2c0 = I2c::new(p.I2C0, Config::default().with_frequency(Rate::from_khz(133)))
-        .unwrap()
-        .with_sda(p.GPIO45)
-        .with_scl(p.GPIO46);
+      let i2c0 = I2c::new(p.I2C0, Config::default().with_frequency(Rate::from_khz(133))).unwrap().with_sda(p.GPIO45).with_scl(p.GPIO46);
 
       let mut ic = Aw9523b::new(i2c0, addr);
 
