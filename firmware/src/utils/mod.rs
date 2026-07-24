@@ -1,4 +1,3 @@
-pub mod bq25895;
 pub mod cpu_guard;
 pub mod dns;
 pub mod flash_stream;
@@ -12,7 +11,6 @@ pub mod ota;
 pub mod spi;
 pub mod state;
 
-pub use bq25895::*;
 pub use gpio::*;
 pub use graphics::*;
 pub use http::*;
@@ -102,12 +100,7 @@ impl ConvertBE16 for Rgb565 {
 #[macro_export]
 macro_rules! timeout {
   ($future:expr, $duration:expr, $prefix:literal) => {
-    match embassy_futures::select::select(
-      $future,
-      embassy_time::Timer::after(embassy_time::Duration::from_millis($duration)),
-    )
-    .await
-    {
+    match embassy_futures::select::select($future, embassy_time::Timer::after(embassy_time::Duration::from_millis($duration))).await {
       embassy_futures::select::Either::First(res) => res.map_err(|err| anyhow::anyhow!("{} Error: {err:?}", $prefix)),
       embassy_futures::select::Either::Second(()) => Err(anyhow::anyhow!("{} Error: Timed out", $prefix)),
     }

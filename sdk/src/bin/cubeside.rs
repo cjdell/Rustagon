@@ -2,7 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(future_join)]
 #![feature(thread_local)]
 
 #[path = "../lib/mod.rs"]
@@ -169,12 +168,10 @@ fn wasm_main() {
     ];
 
     let start = get_millis();
-    let mut last_tick = start;
 
     loop {
       let now = get_millis();
       let elapsed = now - start;
-      last_tick = now;
 
       if elapsed > ANIMATION_DURATION as u32 {
         break;

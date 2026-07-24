@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(future_join)]
 #![feature(thread_local)]
 
 #[path = "../lib/mod.rs"]
@@ -98,7 +97,7 @@ fn wasm_main() {
     let mut cube = K3dMesh::new(geometry);
     cube.set_color(Rgb565::CSS_CYAN);
 
-    let mut current_mode = 2;
+    let current_mode = 2;
     let modes = [
       ("Points", RenderMode::Points),
       ("Lines", RenderMode::Lines),

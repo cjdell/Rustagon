@@ -2,8 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(future_join)]
-#![feature(thread_local)]
 
 #[path = "../lib/protocol.rs"]
 #[macro_use]

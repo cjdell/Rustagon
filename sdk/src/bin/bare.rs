@@ -2,8 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(future_join)]
-#![feature(thread_local)]
 
 #[unsafe(no_mangle)]
 fn wasm_main() {}

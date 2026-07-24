@@ -8,7 +8,7 @@ use alloc::vec;
 use alloc::{boxed::Box, string::String, vec::Vec};
 
 // Menu provider trait for both static and dynamic menus
-pub trait MenuProvider {
+pub(crate) trait MenuProvider {
   async fn get_items(&mut self) -> Vec<MenuOption>;
 }
 

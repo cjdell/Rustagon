@@ -19,6 +19,7 @@ mod apps;
 pub mod d_i2c;
 mod device;
 mod native;
+pub mod platform;
 mod protocol;
 pub mod tasks;
 pub mod types;

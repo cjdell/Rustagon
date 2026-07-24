@@ -441,6 +441,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bq25895"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal 1.0.0",
+]
+
+[[package]]
 name = "buffered-io"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -964,6 +971,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "cy8cmbr3116"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal 1.0.0",
 ]
 
 [[package]]
@@ -2449,9 +2463,11 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "aw9523b",
+ "bq25895",
  "bytes",
  "crc",
  "critical-section",
+ "cy8cmbr3116",
  "display-interface",
  "display-interface-spi",
  "edge-captive",

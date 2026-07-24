@@ -156,37 +156,28 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             };
           } else {
             match hex {
-              HexButton::A => {
-                println!("Menu: Pressed A");
+              HexButton::Up => {
                 if state.selected > 0 {
                   state.selected -= 1;
                 }
               }
-              HexButton::B => {
-                println!("Menu: Pressed B");
+              HexButton::Right => {
                 runner_ctx.led_sender.send(LedRequest::Sparkle(LedState::new(255, 255, 255))).await;
               }
-              HexButton::C => {
-                println!("Menu: Pressed C");
+              HexButton::Fire => {
                 runner_ctx.lcd_signal.signal(LcdScreen::Progress("Please wait...".to_string()));
                 state.execute_option().await;
               }
-              HexButton::D => {
-                println!("Menu: Pressed D");
+              HexButton::Down => {
                 state.selected += 1;
               }
-              HexButton::E => {
-                println!("Menu: Pressed E");
-              }
-              HexButton::F => {
-                println!("Menu: Pressed F");
-              }
-              HexButton::HexA => todo!(),
-              HexButton::HexB => todo!(),
-              HexButton::HexC => todo!(),
-              HexButton::HexD => todo!(),
-              HexButton::HexE => todo!(),
-              HexButton::HexF => todo!(),
+              HexButton::Left => {}
+              HexButton::HexA => {}
+              HexButton::HexB => {},
+              HexButton::HexC => {},
+              HexButton::HexD => {},
+              HexButton::HexE => {},
+              HexButton::HexF => {},
             }
           }
         }

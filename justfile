@@ -1,6 +1,15 @@
 default:
     @ {{just_executable()}} --list --justfile {{justfile()}} --unsorted
 
+bold text:
+	@printf "\033[1m{{text}}\033[0m\n"
+
+red text:
+	@printf "\033[31m{{text}}\033[0m\n"
+
+green text:
+	@printf "\033[32m{{text}}\033[0m\n"
+
 run_firmware:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -83,7 +92,7 @@ build_wasm:
     for f in *.wasm; do [[ -f "$f" ]] && mv "$f" "${f%.wasm}.wsm"; done
     popd
 
-    echo -e "\e[1mWASM binaries have been placed in /wasm folder"
+    just bold "WASM binaries have been placed in /wasm folder"
 
 emulate_wasm file:
     #!/usr/bin/env bash

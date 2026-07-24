@@ -2,7 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(future_join)]
 #![feature(thread_local)]
 
 #[path = "../lib/mod.rs"]

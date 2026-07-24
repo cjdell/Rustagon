@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "bq25895",
+    "cy8cmbr3116",
     "emulator",
     "firmware",
     "sdk",

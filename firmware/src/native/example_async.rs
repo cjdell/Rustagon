@@ -93,22 +93,22 @@ impl NativeApp for ExampleNativeAsyncApp {
           HostIpcMessage::HexButton(hex_button) => {
             println!("ExampleNativeApp: {hex_button:?}");
             match hex_button {
-              HexButton::A => {
+              HexButton::Up => {
                 self.read_file().await;
               }
-              HexButton::B => {
+              HexButton::Right => {
                 self.refresh("http://example.com".to_string()).await;
               }
-              HexButton::C => {
+              HexButton::Fire => {
                 self.refresh("http://frogfind.com".to_string()).await;
               }
-              HexButton::D => {
+              HexButton::Down => {
                 self.refresh("http://1.1.1.1".to_string()).await;
               }
-              HexButton::E => {
-                self.refresh("http://google.com".to_string()).await;
-              }
-              HexButton::F => {
+              // HexButton::E => {
+              //   self.refresh("http://google.com".to_string()).await;
+              // }
+              HexButton::Left => {
                 let state = timeout_result!(self.state.write(), 10, "Run: State Lock Timeout");
                 if let Ok(mut state) = state {
                   state.display = None;

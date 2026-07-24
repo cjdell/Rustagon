@@ -1,0 +1,9 @@
+[package]
+name = "cy8cmbr3116"
+version = "0.1.0"
+edition = "2021"
+authors = ["Chris Dell"]
+description = "embedded-hal driver for the Cypress/Infineon CY8CMBR3116 CapSense Express controller"
+
+[dependencies]
+embedded-hal = "1.0.0"

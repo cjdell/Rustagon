@@ -217,12 +217,11 @@ pub type I2cMutux = Mutex<NoopRawMutex, RefCell<I2c<'static, Blocking>>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum HexButton {
-  A,
-  B,
-  C,
-  D,
-  E,
-  F,
+  Up,
+  Right,
+  Fire,
+  Down,
+  Left,
   HexA,
   HexB,
   HexC,

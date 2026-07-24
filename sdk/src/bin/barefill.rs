@@ -1,7 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(future_join)]
-#![feature(thread_local)]
 
 use crate::protocol::extern_set_lcd_buffer;
 use alloc::boxed::Box;

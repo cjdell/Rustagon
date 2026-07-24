@@ -21,25 +21,9 @@ fixed_deque = "1.4.0"
 lol_alloc = "0.4.1"
 embedded-graphics = "0.8.1"
 embassy-sync = "0.7.2"
-anyhow = { version = "1.0.100", default-feature = false }
+anyhow = { version = "1.0.100", default-features = false }
 static_cell = "2.1.1"
 makepad-zune-jpeg = { version = "0.3.17", default-features = false }
 libm = "0.2.16"
 embedded-3dgfx = "0.1.2"
 nalgebra = { version = "0.34", default-features = false, features = [ "libm" ] }
-
-# [[bin]]
-# name = "future_std"
-# path = "src/bin/future_std.rs"
-
-[profile.release]
-lto             = true
-# panic           = "abort"
-# debug           = true
-# incremental     = false
-# codegen-units   = 1
-opt-level       = 's'
-
-# [lib]
-# test = false
-# bench = false

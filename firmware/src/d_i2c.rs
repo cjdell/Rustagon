@@ -5,9 +5,10 @@ use esp_hal::{
 };
 use log::info;
 
-pub const I2C_0: u8 = 0x58;
-pub const I2C_1: u8 = 0x59;
-pub const I2C_2: u8 = 0x5A;
+pub const I2C_0: u8 = 0x58; // SYS_BUS
+pub const I2C_1: u8 = 0x59; // SYS_BUS
+pub const I2C_2: u8 = 0x5A; // SYS_BUS
+pub const I2C_3: u8 = 0x58; // TOP_BUS
 
 pub fn reset_device(pin: GPIO9<'static>) {
   let mut reset = Output::new(pin, Level::High, OutputConfig::default());

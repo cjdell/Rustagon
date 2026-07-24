@@ -5,6 +5,9 @@ edition = "2024"
 publish = false
 
 [dependencies]
+cy8cmbr3116 = { path = "../cy8cmbr3116" }
+bq25895 = { path = "../bq25895" }
+
 esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", package = "esp-backtrace", features = [
     "panic-handler",
     "esp32s3",
@@ -83,11 +86,11 @@ embedded-test = { version = "0.7.0", features = [
     "external-executor"
 ] }
 
-[profile.release]
-codegen-units    = 1     # LLVM can perform better optimizations using a single thread
-debug            = 2
-debug-assertions = false
-incremental      = false
-lto              = 'fat'
-opt-level        = 's'
-overflow-checks  = false
+# [profile.release]
+# codegen-units    = 1     # LLVM can perform better optimizations using a single thread
+# debug            = 2
+# debug-assertions = false
+# incremental      = false
+# lto              = 'fat'
+# opt-level        = 's'
+# overflow-checks  = false

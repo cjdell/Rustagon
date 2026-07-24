@@ -164,7 +164,7 @@ impl OtaUpdaterApp {
   }
 
   async fn handle_welcome_input(&mut self, input: HexButton) {
-    if let HexButton::C = input {
+    if let HexButton::Fire = input {
       let version = match self.download_manifest().await {
         Ok(version) => version,
         Err(err) => {
@@ -179,7 +179,7 @@ impl OtaUpdaterApp {
   }
 
   async fn handle_update_status_input(&mut self, input: HexButton, version_info: VersionInfo) {
-    if let HexButton::C = input {
+    if let HexButton::Fire = input {
       if let Err(_) = self.do_update(version_info).await {
         self.state.screen = Screen::Welcome;
       }

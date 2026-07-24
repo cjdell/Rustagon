@@ -158,7 +158,7 @@ impl AppStoreApp {
   }
 
   async fn handle_welcome_input(&mut self, input: HexButton) {
-    if let HexButton::B = input {
+    if let HexButton::Right = input {
       self.state.screen = Screen::Loading;
       self.render();
 
@@ -180,9 +180,9 @@ impl AppStoreApp {
 
   async fn handle_app_list_input(&mut self, input: HexButton) {
     match input {
-      HexButton::A => self.state.move_cursor_up(),
-      HexButton::D => self.state.move_cursor_down(self.state.app_count()),
-      HexButton::B => {
+      HexButton::Up => self.state.move_cursor_up(),
+      HexButton::Down => self.state.move_cursor_down(self.state.app_count()),
+      HexButton::Right => {
         self.state.screen = Screen::Loading;
         self.render();
 
@@ -200,7 +200,7 @@ impl AppStoreApp {
         self.state.app_list = Some(app_list);
         self.state.reset_cursor();
       }
-      HexButton::C => {
+      HexButton::Fire => {
         // Save which app was selected
         self.state.selected_app_index = self.state.cursor;
         // Enter app info screen, set cursor to Download option
@@ -213,9 +213,9 @@ impl AppStoreApp {
 
   async fn handle_app_info_input(&mut self, input: HexButton) {
     match input {
-      HexButton::A => self.state.move_cursor_up(),
-      HexButton::D => self.state.move_cursor_down(AppState::app_info_options().len()),
-      HexButton::C => {
+      HexButton::Up => self.state.move_cursor_up(),
+      HexButton::Down => self.state.move_cursor_down(AppState::app_info_options().len()),
+      HexButton::Fire => {
         use AppInfoOption::*;
         let current_app = self.state.current_app().unwrap();
         let option = &AppState::app_info_options()[self.state.cursor];

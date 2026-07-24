@@ -28,10 +28,10 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage;
-use firmware::d_i2c::*;
 use firmware::tasks::*;
 use firmware::types::*;
 use firmware::utils::*;
+use firmware::{d_i2c::*, platform::Platform};
 use log::{error, info, warn};
 use picoserve::make_static;
 use static_cell::StaticCell;
@@ -67,9 +67,7 @@ async fn main(spawner: Spawner) {
 
   let i2c = I2c::new(
     peripherals.I2C0,
-    esp_hal::i2c::master::Config::default()
-      .with_frequency(Rate::from_khz(100))
-      .with_timeout(BusTimeout::BusCycles(133_000)),
+    esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(100)).with_timeout(BusTimeout::BusCycles(133_000)),
   )
   .unwrap()
   .with_sda(peripherals.GPIO45)
@@ -78,6 +76,7 @@ async fn main(spawner: Spawner) {
   let multiplexed_i2c_bus = MultiplexedI2cBus::new(i2c);
 
   let sys_bus = multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::SYS_BUS);
+  let top_bus = multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::TOP_BUS);
 
   // I2C won't work until reset
   reset_device(peripherals.GPIO9);
@@ -107,7 +106,7 @@ async fn main(spawner: Spawner) {
   let i2c_publisher = i2c_channel.publisher().unwrap();
   let power_ctrl_receiver = power_ctrl_channel.receiver();
 
-  spawner.spawn(i2c_task(sys_bus.clone(), i2c_publisher, power_ctrl_receiver)).ok();
+  spawner.spawn(i2c_task(sys_bus.clone(), top_bus.clone(), i2c_publisher, power_ctrl_receiver)).ok();
 
   spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal)).ok();
 
@@ -218,6 +217,9 @@ async fn main(spawner: Spawner) {
 
   print_memory_info();
 
+  // New platform
+  let platform = Platform::new(sys_bus.clone());
+
   static APP_CORE_STACK: StaticCell<esp_hal::system::Stack<16384>> = StaticCell::new();
   let app_core_stack = APP_CORE_STACK.init(esp_hal::system::Stack::new());
 
@@ -226,19 +228,14 @@ async fn main(spawner: Spawner) {
 
   let local_fs_2nd_core = local_fs.clone();
 
-  esp_rtos::start_second_core(
-    peripherals.CPU_CTRL,
-    sw_int.software_interrupt1,
-    app_core_stack,
-    move || {
-      static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
-      let executor = EXECUTOR.init(esp_rtos::embassy::Executor::new());
+  esp_rtos::start_second_core(peripherals.CPU_CTRL, sw_int.software_interrupt1, app_core_stack, move || {
+    static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
+    let executor = EXECUTOR.init(esp_rtos::embassy::Executor::new());
 
-      executor.run(|spawner| {
-        spawner.spawn(second_core_task(local_fs_2nd_core, wasm_sender, host_receiver)).ok();
-      });
-    },
-  );
+    executor.run(|spawner| {
+      spawner.spawn(second_core_task(local_fs_2nd_core, wasm_sender, host_receiver)).ok();
+    });
+  });
 
   print_memory_info();
 

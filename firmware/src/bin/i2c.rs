@@ -62,6 +62,10 @@ async fn main(spawner: Spawner) {
   let mut gpio_i2c_1 = aw9523b::Aw9523b::new(sys_bus.clone(), I2C_1);
   let mut gpio_i2c_2 = aw9523b::Aw9523b::new(sys_bus.clone(), I2C_2);
 
+  let mut gpio_i2c_3 = aw9523b::Aw9523b::new(top_bus.clone(), I2C_0);
+
+  // let mut sense = cy8cmbr3116::Cy8cmbr3116::new(top_bus.clone());
+
   gpio_i2c_0.set_io_direction(Pin::P00, Dir::INPUT).unwrap();
   gpio_i2c_0.set_io_direction(Pin::P01, Dir::INPUT).unwrap();
   gpio_i2c_0.set_io_direction(Pin::P02, Dir::INPUT).unwrap();
@@ -113,8 +117,26 @@ async fn main(spawner: Spawner) {
   gpio_i2c_2.set_io_direction(Pin::P16, Dir::INPUT).unwrap();
   gpio_i2c_2.set_io_direction(Pin::P17, Dir::INPUT).unwrap();
 
+  gpio_i2c_3.set_io_direction(Pin::P00, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P01, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P02, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P03, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P04, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P05, Dir::INPUT).unwrap(); 
+  gpio_i2c_3.set_io_direction(Pin::P06, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P07, Dir::INPUT).unwrap(); 
+  gpio_i2c_3.set_io_direction(Pin::P10, Dir::INPUT).unwrap(); 
+  gpio_i2c_3.set_io_direction(Pin::P11, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P12, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P13, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P14, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P15, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P16, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P17, Dir::INPUT).unwrap();
+
   loop {
     let mut bus = sys_bus.clone();
+    let mut top_bus = top_bus.clone();
 
     let mut result = [0u8; 1];
 
@@ -189,6 +211,34 @@ async fn main(spawner: Spawner) {
       .unwrap();
 
     info!("Result Bus 2 Port 1: {result:?}");
+
+     top_bus
+      .transaction(
+        I2C_0,
+        &mut [
+          embedded_hal::i2c::Operation::Write(&mut [0x0u8]),
+          embedded_hal::i2c::Operation::Read(&mut result),
+        ],
+      )
+      .unwrap();
+
+    info!("Result Bus 3 Port 0: {result:?}");
+
+    top_bus
+      .transaction(
+        I2C_0,
+        &mut [
+          embedded_hal::i2c::Operation::Write(&mut [0x1u8]),
+          embedded_hal::i2c::Operation::Read(&mut result),
+        ],
+      )
+      .unwrap();
+
+    info!("Result Bus 3 Port 1: {result:?}");
+
+    // let buttons = sense.button_status();
+
+    // info!("Buttons: {:?}", buttons);
 
     // let a_pressed = gpio_i2c_2.pin_is_low(Pin::P06).unwrap_or_default();
     // let b_pressed = gpio_i2c_2.pin_is_low(Pin::P07).unwrap_or_default();
