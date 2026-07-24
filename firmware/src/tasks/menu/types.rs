@@ -89,7 +89,6 @@ pub struct MenuRunnerContext {
 
   pub system_receiver: SystemReceiver,
   pub hex_button_subscriber: HexButtonReceiver,
-  pub power_ctrl_sender: PowerCtrlSender,
 
   pub wifi_command_sender: WifiCommandSender,
   pub wifi_status_receiver: WifiStatusReceiver,
@@ -108,7 +107,7 @@ pub struct MenuContext {
   pub stack: Stack<'static>,
   pub local_fs: LocalFs,
   pub device_state: DeviceState,
-  pub power_ctrl_sender: PowerCtrlSender,
+  pub platform: crate::platform::HardwarePlatform,
 
   pub wifi_command_sender: WifiCommandSender,
   pub wifi_status_receiver: WifiStatusReceiver,

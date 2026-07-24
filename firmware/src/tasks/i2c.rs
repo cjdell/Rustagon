@@ -48,42 +48,37 @@ macro_rules! handle_button {
 }
 
 #[embassy_executor::task]
-pub async fn i2c_task(sys_bus: MaskedI2cBus, top_bus: MaskedI2cBus, input_sender: HexButtonSender, power_ctrl_receiver: PowerCtrlReceiver) {
+pub async fn i2c_task(sys_bus: MaskedI2cBus, top_bus: MaskedI2cBus, input_sender: HexButtonSender) {
   info!("Starting I2C Task...");
 
   join!(
-    power_task(sys_bus.clone(), power_ctrl_receiver),
+    power_monitoring_task(sys_bus.clone()),
     button_task(sys_bus.clone(), sys_bus.clone(), top_bus.clone(), input_sender)
   )
   .await;
 }
 
-async fn power_task(i2c: impl embedded_hal::i2c::I2c, power_ctrl_receiver: PowerCtrlReceiver) {
+async fn power_monitoring_task(i2c: impl embedded_hal::i2c::I2c) {
   let mut pmic = Bq25895::new(i2c);
 
   loop {
-    match select(power_ctrl_receiver.receive(), sleep(60_000)).await {
-      Either::First(power_ctrl) => match power_ctrl {
-        PowerCtrl::PowerOff => {
-          pmic.disable_batfet(true).unwrap();
-        }
-      },
-      Either::Second(_) => match pmic.update_state() {
-        Ok(state) => {
-          println!("Charge: {:?}", state.charge_status);
-          println!("Input: {:?}", state.input_status);
-          println!("System: {:?}", state.system_status);
-          println!("Battery Fault: {:?}", state.battery_fault);
-          println!("Boost Fault: {:?}", state.boost_fault);
-          println!("Charge Fault: {:?}", state.charge_fault);
+    sleep(60_000).await;
 
-          println!(
-            "Vbat: {:.2}V, Vsys: {:.2}V, Vbus: {:.2}V, Vboost: {:.2}V, Icharge: {:.2}A",
-            state.vbat, state.vsys, state.vbus, state.boostv, state.ichrg
-          );
-        }
-        Err(e) => println!("Read error: {}", e),
-      },
+    match pmic.update_state() {
+      Ok(state) => {
+        println!("Charge: {:?}", state.charge_status);
+        println!("Input: {:?}", state.input_status);
+        println!("System: {:?}", state.system_status);
+        println!("Battery Fault: {:?}", state.battery_fault);
+        println!("Boost Fault: {:?}", state.boost_fault);
+        println!("Charge Fault: {:?}", state.charge_fault);
+
+        println!(
+          "Vbat: {:.2}V, Vsys: {:.2}V, Vbus: {:.2}V, Vboost: {:.2}V, Icharge: {:.2}A",
+          state.vbat, state.vsys, state.vbus, state.boostv, state.ichrg
+        );
+      }
+      Err(e) => println!("Read error: {}", e),
     }
   }
 }

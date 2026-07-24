@@ -1,6 +1,7 @@
 use crate::{
   apps::*,
   device::DeviceConfigurator as _,
+  platform::Platform,
   protocol::*,
   tasks::menu::{menus::MenuProvider as _, state::MenuState, types::*},
   types::*,
@@ -90,7 +91,7 @@ impl MenuState {
       MenuOption::Text { text: _ } => {}
       MenuOption::Back => new_menu = Some(Menu::Root),
       MenuOption::PowerOff => {
-        self.ctx.power_ctrl_sender.send(PowerCtrl::PowerOff).await;
+        self.ctx.platform.power().power_off().await;
       }
     };
 

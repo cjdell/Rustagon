@@ -30,7 +30,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
     stack: runner_ctx.stack,
     local_fs: runner_ctx.local_fs.clone(),
     device_state: runner_ctx.device_state.clone(),
-    power_ctrl_sender: runner_ctx.power_ctrl_sender,
+    platform: runner_ctx.platform.clone(),
     wifi_command_sender: runner_ctx.wifi_command_sender,
     wifi_status_receiver: runner_ctx.wifi_status_receiver,
     wifi_scan_watch: runner_ctx.wifi_scan_watch,

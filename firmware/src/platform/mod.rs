@@ -10,4 +10,5 @@ pub use led::{
   OffEffect, RainbowEffect, SolidEffect, SparkleEffect, TheaterChaseEffect,
 };
 pub use mock::MockPlatform;
+pub use power::{HardwarePowerManager, MockPowerManager, PowerError, PowerHandle, PowerManager};
 pub use traits::Platform;

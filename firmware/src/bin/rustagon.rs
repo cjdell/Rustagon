@@ -13,7 +13,7 @@
 )]
 #![recursion_limit = "256"]
 
-use alloc::{borrow::ToOwned as _, string::ToString as _};
+use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc};
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -33,7 +33,7 @@ use firmware::types::*;
 use firmware::utils::*;
 use firmware::{
   d_i2c::*,
-  platform::{self, HardwarePlatform, Platform},
+  platform::{HardwareLedManager, HardwarePlatform, HardwarePowerManager, LedHandle, Platform, PowerHandle},
 };
 use log::{error, info, warn};
 use picoserve::make_static;
@@ -101,14 +101,12 @@ async fn main(spawner: Spawner) {
   let host_ipc_channel = make_static!(HostIpcChannel, HostIpcChannel::new());
   let http_channel = make_static!(HttpChannel, HttpChannel::new());
   let web_socket_incoming_channel = make_static!(WebSocketIncomingChannel, WebSocketIncomingChannel::new());
-  let power_ctrl_channel = make_static!(PowerCtrlChannel, PowerCtrlChannel::new());
 
   spawner.spawn(system_task(peripherals.GPIO0, system_watch.sender())).ok();
 
   let i2c_publisher = i2c_channel.publisher().unwrap();
-  let power_ctrl_receiver = power_ctrl_channel.receiver();
 
-  spawner.spawn(i2c_task(sys_bus.clone(), top_bus.clone(), i2c_publisher, power_ctrl_receiver)).ok();
+  spawner.spawn(i2c_task(sys_bus.clone(), top_bus.clone(), i2c_publisher)).ok();
 
   spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal)).ok();
 
@@ -215,9 +213,15 @@ async fn main(spawner: Spawner) {
   print_memory_info();
 
   // Initialize platform with hardware managers
-  let platform = HardwarePlatform::new(&spawner, sys_bus.clone());
+  let led_manager = Arc::new(HardwareLedManager::new(&spawner, sys_bus.clone()));
+  let led = LedHandle::new(led_manager);
 
-  platform.led().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
+  let power_manager = Arc::new(HardwarePowerManager::new(sys_bus.clone()));
+  let power = PowerHandle::new(power_manager);
+
+  let platform = HardwarePlatform::new_with_managers(led, power);
+
+  let _ = platform.led().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 
   static APP_CORE_STACK: StaticCell<esp_hal::system::Stack<16384>> = StaticCell::new();
   let app_core_stack = APP_CORE_STACK.init(esp_hal::system::Stack::new());
@@ -257,7 +261,6 @@ async fn main(spawner: Spawner) {
     device_state,
     system_receiver: system_watch.receiver().unwrap(),
     hex_button_subscriber: i2c_channel.subscriber().unwrap(),
-    power_ctrl_sender: power_ctrl_channel.sender(),
     wifi_command_sender: wifi_command_channel.sender(),
     wifi_status_receiver: wifi_status_channel.receiver(),
     wifi_scan_watch,
