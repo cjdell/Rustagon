@@ -1,6 +1,7 @@
 use super::led::{LedHandle, MockLedManager};
 use super::power::{MockPowerManager, PowerHandle};
 use super::traits::Platform;
+use super::wifi::{MockWifiManager, WiFiHandle};
 use alloc::sync::Arc;
 use core::fmt;
 
@@ -9,6 +10,7 @@ use core::fmt;
 pub struct MockPlatform {
   led: LedHandle,
   power: PowerHandle,
+  wifi: WiFiHandle,
 }
 
 impl MockPlatform {
@@ -19,7 +21,10 @@ impl MockPlatform {
     let power_manager = Arc::new(MockPowerManager::new());
     let power = PowerHandle::new(power_manager);
 
-    Self { led, power }
+    let wifi_manager = MockWifiManager::new();
+    let wifi = WiFiHandle::new(wifi_manager);
+
+    Self { led, power, wifi }
   }
 }
 
@@ -30,11 +35,15 @@ impl Default for MockPlatform {
 }
 
 impl Platform for MockPlatform {
-  fn led(&self) -> LedHandle {
+  fn led_manager(&self) -> LedHandle {
     self.led.clone()
   }
 
-  fn power(&self) -> PowerHandle {
+  fn power_manager(&self) -> PowerHandle {
     self.power.clone()
+  }
+
+  fn wifi_manager(&self) -> WiFiHandle {
+    self.wifi.clone()
   }
 }

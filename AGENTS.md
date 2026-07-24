@@ -45,16 +45,63 @@ Each manager returns a cloneable `Handle` that wraps an `Arc<dyn ManagerTrait>`.
 
 **Design Pattern:**
 - Async trait with `Pin<Box<dyn Future>>` for dyn compatibility
-- Internal `Arc<Mutex<>>` for shared access to I2C device
+- Internal `Arc<RwLock<CriticalSectionRawMutex, T>>` for shared access to I2C device
 - Power control requests come directly through the manager (no external channel)
 
-**Key Learning:** Async traits require `Pin<Box<dyn Future>>` for object safety. The `NoopRawMutex` in `MaskedI2cBus` required unsafe `Send + Sync` implementations to work with trait objects in `Arc`.
+**Key Learning:** Use `RwLock` with `CriticalSectionRawMutex` for internal synchronization - always `Sync`, no unsafe impls needed.
 
-### Removed from Task Model
+#### 3. WiFi Management (`firmware/src/platform/wifi/`)
 
-1. **LED channel** (`power_ctrl_channel`) - Removed from rustagon.rs
-2. **Power control task** - Simplified to just status polling in `power_monitoring_task`
-3. **Channel-based power control** - Replaced with direct `platform.power().power_off().await`
+**Structure:**
+- `traits.rs` - `WiFiManager` trait with scan, connect, status, and stats methods
+- `hardware.rs` - `HardwareWifiManager` implements ESP32 WiFi connection logic
+- `mock.rs` - `MockWifiManager` for testing
+- Connection task spawned by manager (`spawn_connection_task`)
+- `wifi_monitor_task` in `firmware/src/tasks/wifi_monitor.rs` - consumes status updates from manager
+
+**Design Pattern - WatchedValue for State:**
+- **Single source of truth:** Custom `WatchedValue<WifiStatus>` primitive stores current status
+- Provides async reads via `get()`, awaitable changes via `wait_for_change()`, and updates via `set()`
+- No external receiver management - all encapsulated in the manager
+- Stats tracked via `Arc<AtomicU32>` for connection attempts and successes
+
+**Key Methods:**
+- `get_status()` - Get current status (async, returns pinned future)
+- `wait_for_status_change()` - Wait for next status change (async, returns pinned future)
+- `scan()` - Perform WiFi network scan
+- `set_desired_state()` - Request Online/Offline (manager handles reconnection logic)
+- `get_stats()` - Get connection attempt statistics
+
+**WatchedValue Pattern Benefits:**
+- Single source of truth - no duplication of state
+- Multiple independent waiters can await changes simultaneously
+- Cloneable - passed through Platform trait naturally
+- Async-safe - works in all Embassy async contexts
+- No external receiver management needed
+- Clean, simple API: `get()`, `set()`, `wait_for_change()`
+
+**Integration with Monitor Task:**
+- Monitor task calls `platform.wifi_manager().wait_for_status_change().await` in loop
+- Updates LCD display and LED colors based on WiFi state
+- No additional channels or receivers needed - everything through Platform trait
+- Only the Platform object needed for all WiFi control and observation
+
+### State Management Pattern
+
+The WiFi implementation demonstrates the **preferred pattern for manager state notifications**:
+
+**Pattern Evolution:**
+1. **Anti-pattern (generation counters)** - Polling with atomic counters, missed updates
+2. **Intermediate (Embassy watch)** - Better but required external receiver management
+3. **Final (WatchedValue primitive)** - Clean, complete, encapsulated
+
+**WatchedValue Pattern:**
+- Custom primitive combining RwLock for state + Signal for notifications
+- Single API: `get()`, `set()`, `wait_for_change()`
+- Everything internal to manager - no leaking types
+- Cloneable for trait object compatibility
+
+**This pattern should be used for any manager that needs to store state and notify interested parties of changes.**
 
 ## Target Architecture (End State)
 
@@ -83,33 +130,58 @@ The `app` crate should:
 - Be compilable on localhost for unit/integration testing
 
 **Currently blocking this:**
-- `MenuRunnerContext` still contains hardware-specific types and channels
+- `MenuRunnerContext` still contains Display and Input hardware-specific types
 - Application tasks mixed with framework tasks
-- Direct imports of `embassy_sync::channel` types throughout
+- WiFi, Power, and LED managers have been abstracted
 
 ### What Makes a Good Platform Manager
 
-Based on LED and power implementations:
+Based on LED, Power, and WiFi implementations:
 
 1. **Trait Design**
    - Minimal interface - only operations the app actually needs
    - Async methods when they do I/O or take significant time
    - Return types that can be stored (hence `Pin<Box<dyn Future>>` for async)
+   - Single enum for state (e.g., `WifiStatus` not both `WifiStatus` and `WifiStatusMessage`)
 
 2. **Internal Encapsulation**
-   - All channels/synchronization primitives internal to the manager
-   - No channel types leak to the application
+   - All synchronization primitives internal to the manager
+   - No channel or watch types leak to the application
    - Work loops spawned by the manager if needed (like LED)
+   - Use Embassy `watch` pattern for state that needs notifications
 
-3. **Mock Implementations**
+3. **State Notification Pattern (when needed)**
+   - Use `WatchedValue<T>` primitive for managers with state that needs notifications
+   - `WatchedValue` combines state storage, async reads, and change notifications
+   - API: `get()` for reads, `set()` for updates, `wait_for_change()` for subscribers
+   - No external receiver/channel management needed - everything encapsulated
+   - Multiple independent waiters can subscribe simultaneously
+   - See `firmware/src/utils/watched_value.rs` for implementation
+   - Cloneable and works naturally with trait objects
+
+4. **Mock Implementations**
    - Must be implementable without any hardware
    - Should return reasonable default values for testing
    - Excellent for integration tests without an ESP32
 
-4. **Hardware Implementation**
-   - Uses concrete I2C/GPIO types from the crate
+5. **Hardware Implementation**
+   - Uses concrete types from the crate (I2C, GPIO, etc.)
    - Protected by mutexes for safe concurrent access
-   - May require `unsafe impl Send/Sync` if using NoopRawMutex
+   - Prefer `CriticalSectionRawMutex` over `NoopRawMutex` to avoid unsafe impls
+
+6. **Creating Helper Primitives**
+   - Don't be afraid to suggest or create new helper types when a pattern emerges
+   - If an async pattern keeps getting duplicated, extract it into a utility primitive
+   - Example: `WatchedValue<T>` was created when multiple managers needed:
+     - Synchronous reads of mutable state
+     - Awaitable notifications of changes
+     - Clean API hiding synchronization details
+   - Good primitives:
+     - Are generic and reusable across multiple managers
+     - Hide synchronization complexity with simple APIs
+     - Eliminate duplication of similar patterns
+     - Work naturally with async/await and trait objects
+   - This approach keeps manager code clean and maintainable
 
 ## Remaining Work
 
@@ -125,10 +197,12 @@ Based on LED and power implementations:
    - Need: `InputManager` trait with event subscription
    - Pattern: Observer/subscription pattern via trait
 
-3. **Network/WiFi Manager** (`firmware/src/platform/network/`)
-   - Currently channels: `wifi_command_sender`, `wifi_status_receiver`, `wifi_scan_watch`
-   - Need: High-level API (connect, scan, get status)
-   - Challenge: Async state machine for connections
+3. ~~**Network/WiFi Manager**~~ ✅ **COMPLETED**
+     - Implemented in `firmware/src/platform/wifi/`
+     - High-level API with connect, scan, get status
+     - Async state machine handled by manager background task
+     - Uses `WatchedValue<WifiStatus>` for clean state management
+     - Monitor task accesses via Platform trait - no extra receivers needed
 
 4. **Storage Manager** (`firmware/src/platform/storage/`)
    - Currently: Direct access to `device_state: DeviceState` and `local_fs: LocalFs`
@@ -222,8 +296,24 @@ Based on LED and power implementations:
 
 ## Common Pitfalls & Solutions
 
-### Pitfall: Leaking Channel Types to App Code
-**Solution:** Never expose `Sender<T>`, `Receiver<T>`, or channel-related types in Platform trait. Encapsulate them in manager implementations.
+### Pitfall: Leaking Types to App Code
+**Solution:** Never expose `Sender<T>`, `Receiver<T>`, `Watch<T>`, or other synchronization types in Platform trait. Encapsulate them in manager implementations. Keep only domain types (e.g., `WifiStatus`, `LedRequest`) in public APIs.
+
+**Example of Wrong Pattern:**
+```rust
+// BAD: Leaks watch type
+pub trait WiFiManager {
+  fn status_watch(&self) -> WifiStatusWatchReceiver;
+}
+```
+
+**Example of Right Pattern:**
+```rust
+// GOOD: Async method hides implementation
+pub trait WiFiManager {
+  fn wait_for_status_change(&self) -> Pin<Box<dyn Future<Output = WifiStatus>>>;
+}
+```
 
 ### Pitfall: Trait Methods That Can't Be Mocked
 **Example:** Methods that return concrete types that require hardware.
@@ -237,10 +327,17 @@ Based on LED and power implementations:
 **Problem:** `NoopRawMutex` breaks trait object storage in Arc.
 **Solution:** Add unsafe impl carefully, document safety rationale, consider fixing root cause (upgrade to CriticalSectionRawMutex) if possible.
 
+### Pitfall: Duplicate State Representations
+**Problem:** Having both `WifiStatus` and `WifiStatusMessage` with conversion logic between them.
+**Solution:** Use a single enum for state throughout the codebase. The watch stores the same type as the application sees. Keep state centralized - one enum, one source of truth.
+
 ## Related Files
 
 - **Main trait definitions:** `firmware/src/platform/traits.rs`
-- **Platform implementations:** `firmware/src/platform/{led,power,display,etc.}/`
+- **Platform implementations:** `firmware/src/platform/{led,power,wifi,etc.}/`
+- **WiFi status monitoring:** `firmware/src/tasks/wifi_monitor.rs`
+- **WatchedValue primitive:** `firmware/src/utils/watched_value.rs`
 - **Application entry point:** `firmware/src/bin/rustagon.rs`
 - **Menu system (to be extracted):** `firmware/src/tasks/menu/`
-- **Types that need abstraction:** `firmware/src/types.rs`
+- **Shared types:** `firmware/src/types.rs`
+- **Network infrastructure:** `firmware/src/tasks/net.rs`

@@ -1,6 +1,6 @@
 use super::traits::PowerManager;
-use alloc::sync::Arc;
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use bq25895::{Bq25895, BqState};
 use core::fmt;
 use core::pin::Pin;
@@ -27,7 +27,7 @@ impl<I2C: embedded_hal::i2c::I2c> fmt::Debug for HardwarePowerManager<I2C> {
 impl<I2C: embedded_hal::i2c::I2c + Send + 'static> PowerManager for HardwarePowerManager<I2C> {
   fn get_status(&self) -> Pin<Box<dyn core::future::Future<Output = BqState> + Send + '_>> {
     Box::pin(async {
-      let bq25895 = self.bq25895.read().await;
+      let mut bq25895 = self.bq25895.write().await;
       bq25895.update_state().unwrap()
     })
   }

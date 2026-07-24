@@ -90,10 +90,6 @@ pub struct MenuRunnerContext {
   pub system_receiver: SystemReceiver,
   pub hex_button_subscriber: HexButtonReceiver,
 
-  pub wifi_command_sender: WifiCommandSender,
-  pub wifi_status_receiver: WifiStatusReceiver,
-  pub wifi_scan_watch: &'static ScanWatch,
-
   pub http_event_receiver: HttpReceiver,
   pub host_ipc_sender: HostIpcSender,
   pub wasm_ipc_channel: &'static WasmIpcChannel,
@@ -108,10 +104,6 @@ pub struct MenuContext {
   pub local_fs: LocalFs,
   pub device_state: DeviceState,
   pub platform: crate::platform::HardwarePlatform,
-
-  pub wifi_command_sender: WifiCommandSender,
-  pub wifi_status_receiver: WifiStatusReceiver,
-  pub wifi_scan_watch: &'static ScanWatch,
 
   pub host_ipc_sender: HostIpcSender,
   pub lcd_signal: &'static LcdSignal,

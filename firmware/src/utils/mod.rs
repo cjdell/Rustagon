@@ -10,6 +10,7 @@ pub mod local_fs;
 pub mod ota;
 pub mod spi;
 pub mod state;
+pub mod watched_value;
 
 pub use gpio::*;
 pub use graphics::*;
@@ -18,6 +19,7 @@ pub use i2c::*;
 pub use led_service::*;
 pub use local_fs::*;
 pub use state::*;
+pub use watched_value::*;
 
 use alloc::alloc::Global;
 use alloc::vec::Vec;

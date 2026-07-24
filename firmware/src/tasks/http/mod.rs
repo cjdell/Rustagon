@@ -38,8 +38,7 @@ struct AppProps {
   device_state: DeviceState,
   sender: HttpSender,
   web_socket_incoming_sender: WebSocketIncomingSender,
-  wifi_command_sender: WifiCommandSender,
-  scan_signal: &'static ScanWatch,
+  platform: crate::platform::HardwarePlatform,
 }
 
 impl AppProps {
@@ -48,16 +47,14 @@ impl AppProps {
     device_state: DeviceState,
     sender: HttpSender,
     web_socket_incoming_sender: WebSocketIncomingSender,
-    wifi_command_sender: WifiCommandSender,
-    scan_signal: &'static ScanWatch,
+    platform: crate::platform::HardwarePlatform,
   ) -> Self {
     Self {
       local_fs,
       device_state,
       sender,
       web_socket_incoming_sender,
-      wifi_command_sender,
-      scan_signal,
+      platform,
     }
   }
 }
@@ -84,8 +81,8 @@ impl AppBuilder for AppProps {
           )
           .route(
             "/wifi",
-            get_service(HandleWifiScan::new(self.wifi_command_sender, self.scan_signal))
-              .post_service(HandleWifiJoin::new(self.device_state, self.wifi_command_sender))
+            get_service(HandleWifiScan::new(self.platform.clone()))
+              .post_service(HandleWifiJoin::new(self.device_state, self.platform.clone()))
               .options(async || cors_options_response()),
           )
           .route("/files", get_service(HandleFileList::new(self.local_fs.clone())))
@@ -172,8 +169,7 @@ pub fn start_http(
   device_state: DeviceState,
   sender: HttpSender,
   web_socket_incoming_sender: WebSocketIncomingSender,
-  wifi_command_sender: WifiCommandSender,
-  scan_signal: &'static ScanWatch,
+  platform: crate::platform::HardwarePlatform,
 ) {
   let app = make_static!(
     AppRouter<AppProps>,
@@ -182,8 +178,7 @@ pub fn start_http(
       device_state,
       sender,
       web_socket_incoming_sender,
-      wifi_command_sender,
-      scan_signal
+      platform
     )
     .build_app()
   );

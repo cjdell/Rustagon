@@ -3,6 +3,7 @@ pub mod led;
 pub mod mock;
 pub mod power;
 pub mod traits;
+pub mod wifi;
 
 pub use hardware::HardwarePlatform;
 pub use led::{
@@ -12,3 +13,7 @@ pub use led::{
 pub use mock::MockPlatform;
 pub use power::{HardwarePowerManager, MockPowerManager, PowerError, PowerHandle, PowerManager};
 pub use traits::Platform;
+pub use wifi::{
+  HardwareWifiManager, MockWifiManager, WiFiHandle, WiFiManager, WifiDesiredState, WifiMode,
+  WifiResult, WifiStats, WifiStatus,
+};

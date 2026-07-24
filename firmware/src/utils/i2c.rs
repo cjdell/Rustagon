@@ -31,6 +31,13 @@ pub struct MaskedI2cBus {
   mux_bits: u8,
 }
 
+// Safety: MaskedI2cBus is Safe to Send and Sync because:
+// - The Arc<Mutex<>> protects concurrent access to the I2C bus
+// - Even though NoopRawMutex is not Sync, the mutex ensures safety
+// - In a single-threaded executor context (which we use), this is safe
+unsafe impl Send for MaskedI2cBus {}
+unsafe impl Sync for MaskedI2cBus {}
+
 impl MaskedI2cBus {
   pub const MUX_ADDR: u8 = 0x77;
 

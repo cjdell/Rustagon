@@ -33,7 +33,9 @@ use firmware::types::*;
 use firmware::utils::*;
 use firmware::{
   d_i2c::*,
-  platform::{HardwareLedManager, HardwarePlatform, HardwarePowerManager, LedHandle, Platform, PowerHandle},
+  platform::{
+    HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareWifiManager, LedHandle, Platform, PowerHandle, WiFiHandle,
+  },
 };
 use log::{error, info, warn};
 use picoserve::make_static;
@@ -93,9 +95,6 @@ async fn main(spawner: Spawner) {
   let system_watch: &mut embassy_sync::watch::Watch<CriticalSectionRawMutex, SystemMessage, 1> =
     make_static!(SystemWatch, SystemWatch::new());
   let lcd_signal = make_static!(LcdSignal, LcdSignal::new());
-  let wifi_command_channel = make_static!(WifiCommandChannel, WifiCommandChannel::new());
-  let wifi_status_channel = make_static!(WifiStatusChannel, WifiStatusChannel::new());
-  let wifi_scan_watch = make_static!(ScanWatch, ScanWatch::new());
   let i2c_channel = make_static!(HexButtonChannel, HexButtonChannel::new());
   let wasm_ipc_channel = make_static!(WasmIpcChannel, WasmIpcChannel::new());
   let host_ipc_channel = make_static!(HostIpcChannel, HostIpcChannel::new());
@@ -191,17 +190,11 @@ async fn main(spawner: Spawner) {
 
   let ap_ip = Ipv4Addr::from_str("192.168.1.1").expect("Failed to parse AP IP!");
 
-  spawner
-    .spawn(connection_task(
-      device_state.clone(),
-      controller,
-      stack,
-      ap_ip,
-      wifi_command_channel.receiver(),
-      wifi_status_channel.sender(),
-      wifi_scan_watch.sender(),
-    ))
-    .ok();
+  // Create and initialize WiFi manager
+  // (Status is managed internally via WatchedValue)
+  let wifi_manager = HardwareWifiManager::new();
+
+  wifi_manager.spawn_connection_task(spawner, device_state.clone(), controller, stack, ap_ip);
 
   spawner.spawn(net_task(runner)).ok();
 
@@ -219,9 +212,11 @@ async fn main(spawner: Spawner) {
   let power_manager = Arc::new(HardwarePowerManager::new(sys_bus.clone()));
   let power = PowerHandle::new(power_manager);
 
-  let platform = HardwarePlatform::new_with_managers(led, power);
+  let wifi = WiFiHandle::new(wifi_manager);
 
-  let _ = platform.led().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
+  let platform = HardwarePlatform::new_with_managers(led, power, wifi);
+
+  let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 
   static APP_CORE_STACK: StaticCell<esp_hal::system::Stack<16384>> = StaticCell::new();
   let app_core_stack = APP_CORE_STACK.init(esp_hal::system::Stack::new());
@@ -249,8 +244,7 @@ async fn main(spawner: Spawner) {
     device_state.clone(),
     http_channel.sender(),
     web_socket_incoming_channel.sender(),
-    wifi_command_channel.sender(),
-    wifi_scan_watch,
+    platform.clone(),
   );
 
   print_memory_info();
@@ -258,18 +252,18 @@ async fn main(spawner: Spawner) {
   let runner_ctx = MenuRunnerContext {
     stack,
     local_fs: local_fs.clone(),
-    device_state,
+    device_state: device_state.clone(),
     system_receiver: system_watch.receiver().unwrap(),
     hex_button_subscriber: i2c_channel.subscriber().unwrap(),
-    wifi_command_sender: wifi_command_channel.sender(),
-    wifi_status_receiver: wifi_status_channel.receiver(),
-    wifi_scan_watch,
     http_event_receiver: http_channel.receiver(),
     host_ipc_sender: host_ipc_channel.sender(),
     wasm_ipc_channel,
     lcd_signal,
-    platform,
+    platform: platform.clone(),
   };
+
+  // Spawn WiFi monitor task to handle status changes
+  spawner.spawn(wifi_monitor_task(platform, lcd_signal, device_state.clone())).ok();
 
   spawner.spawn(menu_task(runner_ctx)).ok();
 

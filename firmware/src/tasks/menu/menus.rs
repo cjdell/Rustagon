@@ -1,4 +1,5 @@
 use crate::{
+  platform::Platform,
   tasks::menu::types::{ItemType, MenuOption},
   timeout_result,
   types::*,
@@ -64,16 +65,14 @@ impl Into<MenuOption> for &FileEntry {
 
 // Dynamic menu provider (example: WiFi networks)
 pub struct DynamicWifiMenu {
-  wifi_command_sender: WifiCommandSender,
-  scan_signal: &'static ScanWatch,
+  platform: crate::platform::HardwarePlatform,
   results: Option<Vec<WifiResult>>,
 }
 
 impl DynamicWifiMenu {
-  pub fn new(wifi_command_sender: WifiCommandSender, scan_signal: &'static ScanWatch) -> Self {
+  pub fn new(platform: crate::platform::HardwarePlatform) -> Self {
     Self {
-      wifi_command_sender,
-      scan_signal,
+      platform,
       results: None,
     }
   }
@@ -82,14 +81,18 @@ impl DynamicWifiMenu {
 impl MenuProvider for DynamicWifiMenu {
   async fn get_items(&mut self) -> Vec<MenuOption> {
     if self.results.is_none() {
-      let mut scan_receiver = self.scan_signal.receiver().unwrap();
-
-      self.wifi_command_sender.send(WifiCommandMessage::Scan).await;
-
-      let results = match timeout_result!(scan_receiver.get(), 5_000, "Scan") {
-        Ok(results) => results,
-        Err(_) => vec![],
-      };
+      // Scan WiFi networks via platform
+      let platform_results = self.platform.wifi_manager().scan().await;
+      
+      // Convert from platform WifiResult to types::WifiResult
+      let results: Vec<WifiResult> = platform_results
+        .iter()
+        .map(|r| WifiResult {
+          ssid: r.ssid.clone(),
+          signal_strength: r.signal_strength,
+          password_required: r.password_required,
+        })
+        .collect();
 
       self.results = Some(results);
     }

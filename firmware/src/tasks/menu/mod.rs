@@ -9,7 +9,7 @@ use crate::{apps::*, platform::Platform, protocol::*, types::*, utils::*};
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use core::future::join;
 use embassy_futures::{
-  select::{Either5, select5},
+  select::{Either4, select4},
   yield_now,
 };
 use embassy_sync::rwlock::RwLock;
@@ -31,15 +31,12 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
     local_fs: runner_ctx.local_fs.clone(),
     device_state: runner_ctx.device_state.clone(),
     platform: runner_ctx.platform.clone(),
-    wifi_command_sender: runner_ctx.wifi_command_sender,
-    wifi_status_receiver: runner_ctx.wifi_status_receiver,
-    wifi_scan_watch: runner_ctx.wifi_scan_watch,
     host_ipc_sender: runner_ctx.host_ipc_sender,
     lcd_signal: runner_ctx.lcd_signal,
     menu_app_input_channel,
   };
 
-  runner_ctx.wifi_command_sender.send(WifiCommandMessage::ChangeState(WifiDesiredState::Online)).await;
+  runner_ctx.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Online).await;
 
   let app = Arc::new(RwLock::new(AppState::None));
 
@@ -60,16 +57,15 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
       print!("m");
       state.refresh().await;
 
-      match select5(
+      match select4(
         runner_ctx.system_receiver.changed(),
-        runner_ctx.wifi_status_receiver.receive(),
         runner_ctx.hex_button_subscriber.next_message_pure(),
         runner_ctx.wasm_ipc_channel.receive(),
         runner_ctx.http_event_receiver.receive(),
       )
       .await
       {
-        Either5::First(system) => {
+        Either4::First(system) => {
           // println!("First: {:?}", system);
           match system {
             SystemMessage::BootButton => {
@@ -87,58 +83,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             }
           };
         }
-        Either5::Second(wifi_status) => {
-          // println!("Second: {:?}", wifi_status);
-          match wifi_status {
-            WifiStatusMessage::Connected(ipv4_addr) => {
-              state.wifi_status = WifiStatus::Connected(ipv4_addr);
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Wifi, "Connected".to_string()));
-              let _ = runner_ctx.platform.led().request(LedRequest::Solid(LedState { r: 0, g: 0, b: 255 }));
-              sleep(2_000).await;
-              let _ = runner_ctx.platform.led().request(LedRequest::Rainbow);
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, format!("IP: {}", ipv4_addr)));
-              sleep(2_000).await;
-            }
-            WifiStatusMessage::AccessPointActive => {
-              state.wifi_status = WifiStatus::AccessPoint;
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "AP Mode Active".to_string()));
-              let _ = runner_ctx.platform.led().request(LedRequest::Fire);
-              sleep(2_000).await;
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(
-                Icon40::Info,
-                format!("AP: {}", runner_ctx.device_state.get_data().ap_ssid),
-              ));
-              sleep(2_000).await;
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, format!("IP: 192.168.1.1")));
-              sleep(2_000).await;
-            }
-            WifiStatusMessage::NoNetworksFound => {
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Warn, "No Networks Found :-(".to_string()));
-              let _ = runner_ctx.platform.led().request(LedRequest::Solid(LedState { r: 255, g: 0, b: 0 }));
-              sleep(1_000).await;
-            }
-            WifiStatusMessage::Interrupted => {
-              state.wifi_status = WifiStatus::Offline;
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Warn, "Interrupted".to_string()));
-              let _ = runner_ctx.platform.led().request(LedRequest::Solid(LedState { r: 255, g: 0, b: 0 }));
-              sleep(1_000).await;
-            }
-            WifiStatusMessage::Disconnected => {
-              state.wifi_status = WifiStatus::Offline;
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Disconnected".to_string()));
-              let _ = runner_ctx.platform.led().request(LedRequest::Solid(LedState { r: 255, g: 255, b: 0 }));
-              sleep(1_000).await;
-            }
-            WifiStatusMessage::Reset => {
-              state.wifi_status = WifiStatus::Offline;
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Warn, "Reset".to_string()));
-              sleep(1_000).await;
-            }
-          };
-
-          state.menu_options = state.get_menu_provider().get_items().await;
-        }
-        Either5::Third(I2cMessage::HexButton(hex)) => {
+        Either4::Second(I2cMessage::HexButton(hex)) => {
           println!("Third: {:?}", hex);
           let app_running = app.try_read().map(|app| if let AppState::None = *app { false } else { true }).unwrap_or(true);
 
@@ -162,7 +107,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
                 }
               }
               HexButton::Right => {
-                let _ = runner_ctx.platform.led().request(LedRequest::Sparkle(LedState::new(255, 255, 255)));
+                let _ = runner_ctx.platform.led_manager().request(LedRequest::Sparkle(LedState::new(255, 255, 255)));
               }
               HexButton::Fire => {
                 runner_ctx.lcd_signal.signal(LcdScreen::Progress("Please wait...".to_string()));
@@ -181,7 +126,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             }
           }
         }
-        Either5::Fourth((wasm_req_id, wasm_ipc_message)) => {
+        Either4::Third((wasm_req_id, wasm_ipc_message)) => {
           // println!("Fourth: {:?}", wasm_ipc_message);
           match wasm_ipc_message {
             WasmIpcMessage::Started => {
@@ -219,7 +164,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             }
           };
         }
-        Either5::Fifth(http_message) => {
+        Either4::Fourth(http_message) => {
           // println!("Fifth: {:?}", http_message);
           match http_message {
             HttpStatusMessage::ReceivedFile(buffer) => {

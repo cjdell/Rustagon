@@ -98,15 +98,8 @@ pub enum WifiCommandMessage {
   OverrideConnect(String, String),
 }
 
-#[derive(Debug)]
-pub enum WifiStatusMessage {
-  Connected(Ipv4Addr),
-  AccessPointActive,
-  NoNetworksFound,
-  Interrupted,
-  Disconnected,
-  Reset,
-}
+// WiFi status is now defined in platform/wifi/traits.rs as WifiStatus
+// and used throughout the codebase via the Platform trait
 
 #[derive(Debug)]
 pub enum WifiDesiredState {
@@ -118,13 +111,15 @@ pub type WifiCommandChannel = Channel<CriticalSectionRawMutex, WifiCommandMessag
 pub type WifiCommandSender = Sender<'static, CriticalSectionRawMutex, WifiCommandMessage, 10>;
 pub type WifiCommandReceiver = Receiver<'static, CriticalSectionRawMutex, WifiCommandMessage, 10>;
 
-pub type WifiStatusChannel = Channel<CriticalSectionRawMutex, WifiStatusMessage, 10>;
-pub type WifiStatusSender = Sender<'static, CriticalSectionRawMutex, WifiStatusMessage, 10>;
-pub type WifiStatusReceiver = Receiver<'static, CriticalSectionRawMutex, WifiStatusMessage, 10>;
+// WiFi status now uses watch channels instead - see WifiStatusWatch types below
 
 pub type ScanWatch = watch::Watch<CriticalSectionRawMutex, Vec<WifiResult>, 2>;
 pub type ScanSender = watch::Sender<'static, CriticalSectionRawMutex, Vec<WifiResult>, 2>;
 pub type ScanReceiver = watch::Receiver<'static, CriticalSectionRawMutex, Vec<WifiResult>, 2>;
+
+pub type WifiStatusWatch = watch::Watch<CriticalSectionRawMutex, crate::platform::WifiStatus, 1>;
+pub type WifiStatusWatchSender = watch::Sender<'static, CriticalSectionRawMutex, crate::platform::WifiStatus, 1>;
+pub type WifiStatusWatchReceiver = watch::Receiver<'static, CriticalSectionRawMutex, crate::platform::WifiStatus, 1>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WifiResult {

@@ -129,8 +129,7 @@ impl MenuState {
         path: path.clone(),
       })),
       Menu::Wifi => MenuTypes::DynamicWifiMenu(Box::new(DynamicWifiMenu::new(
-        self.ctx.wifi_command_sender,
-        self.ctx.wifi_scan_watch,
+        self.ctx.platform.clone(),
       ))),
     }
   }

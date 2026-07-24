@@ -1,5 +1,5 @@
-use crate::{timeout_result, types::*};
-use alloc::vec;
+use crate::{platform::Platform, timeout_result, types::*};
+use alloc::vec::Vec;
 use embedded_io_async::Read;
 use picoserve::{
   ResponseSent,
@@ -9,16 +9,12 @@ use picoserve::{
 };
 
 pub struct HandleWifiScan {
-  wifi_command_sender: WifiCommandSender,
-  scan_signal: &'static ScanWatch,
+  platform: crate::platform::HardwarePlatform,
 }
 
 impl HandleWifiScan {
-  pub fn new(wifi_command_sender: WifiCommandSender, scan_signal: &'static ScanWatch) -> Self {
-    Self {
-      wifi_command_sender,
-      scan_signal,
-    }
+  pub fn new(platform: crate::platform::HardwarePlatform) -> Self {
+    Self { platform }
   }
 }
 
@@ -30,14 +26,17 @@ impl RequestHandlerService<()> for HandleWifiScan {
     request: Request<'_, R>,
     response_writer: W,
   ) -> Result<ResponseSent, W::Error> {
-    self.wifi_command_sender.send(WifiCommandMessage::Scan).await;
+    let results = self.platform.wifi_manager().scan().await;
 
-    let mut scan_receiver = self.scan_signal.receiver().unwrap();
-
-    let results = match timeout_result!(scan_receiver.get(), 5_000, "Scan") {
-      Ok(results) => results,
-      Err(_) => vec![],
-    };
+    // Convert platform WifiResult to types::WifiResult for serialization
+    let results: Vec<crate::types::WifiResult> = results
+      .iter()
+      .map(|r| crate::types::WifiResult {
+        ssid: r.ssid.clone(),
+        signal_strength: r.signal_strength,
+        password_required: r.password_required,
+      })
+      .collect();
 
     let json = serde_json::to_string(&results).unwrap();
 

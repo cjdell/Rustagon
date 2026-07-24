@@ -42,10 +42,10 @@ impl MenuState {
           Setting::WifiToggle => {
             if let WifiStatus::Offline = self.wifi_status {
               info!("Menu: Online");
-              self.ctx.wifi_command_sender.send(WifiCommandMessage::ChangeState(WifiDesiredState::Online)).await;
+              self.ctx.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Online).await;
             } else {
               info!("Menu: Offline");
-              self.ctx.wifi_command_sender.send(WifiCommandMessage::ChangeState(WifiDesiredState::Offline)).await;
+              self.ctx.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Offline).await;
             }
           }
           Setting::WifiMode => {
@@ -91,7 +91,7 @@ impl MenuState {
       MenuOption::Text { text: _ } => {}
       MenuOption::Back => new_menu = Some(Menu::Root),
       MenuOption::PowerOff => {
-        self.ctx.platform.power().power_off().await;
+        self.ctx.platform.power_manager().power_off().await;
       }
     };
 

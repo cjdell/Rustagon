@@ -1,4 +1,4 @@
-use crate::{device::DeviceConfigurator as _, types::*};
+use crate::{device::DeviceConfigurator as _, platform::Platform, types::*};
 use alloc::{format, vec::Vec};
 use embedded_io_async::Read;
 use esp_alloc::ExternalMemory;
@@ -11,14 +11,14 @@ use picoserve::{
 
 pub struct HandleWifiJoin {
   device_state: DeviceState,
-  wifi_command_sender: WifiCommandSender,
+  platform: crate::platform::HardwarePlatform,
 }
 
 impl HandleWifiJoin {
-  pub fn new(device_state: DeviceState, wifi_command_sender: WifiCommandSender) -> Self {
+  pub fn new(device_state: DeviceState, platform: crate::platform::HardwarePlatform) -> Self {
     Self {
       device_state,
-      wifi_command_sender,
+      platform,
     }
   }
 }
@@ -44,7 +44,8 @@ impl RequestHandlerService<()> for HandleWifiJoin {
 
     match self.device_state.get_data().wifi_mode {
       WifiMode::Station => {
-        self.wifi_command_sender.send(WifiCommandMessage::OverrideConnect(network.ssid, network.pass)).await;
+        // WiFi manager will automatically rescan and reconnect
+        self.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Online).await;
       }
       WifiMode::AccessPoint => {
         if let Err(err) = self.device_state.set_wifi_mode(WifiMode::Station) {
