@@ -1,76 +1,15 @@
-use crate::{d_i2c::*, types::*, utils::*, *};
-use alloc::boxed::Box;
-use alloc::vec;
-use aw9523b::Pin;
-use embassy_time::{Duration, Timer};
-use embedded_hal::digital::OutputPin as _;
+use crate::utils::led_service::LedState;
+use crate::types::NUM_LEDS;
 use esp_hal::time::Instant;
-use esp_println::println;
-use log::info;
-
-#[embassy_executor::task]
-pub async fn led_task(sys_bus: MaskedI2cBus, led_receiver: LedReceiver) {
-  info!("Starting LED Task...");
-
-  let mut led_power_enable = Aw9523bOutputPin::new(sys_bus, I2C_2, Pin::P02);
-
-  led_power_enable.set_high().unwrap();
-
-  let mut led_service = LedService::new();
-
-  // Start with off effect
-  let mut current_effect: Box<dyn LedEffect> = Box::new(SolidEffect {
-    colour: LedState { r: 255, g: 0, b: 0 },
-  });
-
-  let mut counter = 0;
-
-  loop {
-    // Check for new requests (non-blocking)
-    if let Ok(new_request) = led_receiver.try_receive() {
-      println!("new_request: {new_request:?}");
-
-      current_effect = match new_request {
-        LedRequest::Off => Box::new(OffEffect),
-        LedRequest::Solid(led_state) => Box::new(SolidEffect { colour: led_state }),
-        LedRequest::Rainbow => Box::new(RainbowEffect::new(0.1)), // 0.1 degrees per ms
-        LedRequest::Breathe(led_state) => Box::new(BreatheEffect::new(led_state, 0.001)),
-        LedRequest::Chase(led_state) => Box::new(ChaseEffect::new(led_state, 5, 50)),
-        LedRequest::Sparkle(led_state) => Box::new(SparkleEffect::new(led_state, 0.3, 100)),
-        LedRequest::TheaterChase(led_state) => Box::new(TheaterChaseEffect::new(led_state, 3, 100)),
-        LedRequest::Fire => Box::new(FireEffect::new(55, 120, 30)),
-      };
-    }
-
-    let now_ms: u64 = Instant::now().duration_since_epoch().as_millis();
-
-    // Update and render current effect
-    // The borrow is released at the end of this statement
-    let states = current_effect.update_and_render(now_ms);
-
-    let internal_led = if counter % 2 == 0 {
-      LedState::new(255, 0, 0)
-    } else {
-      LedState::new(0, 0, 255)
-    };
-
-    // Total of 13 in the strip
-    let states = vec![[internal_led].to_vec(), states.to_vec()].concat();
-
-    led_service.send(&states).await;
-
-    Timer::after(Duration::from_millis(10)).await;
-
-    counter += 1;
-  }
-}
 
 /// Trait for LED effects
+/// Implementations define how to update and render LED states over time
 pub trait LedEffect {
   /// Update effect state and render to LEDs
   fn update_and_render(&mut self, now_ms: u64) -> [LedState; NUM_LEDS];
 }
 
+/// All LEDs off
 pub struct OffEffect;
 
 impl LedEffect for OffEffect {
@@ -79,8 +18,9 @@ impl LedEffect for OffEffect {
   }
 }
 
+/// Solid color on all LEDs
 pub struct SolidEffect {
-  colour: LedState,
+  pub colour: LedState,
 }
 
 impl LedEffect for SolidEffect {
@@ -401,11 +341,3 @@ fn heat_color(temperature: u8) -> LedState {
     LedState::new(255, 255, heatramp_scaled)
   }
 }
-
-// loop {
-//   led_service.send(&[LedState::new(255, 0, 0); NUM_LEDS]).await;
-//   Timer::after(Duration::from_millis(1_000)).await;
-
-//   led_service.send(&[LedState::new(0, 255, 0); NUM_LEDS]).await;
-//   Timer::after(Duration::from_millis(1_000)).await;
-// }

@@ -31,7 +31,10 @@ use esp_storage::FlashStorage;
 use firmware::tasks::*;
 use firmware::types::*;
 use firmware::utils::*;
-use firmware::{d_i2c::*, platform::Platform};
+use firmware::{
+  d_i2c::*,
+  platform::{self, HardwarePlatform, Platform},
+};
 use log::{error, info, warn};
 use picoserve::make_static;
 use static_cell::StaticCell;
@@ -90,7 +93,6 @@ async fn main(spawner: Spawner) {
   let system_watch: &mut embassy_sync::watch::Watch<CriticalSectionRawMutex, SystemMessage, 1> =
     make_static!(SystemWatch, SystemWatch::new());
   let lcd_signal = make_static!(LcdSignal, LcdSignal::new());
-  let led_channel = make_static!(LedChannel, LedChannel::new());
   let wifi_command_channel = make_static!(WifiCommandChannel, WifiCommandChannel::new());
   let wifi_status_channel = make_static!(WifiStatusChannel, WifiStatusChannel::new());
   let wifi_scan_watch = make_static!(ScanWatch, ScanWatch::new());
@@ -184,13 +186,8 @@ async fn main(spawner: Spawner) {
 
   print_memory_info();
 
-  spawner.spawn(led_task(sys_bus.clone(), led_channel.receiver())).ok();
-
-  print_memory_info();
-
   println!("Starting connection...");
   lcd_signal.signal(LcdScreen::Progress("Connecting...".to_string()));
-  led_channel.send(LedRequest::Breathe(LedState::new(255, 0, 0))).await;
 
   print_memory_info();
 
@@ -217,8 +214,10 @@ async fn main(spawner: Spawner) {
 
   print_memory_info();
 
-  // New platform
-  let platform = Platform::new(sys_bus.clone());
+  // Initialize platform with hardware managers
+  let platform = HardwarePlatform::new(&spawner, sys_bus.clone());
+
+  platform.led().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 
   static APP_CORE_STACK: StaticCell<esp_hal::system::Stack<16384>> = StaticCell::new();
   let app_core_stack = APP_CORE_STACK.init(esp_hal::system::Stack::new());
@@ -266,7 +265,7 @@ async fn main(spawner: Spawner) {
     host_ipc_sender: host_ipc_channel.sender(),
     wasm_ipc_channel,
     lcd_signal,
-    led_sender: led_channel.sender(),
+    platform,
   };
 
   spawner.spawn(menu_task(runner_ctx)).ok();

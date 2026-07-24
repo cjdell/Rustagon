@@ -5,7 +5,7 @@ pub mod types;
 
 pub use types::*;
 
-use crate::{apps::*, protocol::*, types::*, utils::*};
+use crate::{apps::*, platform::Platform, protocol::*, types::*, utils::*};
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use core::future::join;
 use embassy_futures::{
@@ -93,16 +93,16 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             WifiStatusMessage::Connected(ipv4_addr) => {
               state.wifi_status = WifiStatus::Connected(ipv4_addr);
               runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Wifi, "Connected".to_string()));
-              runner_ctx.led_sender.send(LedRequest::Solid(LedState { r: 0, g: 0, b: 255 })).await;
+              let _ = runner_ctx.platform.led().request(LedRequest::Solid(LedState { r: 0, g: 0, b: 255 }));
               sleep(2_000).await;
-              runner_ctx.led_sender.send(LedRequest::Rainbow).await;
+              let _ = runner_ctx.platform.led().request(LedRequest::Rainbow);
               runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, format!("IP: {}", ipv4_addr)));
               sleep(2_000).await;
             }
             WifiStatusMessage::AccessPointActive => {
               state.wifi_status = WifiStatus::AccessPoint;
               runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "AP Mode Active".to_string()));
-              runner_ctx.led_sender.send(LedRequest::Fire).await;
+              let _ = runner_ctx.platform.led().request(LedRequest::Fire);
               sleep(2_000).await;
               runner_ctx.lcd_signal.signal(LcdScreen::Headline(
                 Icon40::Info,
@@ -114,19 +114,19 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             }
             WifiStatusMessage::NoNetworksFound => {
               runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Warn, "No Networks Found :-(".to_string()));
-              runner_ctx.led_sender.send(LedRequest::Solid(LedState { r: 255, g: 0, b: 0 })).await;
+              let _ = runner_ctx.platform.led().request(LedRequest::Solid(LedState { r: 255, g: 0, b: 0 }));
               sleep(1_000).await;
             }
             WifiStatusMessage::Interrupted => {
               state.wifi_status = WifiStatus::Offline;
               runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Warn, "Interrupted".to_string()));
-              runner_ctx.led_sender.send(LedRequest::Solid(LedState { r: 255, g: 0, b: 0 })).await;
+              let _ = runner_ctx.platform.led().request(LedRequest::Solid(LedState { r: 255, g: 0, b: 0 }));
               sleep(1_000).await;
             }
             WifiStatusMessage::Disconnected => {
               state.wifi_status = WifiStatus::Offline;
               runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Disconnected".to_string()));
-              runner_ctx.led_sender.send(LedRequest::Solid(LedState { r: 255, g: 255, b: 0 })).await;
+              let _ = runner_ctx.platform.led().request(LedRequest::Solid(LedState { r: 255, g: 255, b: 0 }));
               sleep(1_000).await;
             }
             WifiStatusMessage::Reset => {
@@ -162,7 +162,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
                 }
               }
               HexButton::Right => {
-                runner_ctx.led_sender.send(LedRequest::Sparkle(LedState::new(255, 255, 255))).await;
+                let _ = runner_ctx.platform.led().request(LedRequest::Sparkle(LedState::new(255, 255, 255)));
               }
               HexButton::Fire => {
                 runner_ctx.lcd_signal.signal(LcdScreen::Progress("Please wait...".to_string()));

@@ -100,7 +100,7 @@ pub struct MenuRunnerContext {
   pub wasm_ipc_channel: &'static WasmIpcChannel,
 
   pub lcd_signal: &'static LcdSignal,
-  pub led_sender: LedSender,
+  pub platform: crate::platform::HardwarePlatform,
 }
 
 #[derive(Clone)]
