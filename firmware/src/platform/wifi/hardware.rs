@@ -5,12 +5,12 @@ use core::net::Ipv4Addr;
 use core::pin::Pin;
 use core::sync::atomic::Ordering;
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_hal::time::Instant;
 use esp_radio::wifi::{
   AuthenticationMethod, ModeConfig, WifiController, WifiDevice,
-  ap::AccessPointConfig,
+  ap::{AccessPointConfig, AccessPointInfo},
   scan::{ScanConfig, ScanTypeConfig},
   sta::StationConfig,
 };
@@ -20,6 +20,10 @@ use crate::types::DeviceConfig;
 use crate::utils::{PersistentStateService, WatchedValue};
 
 const RETRY_INTERVAL: u64 = 60_000;
+
+/// How long `scan()` waits for the connection task to service an on-demand scan
+/// before falling back to the last cached results.
+const SCAN_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Hardware WiFi Manager using ESP32 WiFi controller
 ///
@@ -32,6 +36,11 @@ pub struct HardwareWifiManager {
   status: WatchedValue<WifiStatus>,
   desired_state: Arc<RwLock<CriticalSectionRawMutex, WifiDesiredState>>,
   last_scan_results: Arc<RwLock<CriticalSectionRawMutex, Vec<WifiResult>>>,
+  /// Signalled by `scan()` to ask the connection task (which owns the controller)
+  /// to perform a fresh scan.
+  scan_request: Arc<Signal<CriticalSectionRawMutex, ()>>,
+  /// Signalled by the connection task once a requested scan has completed.
+  scan_complete: Arc<Signal<CriticalSectionRawMutex, Vec<WifiResult>>>,
   connection_attempts: Arc<core::sync::atomic::AtomicU32>,
   successful_connections: Arc<core::sync::atomic::AtomicU32>,
 }
@@ -42,6 +51,8 @@ impl HardwareWifiManager {
       status: WatchedValue::new(WifiStatus::Offline),
       desired_state: Arc::new(RwLock::new(WifiDesiredState::Offline)),
       last_scan_results: Arc::new(RwLock::new(Vec::new())),
+      scan_request: Arc::new(Signal::new()),
+      scan_complete: Arc::new(Signal::new()),
       connection_attempts: Arc::new(core::sync::atomic::AtomicU32::new(0)),
       successful_connections: Arc::new(core::sync::atomic::AtomicU32::new(0)),
     }
@@ -51,6 +62,11 @@ impl HardwareWifiManager {
   /// Called by the connection task when status changes
   pub(crate) async fn set_status(&self, new_status: WifiStatus) {
     self.status.set(new_status).await;
+  }
+
+  /// Cache scan results so they can be served without hitting the radio again
+  pub(crate) async fn store_scan_results(&self, results: Vec<WifiResult>) {
+    *self.last_scan_results.write().await = results;
   }
 
   /// Spawn the background connection task
@@ -85,6 +101,9 @@ pub async fn wifi_connection_task(
 
   loop {
     Timer::after(Duration::from_millis(1_000)).await;
+
+    // Serve any pending on-demand scan before doing connection work
+    service_scan_request(&mut controller, &manager).await;
 
     let desired_state = *manager.desired_state.read().await;
 
@@ -157,6 +176,8 @@ pub async fn wifi_connection_task(
             for _ in 0..3 {
               match controller.scan_with_config_async(ScanConfig::default()).await {
                 Ok(found_networks) => {
+                  manager.store_scan_results(to_wifi_results(&found_networks)).await;
+
                   for found_network in found_networks {
                     for known in device_config.get_data().known_wifi_networks {
                       if known.ssid == found_network.ssid {
@@ -301,6 +322,68 @@ pub async fn wifi_connection_task(
   }
 }
 
+/// Convert raw scan output into platform `WifiResult`s, strongest first and de-duplicated
+/// by SSID (the same network is often seen on multiple channels/bands).
+fn to_wifi_results(found_networks: &[AccessPointInfo]) -> Vec<WifiResult> {
+  let mut results: Vec<WifiResult> = Vec::new();
+
+  for found_network in found_networks {
+    let ssid = found_network.ssid.as_str();
+
+    if ssid.is_empty() {
+      continue;
+    }
+
+    let password_required = !matches!(found_network.auth_method, None | Some(AuthenticationMethod::None));
+
+    match results.iter_mut().find(|r| r.ssid == ssid) {
+      Some(existing) => {
+        if found_network.signal_strength > existing.signal_strength {
+          existing.signal_strength = found_network.signal_strength;
+          existing.password_required = password_required;
+        }
+      }
+      None => results.push(WifiResult {
+        ssid: String::from(ssid),
+        signal_strength: found_network.signal_strength,
+        password_required,
+      }),
+    }
+  }
+
+  results.sort_by(|a, b| b.signal_strength.cmp(&a.signal_strength));
+  results
+}
+
+/// Service a pending `scan()` request from the application (e.g. the HTTP wifi scan
+/// endpoint). The connection task owns the controller, so all scans must go through here.
+async fn service_scan_request(controller: &mut WifiController<'static>, manager: &HardwareWifiManager) {
+  if !manager.scan_request.signaled() {
+    return;
+  }
+
+  manager.scan_request.reset();
+
+  if !controller.is_started().unwrap_or_default() {
+    error!("WiFi: Scan requested but controller is not started");
+    manager.scan_complete.signal(manager.last_scan_results.read().await.clone());
+    return;
+  }
+
+  info!("WiFi: Servicing on-demand scan request");
+
+  let results = match controller.scan_with_config_async(ScanConfig::default()).await {
+    Ok(found_networks) => to_wifi_results(&found_networks),
+    Err(err) => {
+      error!("WiFi: Scan Error: {err:?}");
+      manager.last_scan_results.read().await.clone()
+    }
+  };
+
+  manager.store_scan_results(results.clone()).await;
+  manager.scan_complete.signal(results);
+}
+
 async fn check_connectivity(stack: embassy_net::Stack<'_>) -> bool {
   let mut check_retry_count = 5;
 
@@ -378,10 +461,21 @@ impl WiFiManager for HardwareWifiManager {
 
   fn scan(&self) -> Pin<Box<dyn core::future::Future<Output = Vec<WifiResult>> + Send + '_>> {
     let scan_results = self.last_scan_results.clone();
+    let scan_request = self.scan_request.clone();
+    let scan_complete = self.scan_complete.clone();
+
     Box::pin(async move {
-      // Return the last scan results
-      // In practice, the connection task performs scans and updates this
-      scan_results.read().await.clone()
+      // The connection task owns the controller, so ask it to scan on our behalf
+      scan_complete.reset();
+      scan_request.signal(());
+
+      match embassy_time::with_timeout(SCAN_TIMEOUT, scan_complete.wait()).await {
+        Ok(results) => results,
+        Err(_) => {
+          error!("WiFi: Scan request timed out, returning cached results");
+          scan_results.read().await.clone()
+        }
+      }
     })
   }
 
