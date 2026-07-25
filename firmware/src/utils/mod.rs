@@ -1,5 +1,6 @@
 pub mod cpu_guard;
 pub mod dns;
+pub mod event_queue;
 pub mod flash_stream;
 pub mod gpio;
 pub mod graphics;
@@ -12,6 +13,7 @@ pub mod spi;
 pub mod state;
 pub mod watched_value;
 
+pub use event_queue::*;
 pub use gpio::*;
 pub use graphics::*;
 pub use http::*;

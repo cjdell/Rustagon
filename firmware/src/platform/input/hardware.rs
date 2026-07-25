@@ -1,39 +1,32 @@
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use aw9523b::{Aw9523b, Dir, Pin};
 use crate::d_i2c::*;
 use core::fmt;
 use embassy_executor::Spawner;
-use embassy_sync::{
-  blocking_mutex::raw::CriticalSectionRawMutex,
-  channel::{Receiver, Sender},
-};
 use embassy_time::{Duration, Timer};
 
 use super::traits::*;
-use crate::utils::MaskedI2cBus;
+use crate::utils::{EventQueue, MaskedI2cBus};
+
+/// Depth of the pending button event queue.
+const EVENT_QUEUE_DEPTH: usize = 10;
+
+type ButtonEventQueue = EventQueue<HexButton, EVENT_QUEUE_DEPTH>;
 
 /// Hardware Input Manager for button press events
 /// 
 /// Spawns a background task that monitors I2C GPIO expanders for button presses
 #[derive(Clone)]
 pub struct HardwareInputManager {
-  button_rx: Arc<Receiver<'static, CriticalSectionRawMutex, HexButton, 10>>,
+  events: ButtonEventQueue,
 }
 
 impl HardwareInputManager {
   /// Create a new hardware input manager and spawn the I2C monitoring task
-  pub fn new(
-    spawner: Spawner,
-    sys_bus: MaskedI2cBus,
-    top_bus: MaskedI2cBus,
-    button_tx: Sender<'static, CriticalSectionRawMutex, HexButton, 10>,
-    button_rx: Receiver<'static, CriticalSectionRawMutex, HexButton, 10>,
-  ) -> Self {
-    spawner.spawn(button_monitoring_task(sys_bus, top_bus, button_tx)).ok();
-    Self {
-      button_rx: Arc::new(button_rx),
-    }
+  pub fn new(spawner: Spawner, sys_bus: MaskedI2cBus, top_bus: MaskedI2cBus) -> Self {
+    let events = ButtonEventQueue::new();
+    spawner.spawn(button_monitoring_task(sys_bus, top_bus, events.clone())).ok();
+    Self { events }
   }
 }
 
@@ -45,21 +38,16 @@ impl fmt::Debug for HardwareInputManager {
 
 impl InputManager for HardwareInputManager {
   fn next_button(&self) -> core::pin::Pin<Box<dyn core::future::Future<Output = HexButton> + Send + '_>> {
-    let rx = self.button_rx.clone();
-    Box::pin(async move {
-      // Clone the receiver for this specific wait
-      let mut rx_clone = (*rx).clone();
-      rx_clone.receive().await
-    })
+    Box::pin(self.events.next())
+  }
+
+  fn inject_button(&self, button: HexButton) -> core::pin::Pin<Box<dyn core::future::Future<Output = ()> + Send + '_>> {
+    Box::pin(self.events.push(button))
   }
 }
 
 #[embassy_executor::task]
-async fn button_monitoring_task(
-  sys_bus: MaskedI2cBus,
-  top_bus: MaskedI2cBus,
-  sender: Sender<'static, CriticalSectionRawMutex, HexButton, 10>,
-) {
+async fn button_monitoring_task(sys_bus: MaskedI2cBus, top_bus: MaskedI2cBus, events: ButtonEventQueue) {
   let mut gpio_i2c_1 = Aw9523b::new(sys_bus.clone(), I2C_1);
   let mut gpio_i2c_2 = Aw9523b::new(sys_bus.clone(), I2C_2);
   let mut gpio_i2c_3 = Aw9523b::new(top_bus, I2C_3);
@@ -104,32 +92,27 @@ async fn button_monitoring_task(
     let hex_e_pressed = gpio_i2c_3.pin_is_low(Pin::P14).unwrap_or_default();
     let hex_f_pressed = gpio_i2c_3.pin_is_low(Pin::P13).unwrap_or_default();
 
-    handle_button_press(&sender, a_pressed, &mut button_a_down, HexButton::Up).await;
-    handle_button_press(&sender, b_pressed, &mut button_b_down, HexButton::Right).await;
-    handle_button_press(&sender, c_pressed, &mut button_c_down, HexButton::Fire).await;
-    handle_button_press(&sender, d_pressed, &mut button_d_down, HexButton::Down).await;
-    handle_button_press(&sender, f_pressed, &mut button_f_down, HexButton::Left).await;
+    handle_button_press(&events, a_pressed, &mut button_a_down, HexButton::Up).await;
+    handle_button_press(&events, b_pressed, &mut button_b_down, HexButton::Right).await;
+    handle_button_press(&events, c_pressed, &mut button_c_down, HexButton::Fire).await;
+    handle_button_press(&events, d_pressed, &mut button_d_down, HexButton::Down).await;
+    handle_button_press(&events, f_pressed, &mut button_f_down, HexButton::Left).await;
 
-    handle_button_press(&sender, hex_a_pressed, &mut hex_a_down, HexButton::HexA).await;
-    handle_button_press(&sender, hex_b_pressed, &mut hex_b_down, HexButton::HexB).await;
-    handle_button_press(&sender, hex_c_pressed, &mut hex_c_down, HexButton::HexC).await;
-    handle_button_press(&sender, hex_d_pressed, &mut hex_d_down, HexButton::HexD).await;
-    handle_button_press(&sender, hex_e_pressed, &mut hex_e_down, HexButton::HexE).await;
-    handle_button_press(&sender, hex_f_pressed, &mut hex_f_down, HexButton::HexF).await;
+    handle_button_press(&events, hex_a_pressed, &mut hex_a_down, HexButton::HexA).await;
+    handle_button_press(&events, hex_b_pressed, &mut hex_b_down, HexButton::HexB).await;
+    handle_button_press(&events, hex_c_pressed, &mut hex_c_down, HexButton::HexC).await;
+    handle_button_press(&events, hex_d_pressed, &mut hex_d_down, HexButton::HexD).await;
+    handle_button_press(&events, hex_e_pressed, &mut hex_e_down, HexButton::HexE).await;
+    handle_button_press(&events, hex_f_pressed, &mut hex_f_down, HexButton::HexF).await;
 
     Timer::after(Duration::from_millis(10)).await;
   }
 }
 
-async fn handle_button_press(
-  sender: &Sender<'static, CriticalSectionRawMutex, HexButton, 10>,
-  pressed: bool,
-  state: &mut bool,
-  button: HexButton,
-) {
+async fn handle_button_press(events: &ButtonEventQueue, pressed: bool, state: &mut bool, button: HexButton) {
   match (pressed, *state) {
     (true, false) => {
-      let _ = sender.send(button).await;
+      events.push(button).await;
       *state = true;
     }
     (false, true) => {

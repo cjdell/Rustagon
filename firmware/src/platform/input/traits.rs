@@ -15,6 +15,10 @@ pub trait InputManager: Send + Sync + fmt::Debug {
   /// Wait for the next button press
   /// Returns immediately with the next queued button event
   fn next_button(&self) -> Pin<Box<dyn Future<Output = HexButton> + Send + '_>>;
+
+  /// Inject a synthetic button press (e.g. remote control over WebSocket).
+  /// Consumers cannot distinguish this from a physical press.
+  fn inject_button(&self, button: HexButton) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
 /// Handle to an InputManager implementation
@@ -36,6 +40,11 @@ impl InputHandle {
   /// Wait for the next button press
   pub fn next_button(&self) -> Pin<Box<dyn Future<Output = HexButton> + Send + '_>> {
     self.inner.next_button()
+  }
+
+  /// Inject a synthetic button press (e.g. remote control over WebSocket)
+  pub fn inject_button(&self, button: HexButton) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+    self.inner.inject_button(button)
   }
 }
 

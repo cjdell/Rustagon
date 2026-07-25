@@ -8,6 +8,9 @@ pub use crate::types::SystemMessage;
 
 pub trait SystemManager: Send + Sync + fmt::Debug {
   fn next_button(&self) -> Pin<Box<dyn Future<Output = SystemMessage> + Send + '_>>;
+
+  /// Inject a synthetic system event (e.g. remote control over WebSocket).
+  fn inject(&self, message: SystemMessage) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
 #[derive(Clone)]
@@ -22,6 +25,11 @@ impl SystemHandle {
 
   pub fn next_button(&self) -> Pin<Box<dyn Future<Output = SystemMessage> + Send + '_>> {
     self.inner.next_button()
+  }
+
+  /// Inject a synthetic system event (e.g. remote control over WebSocket)
+  pub fn inject(&self, message: SystemMessage) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+    self.inner.inject(message)
   }
 }
 

@@ -99,15 +99,12 @@ async fn main(spawner: Spawner) {
   // let system_watch: &mut embassy_sync::watch::Watch<CriticalSectionRawMutex, SystemMessage, 1> = make_static!(SystemWatch, SystemWatch::new());
   let lcd_signal = make_static!(LcdSignal, LcdSignal::new());
   let i2c_channel = make_static!(HexButtonChannel, HexButtonChannel::new());
-  let button_event_channel = make_static!(ButtonEventChannel, ButtonEventChannel::new());
   let wasm_ipc_channel = make_static!(WasmIpcChannel, WasmIpcChannel::new());
   let host_ipc_channel = make_static!(HostIpcChannel, HostIpcChannel::new());
   let http_channel = make_static!(HttpChannel, HttpChannel::new());
   let web_socket_incoming_channel = make_static!(WebSocketIncomingChannel, WebSocketIncomingChannel::new());
 
   let i2c_publisher = i2c_channel.publisher().unwrap();
-  let button_event_sender = button_event_channel.sender();
-  let button_event_receiver = button_event_channel.receiver();
 
   spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal)).ok();
 
@@ -216,13 +213,7 @@ async fn main(spawner: Spawner) {
 
   let wifi = WiFiHandle::new(wifi_manager);
 
-  let input = InputHandle::new(HardwareInputManager::new(
-    spawner,
-    sys_bus.clone(),
-    top_bus.clone(),
-    button_event_sender,
-    button_event_receiver,
-  ));
+  let input = InputHandle::new(HardwareInputManager::new(spawner, sys_bus.clone(), top_bus.clone()));
 
   let system = SystemHandle::new(HardwareSystemManager::new(spawner, peripherals.GPIO0));
 
@@ -272,6 +263,8 @@ async fn main(spawner: Spawner) {
     platform: platform.clone(),
   };
 
+  let platform_for_ws = platform.clone();
+
   // Spawn WiFi monitor task to handle status changes
   spawner.spawn(wifi_monitor_task(platform, lcd_signal, device_state.clone())).ok();
 
@@ -280,7 +273,7 @@ async fn main(spawner: Spawner) {
   spawner
     .spawn(websocket_input_forwarder_task(
       web_socket_incoming_channel.receiver(),
-      i2c_channel.publisher().unwrap(),
+      platform_for_ws,
     ))
     .ok();
 
@@ -291,18 +284,16 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn websocket_input_forwarder_task(
-  web_socket_incoming_receiver: WebSocketIncomingReceiver,
-  hex_button_sender: HexButtonSender,
-  // system_sender: SystemSender,
-) {
+/// Forwards remote control events received over the WebSocket into the platform's
+/// input/system event queues, so they are indistinguishable from physical presses.
+async fn websocket_input_forwarder_task(web_socket_incoming_receiver: WebSocketIncomingReceiver, platform: HardwarePlatform) {
   loop {
     match web_socket_incoming_receiver.receive().await {
       WebSocketIncomingMessage::HexButton(hex_button) => {
-        hex_button_sender.publish(I2cMessage::HexButton(hex_button)).await;
+        platform.input_manager().inject_button(hex_button).await;
       }
-      WebSocketIncomingMessage::SystemMessage(button) => {
-        // system_sender.send(button);  // TODO!!!
+      WebSocketIncomingMessage::SystemMessage(message) => {
+        platform.system_manager().inject(message).await;
       }
     }
   }

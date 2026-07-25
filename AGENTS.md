@@ -108,6 +108,25 @@ The WiFi implementation demonstrates the **preferred pattern for manager state n
 
 **This pattern should be used for any manager that needs to store state and notify interested parties of changes.**
 
+### Event Delivery Pattern (EventQueue)
+
+`WatchedValue<T>` covers *state* (latest value wins). For *events* where every occurrence
+matters (button presses, IRQ notifications), use `EventQueue<T, N>` from
+`firmware/src/utils/event_queue.rs`.
+
+- Owns its `Channel` behind an `Arc` - no `static` channel and no `Sender`/`Receiver`
+  plumbed through `main`; the manager creates the queue in `new()` and clones it into
+  its spawned task.
+- Consumer: `queue.next().await` - suspends until an event arrives, never polls.
+- Producer: `push().await` (backpressure) or `try_push()` (lossy, safe from sync code).
+- Cloneable, so it works naturally with `Arc<dyn Trait>` handles.
+
+Used by `HardwareSystemManager` (boot button) and `HardwareInputManager` (hex buttons).
+
+**Never write a `loop { check_shared_vec(); Timer::after(..).await }` in a manager** -
+that both adds latency and hogs locks. Use `EventQueue` (events) or `WatchedValue`
+(state) instead.
+
 ## Target Architecture (End State)
 
 The goal is to split the firmware into **three crates** with the platform abstraction as the boundary:
@@ -342,6 +361,7 @@ pub trait WiFiManager {
 - **Platform implementations:** `firmware/src/platform/{led,power,wifi,etc.}/`
 - **WiFi status monitoring:** `firmware/src/tasks/wifi_monitor.rs`
 - **WatchedValue primitive:** `firmware/src/utils/watched_value.rs`
+- **EventQueue primitive:** `firmware/src/utils/event_queue.rs`
 - **Application entry point:** `firmware/src/bin/rustagon.rs`
 - **Menu system (to be extracted):** `firmware/src/tasks/menu/`
 - **Shared types:** `firmware/src/types.rs`

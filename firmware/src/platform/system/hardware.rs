@@ -1,9 +1,6 @@
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::boxed::Box;
 use core::fmt;
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
-use embassy_time::{Duration, Timer};
-use esp_alloc::InternalMemory;
 use esp_hal::{
   gpio::{Input, InputConfig, Pull},
   peripherals::GPIO0,
@@ -11,18 +8,25 @@ use esp_hal::{
 use log::info;
 
 use super::traits::*;
+use crate::utils::EventQueue;
+
+/// Depth of the pending system event queue. Events beyond this are dropped rather than
+/// stalling the GPIO monitoring task.
+const EVENT_QUEUE_DEPTH: usize = 8;
+
+type SystemEventQueue = EventQueue<SystemMessage, EVENT_QUEUE_DEPTH>;
 
 pub struct HardwareSystemManager {
-  presses: Arc<RwLock<CriticalSectionRawMutex, Vec<SystemMessage>>>,
+  events: SystemEventQueue,
 }
 
 impl HardwareSystemManager {
   pub fn new(spawner: Spawner, pin: GPIO0<'static>) -> Self {
-    let presses = Arc::new(RwLock::<CriticalSectionRawMutex, _>::new(Vec::new()));
+    let events = SystemEventQueue::new();
 
-    spawner.spawn(button_monitoring_task(pin, presses.clone())).ok();
+    spawner.spawn(button_monitoring_task(pin, events.clone())).ok();
 
-    Self { presses }
+    Self { events }
   }
 }
 
@@ -33,30 +37,24 @@ impl fmt::Debug for HardwareSystemManager {
 }
 
 impl SystemManager for HardwareSystemManager {
-  fn next_button(&self) -> core::pin::Pin<alloc::boxed::Box<dyn Future<Output = SystemMessage> + Send + '_>> {
-    Box::pin(async {
-      loop {
-        let mut presses = self.presses.write().await;
-        if !presses.is_empty() {
-          return presses.pop().unwrap();
-        }
-        drop(presses); // Essential otherwise we hog the lock!
+  fn next_button(&self) -> core::pin::Pin<Box<dyn Future<Output = SystemMessage> + Send + '_>> {
+    Box::pin(self.events.next())
+  }
 
-        Timer::after(Duration::from_millis(100)).await;
-      }
-    })
+  fn inject(&self, message: SystemMessage) -> core::pin::Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+    Box::pin(self.events.push(message))
   }
 }
 
 #[embassy_executor::task]
-async fn button_monitoring_task(pin: GPIO0<'static>, presses: Arc<RwLock<CriticalSectionRawMutex, Vec<SystemMessage>>>) {
+async fn button_monitoring_task(pin: GPIO0<'static>, events: SystemEventQueue) {
   let mut input = Input::new(pin, InputConfig::default().with_pull(Pull::Up));
 
   loop {
     input.wait_for_falling_edge().await;
     info!("Boot pin pressed!");
 
-    let mut presses = presses.write().await;
-    presses.push(SystemMessage::BootButton);
+    // Non-blocking: if nobody is consuming, drop the event rather than back up the ISR task.
+    events.try_push(SystemMessage::BootButton);
   }
 }
