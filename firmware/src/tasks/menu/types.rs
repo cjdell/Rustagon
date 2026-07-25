@@ -87,8 +87,6 @@ pub struct MenuRunnerContext {
   pub local_fs: LocalFs,
   pub device_state: DeviceState,
 
-  pub system_receiver: SystemReceiver,
-
   pub http_event_receiver: HttpReceiver,
   pub host_ipc_sender: HostIpcSender,
   pub wasm_ipc_channel: &'static WasmIpcChannel,

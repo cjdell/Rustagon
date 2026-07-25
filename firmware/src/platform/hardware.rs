@@ -1,11 +1,12 @@
 use super::input::InputHandle;
 use super::led::{HardwareLedManager, LedHandle};
 use super::power::PowerHandle;
+use super::system::SystemHandle;
 use super::traits::Platform;
 use super::wifi::WiFiHandle;
+use crate::utils::MaskedI2cBus;
 use alloc::sync::Arc;
 use core::fmt;
-use crate::utils::MaskedI2cBus;
 use embassy_executor::Spawner;
 
 /// Real hardware platform implementation - stores concrete manager handles
@@ -15,17 +16,19 @@ pub struct HardwarePlatform {
   power: PowerHandle,
   wifi: WiFiHandle,
   input: InputHandle,
+  system: SystemHandle,
 }
 
 impl HardwarePlatform {
   /// Create a new hardware platform with all manager handles
-  pub fn new_with_managers(
-    led: LedHandle,
-    power: PowerHandle,
-    wifi: WiFiHandle,
-    input: InputHandle,
-  ) -> Self {
-    Self { led, power, wifi, input }
+  pub fn new_with_managers(led: LedHandle, power: PowerHandle, wifi: WiFiHandle, input: InputHandle, system: SystemHandle) -> Self {
+    Self {
+      led,
+      power,
+      wifi,
+      input,
+      system,
+    }
   }
 }
 
@@ -44,5 +47,9 @@ impl Platform for HardwarePlatform {
 
   fn input_manager(&self) -> InputHandle {
     self.input.clone()
+  }
+
+  fn system_manager(&self) -> SystemHandle {
+    self.system.clone()
   }
 }

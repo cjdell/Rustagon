@@ -58,7 +58,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
       state.refresh().await;
 
       match select4(
-        runner_ctx.system_receiver.changed(),
+        runner_ctx.platform.system_manager().next_button(),
         runner_ctx.platform.input_manager().next_button(),
         runner_ctx.wasm_ipc_channel.receive(),
         runner_ctx.http_event_receiver.receive(),
@@ -118,11 +118,11 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
               }
               HexButton::Left => {}
               HexButton::HexA => {}
-              HexButton::HexB => {},
-              HexButton::HexC => {},
-              HexButton::HexD => {},
-              HexButton::HexE => {},
-              HexButton::HexF => {},
+              HexButton::HexB => {}
+              HexButton::HexC => {}
+              HexButton::HexD => {}
+              HexButton::HexE => {}
+              HexButton::HexF => {}
             }
           }
         }

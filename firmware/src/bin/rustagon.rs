@@ -28,14 +28,18 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage;
-use firmware::tasks::*;
 use firmware::types::*;
 use firmware::utils::*;
 use firmware::{
   d_i2c::*,
   platform::{
-    HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, WiFiHandle,
+    HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareWifiManager, InputHandle, LedHandle,
+    Platform, PowerHandle, WiFiHandle,
   },
+};
+use firmware::{
+  platform::system::{HardwareSystemManager, SystemHandle},
+  tasks::*,
 };
 use log::{error, info, warn};
 use picoserve::make_static;
@@ -92,8 +96,7 @@ async fn main(spawner: Spawner) {
   init_gpio(sys_bus.clone(), I2C_1).await;
   init_gpio(sys_bus.clone(), I2C_2).await;
 
-  let system_watch: &mut embassy_sync::watch::Watch<CriticalSectionRawMutex, SystemMessage, 1> =
-    make_static!(SystemWatch, SystemWatch::new());
+  // let system_watch: &mut embassy_sync::watch::Watch<CriticalSectionRawMutex, SystemMessage, 1> = make_static!(SystemWatch, SystemWatch::new());
   let lcd_signal = make_static!(LcdSignal, LcdSignal::new());
   let i2c_channel = make_static!(HexButtonChannel, HexButtonChannel::new());
   let button_event_channel = make_static!(ButtonEventChannel, ButtonEventChannel::new());
@@ -101,8 +104,6 @@ async fn main(spawner: Spawner) {
   let host_ipc_channel = make_static!(HostIpcChannel, HostIpcChannel::new());
   let http_channel = make_static!(HttpChannel, HttpChannel::new());
   let web_socket_incoming_channel = make_static!(WebSocketIncomingChannel, WebSocketIncomingChannel::new());
-
-  spawner.spawn(system_task(peripherals.GPIO0, system_watch.sender())).ok();
 
   let i2c_publisher = i2c_channel.publisher().unwrap();
   let button_event_sender = button_event_channel.sender();
@@ -215,16 +216,17 @@ async fn main(spawner: Spawner) {
 
   let wifi = WiFiHandle::new(wifi_manager);
 
-  let input_manager = HardwareInputManager::new(
+  let input = InputHandle::new(HardwareInputManager::new(
     spawner,
     sys_bus.clone(),
     top_bus.clone(),
     button_event_sender,
     button_event_receiver,
-  );
-  let input = InputHandle::new(input_manager);
+  ));
 
-  let platform = HardwarePlatform::new_with_managers(led, power, wifi, input);
+  let system = SystemHandle::new(HardwareSystemManager::new(spawner, peripherals.GPIO0));
+
+  let platform = HardwarePlatform::new_with_managers(led, power, wifi, input, system);
 
   let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 
@@ -263,7 +265,6 @@ async fn main(spawner: Spawner) {
     stack,
     local_fs: local_fs.clone(),
     device_state: device_state.clone(),
-    system_receiver: system_watch.receiver().unwrap(),
     http_event_receiver: http_channel.receiver(),
     host_ipc_sender: host_ipc_channel.sender(),
     wasm_ipc_channel,
@@ -280,7 +281,6 @@ async fn main(spawner: Spawner) {
     .spawn(websocket_input_forwarder_task(
       web_socket_incoming_channel.receiver(),
       i2c_channel.publisher().unwrap(),
-      system_watch.sender(),
     ))
     .ok();
 
@@ -294,7 +294,7 @@ async fn main(spawner: Spawner) {
 async fn websocket_input_forwarder_task(
   web_socket_incoming_receiver: WebSocketIncomingReceiver,
   hex_button_sender: HexButtonSender,
-  system_sender: SystemSender,
+  // system_sender: SystemSender,
 ) {
   loop {
     match web_socket_incoming_receiver.receive().await {
@@ -302,7 +302,7 @@ async fn websocket_input_forwarder_task(
         hex_button_sender.publish(I2cMessage::HexButton(hex_button)).await;
       }
       WebSocketIncomingMessage::SystemMessage(button) => {
-        system_sender.send(button);
+        // system_sender.send(button);  // TODO!!!
       }
     }
   }

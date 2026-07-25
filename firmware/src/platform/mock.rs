@@ -55,4 +55,8 @@ impl Platform for MockPlatform {
   fn input_manager(&self) -> InputHandle {
     self.input.clone()
   }
+
+  fn system_manager(&self) -> super::SystemHandle {
+    todo!()
+  }
 }

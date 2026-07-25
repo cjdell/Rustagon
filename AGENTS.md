@@ -4,6 +4,11 @@
 
 The firmware is structured around a **Platform abstraction** that provides trait-based access to hardware subsystems. This allows the application code to be independent of specific hardware implementations and enables testing with mock implementations.
 
+### Check the firmware compiles:
+
+cd firmware
+cargo build -r --bin rustagon
+
 ### Platform Trait
 
 The `Platform` trait is the central abstraction in `firmware/src/platform/traits.rs`:

@@ -1,6 +1,7 @@
 use super::input::InputHandle;
 use super::led::LedHandle;
 use super::power::PowerHandle;
+use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
 use core::fmt;
 
@@ -18,4 +19,6 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
 
   /// Get the input manager handle
   fn input_manager(&self) -> InputHandle;
+
+  fn system_manager(&self) -> SystemHandle;
 }
