@@ -1,3 +1,4 @@
+use super::input::{InputHandle, MockInputManager};
 use super::led::{LedHandle, MockLedManager};
 use super::power::{MockPowerManager, PowerHandle};
 use super::traits::Platform;
@@ -11,6 +12,7 @@ pub struct MockPlatform {
   led: LedHandle,
   power: PowerHandle,
   wifi: WiFiHandle,
+  input: InputHandle,
 }
 
 impl MockPlatform {
@@ -24,7 +26,10 @@ impl MockPlatform {
     let wifi_manager = MockWifiManager::new();
     let wifi = WiFiHandle::new(wifi_manager);
 
-    Self { led, power, wifi }
+    let input_manager = MockInputManager::new();
+    let input = InputHandle::new(input_manager);
+
+    Self { led, power, wifi, input }
   }
 }
 
@@ -45,5 +50,9 @@ impl Platform for MockPlatform {
 
   fn wifi_manager(&self) -> WiFiHandle {
     self.wifi.clone()
+  }
+
+  fn input_manager(&self) -> InputHandle {
+    self.input.clone()
   }
 }

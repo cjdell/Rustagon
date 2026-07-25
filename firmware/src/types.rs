@@ -235,6 +235,11 @@ pub type HexButtonChannel = PubSubChannel<CriticalSectionRawMutex, I2cMessage, 1
 pub type HexButtonSender = Publisher<'static, CriticalSectionRawMutex, I2cMessage, 10, 2, 2>;
 pub type HexButtonReceiver = Subscriber<'static, CriticalSectionRawMutex, I2cMessage, 10, 2, 2>;
 
+// Button event queue for platform abstraction
+pub type ButtonEventChannel = Channel<CriticalSectionRawMutex, HexButton, 10>;
+pub type ButtonEventSender = Sender<'static, CriticalSectionRawMutex, HexButton, 10>;
+pub type ButtonEventReceiver = Receiver<'static, CriticalSectionRawMutex, HexButton, 10>;
+
 pub enum PowerCtrl {
   PowerOff,
 }

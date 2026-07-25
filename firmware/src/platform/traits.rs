@@ -1,3 +1,4 @@
+use super::input::InputHandle;
 use super::led::LedHandle;
 use super::power::PowerHandle;
 use super::wifi::WiFiHandle;
@@ -14,4 +15,7 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
 
   /// Get the WiFi manager handle
   fn wifi_manager(&self) -> WiFiHandle;
+
+  /// Get the input manager handle
+  fn input_manager(&self) -> InputHandle;
 }

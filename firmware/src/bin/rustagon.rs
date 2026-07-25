@@ -34,7 +34,7 @@ use firmware::utils::*;
 use firmware::{
   d_i2c::*,
   platform::{
-    HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareWifiManager, LedHandle, Platform, PowerHandle, WiFiHandle,
+    HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, WiFiHandle,
   },
 };
 use log::{error, info, warn};
@@ -96,6 +96,7 @@ async fn main(spawner: Spawner) {
     make_static!(SystemWatch, SystemWatch::new());
   let lcd_signal = make_static!(LcdSignal, LcdSignal::new());
   let i2c_channel = make_static!(HexButtonChannel, HexButtonChannel::new());
+  let button_event_channel = make_static!(ButtonEventChannel, ButtonEventChannel::new());
   let wasm_ipc_channel = make_static!(WasmIpcChannel, WasmIpcChannel::new());
   let host_ipc_channel = make_static!(HostIpcChannel, HostIpcChannel::new());
   let http_channel = make_static!(HttpChannel, HttpChannel::new());
@@ -104,8 +105,8 @@ async fn main(spawner: Spawner) {
   spawner.spawn(system_task(peripherals.GPIO0, system_watch.sender())).ok();
 
   let i2c_publisher = i2c_channel.publisher().unwrap();
-
-  spawner.spawn(i2c_task(sys_bus.clone(), top_bus.clone(), i2c_publisher)).ok();
+  let button_event_sender = button_event_channel.sender();
+  let button_event_receiver = button_event_channel.receiver();
 
   spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal)).ok();
 
@@ -214,7 +215,16 @@ async fn main(spawner: Spawner) {
 
   let wifi = WiFiHandle::new(wifi_manager);
 
-  let platform = HardwarePlatform::new_with_managers(led, power, wifi);
+  let input_manager = HardwareInputManager::new(
+    spawner,
+    sys_bus.clone(),
+    top_bus.clone(),
+    button_event_sender,
+    button_event_receiver,
+  );
+  let input = InputHandle::new(input_manager);
+
+  let platform = HardwarePlatform::new_with_managers(led, power, wifi, input);
 
   let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 
@@ -254,7 +264,6 @@ async fn main(spawner: Spawner) {
     local_fs: local_fs.clone(),
     device_state: device_state.clone(),
     system_receiver: system_watch.receiver().unwrap(),
-    hex_button_subscriber: i2c_channel.subscriber().unwrap(),
     http_event_receiver: http_channel.receiver(),
     host_ipc_sender: host_ipc_channel.sender(),
     wasm_ipc_channel,

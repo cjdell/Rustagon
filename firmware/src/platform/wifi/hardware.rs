@@ -22,7 +22,7 @@ use crate::utils::{PersistentStateService, WatchedValue};
 const RETRY_INTERVAL: u64 = 60_000;
 
 /// Hardware WiFi Manager using ESP32 WiFi controller
-/// 
+///
 /// The manager uses WatchedValue for WiFi status, which provides:
 /// - Async reads via get()
 /// - Awaitable changes via wait_for_change()
@@ -188,9 +188,9 @@ pub async fn wifi_connection_task(
             }
 
             match best_network {
-               None => {
-                 error!("WiFi: No connectable networks found!");
-                 manager.set_status(WifiStatus::NoNetworksFound).await;
+              None => {
+                error!("WiFi: No connectable networks found!");
+                manager.set_status(WifiStatus::NoNetworksFound).await;
                 retry_in = Instant::now().duration_since_epoch().as_millis() + RETRY_INTERVAL;
                 manager.connection_attempts.fetch_add(1, Ordering::Relaxed);
                 continue;
@@ -354,21 +354,13 @@ impl fmt::Debug for HardwareWifiManager {
 impl WiFiManager for HardwareWifiManager {
   fn get_status(&self) -> Pin<Box<dyn core::future::Future<Output = WifiStatus> + Send + '_>> {
     let status = self.status.clone();
-    Box::pin(async move {
-      status.get().await
-    })
+    Box::pin(async move { status.get().await })
   }
 
-  fn wait_for_status_change(
-    &self,
-  ) -> Pin<Box<dyn core::future::Future<Output = WifiStatus> + Send + '_>> {
+  fn wait_for_status_change(&self) -> Pin<Box<dyn core::future::Future<Output = WifiStatus> + Send + '_>> {
     let status = self.status.clone();
-    Box::pin(async move {
-      status.wait_for_change().await
-    })
+    Box::pin(async move { status.wait_for_change().await })
   }
-
-
 
   fn get_stats(&self) -> WifiStats {
     WifiStats {
@@ -377,10 +369,7 @@ impl WiFiManager for HardwareWifiManager {
     }
   }
 
-  fn set_desired_state(
-    &self,
-    state: WifiDesiredState,
-  ) -> Pin<Box<dyn core::future::Future<Output = ()> + Send + '_>> {
+  fn set_desired_state(&self, state: WifiDesiredState) -> Pin<Box<dyn core::future::Future<Output = ()> + Send + '_>> {
     let desired_state = self.desired_state.clone();
     Box::pin(async move {
       *desired_state.write().await = state;
@@ -396,10 +385,7 @@ impl WiFiManager for HardwareWifiManager {
     })
   }
 
-  fn set_wifi_mode(
-    &self,
-    _mode: WifiMode,
-  ) -> Pin<Box<dyn core::future::Future<Output = Result<(), &'static str>> + Send + '_>> {
+  fn set_wifi_mode(&self, _mode: WifiMode) -> Pin<Box<dyn core::future::Future<Output = Result<(), &'static str>> + Send + '_>> {
     Box::pin(async { Ok(()) })
   }
 }

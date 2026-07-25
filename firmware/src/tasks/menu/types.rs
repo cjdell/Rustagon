@@ -88,7 +88,6 @@ pub struct MenuRunnerContext {
   pub device_state: DeviceState,
 
   pub system_receiver: SystemReceiver,
-  pub hex_button_subscriber: HexButtonReceiver,
 
   pub http_event_receiver: HttpReceiver,
   pub host_ipc_sender: HostIpcSender,

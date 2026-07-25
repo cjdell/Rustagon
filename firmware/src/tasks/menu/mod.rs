@@ -59,7 +59,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
 
       match select4(
         runner_ctx.system_receiver.changed(),
-        runner_ctx.hex_button_subscriber.next_message_pure(),
+        runner_ctx.platform.input_manager().next_button(),
         runner_ctx.wasm_ipc_channel.receive(),
         runner_ctx.http_event_receiver.receive(),
       )
@@ -83,8 +83,8 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             }
           };
         }
-        Either4::Second(I2cMessage::HexButton(hex)) => {
-          println!("Third: {:?}", hex);
+        Either4::Second(hex) => {
+          println!("Button: {:?}", hex);
           let app_running = app.try_read().map(|app| if let AppState::None = *app { false } else { true }).unwrap_or(true);
 
           if app_running {

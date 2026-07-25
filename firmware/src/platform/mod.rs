@@ -1,4 +1,5 @@
 pub mod hardware;
+pub mod input;
 pub mod led;
 pub mod mock;
 pub mod power;
@@ -6,6 +7,7 @@ pub mod traits;
 pub mod wifi;
 
 pub use hardware::HardwarePlatform;
+pub use input::{HardwareInputManager, InputHandle, InputManager, MockInputManager};
 pub use led::{
   BreatheEffect, ChaseEffect, FireEffect, HardwareLedManager, LedEffect, LedHandle, LedManager,
   OffEffect, RainbowEffect, SolidEffect, SparkleEffect, TheaterChaseEffect,
