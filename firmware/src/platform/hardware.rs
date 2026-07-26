@@ -1,3 +1,4 @@
+use super::display::DisplayHandle;
 use super::input::InputHandle;
 use super::led::{HardwareLedManager, LedHandle};
 use super::power::PowerHandle;
@@ -12,6 +13,7 @@ use embassy_executor::Spawner;
 /// Real hardware platform implementation - stores concrete manager handles
 #[derive(Clone, Debug)]
 pub struct HardwarePlatform {
+  display: DisplayHandle,
   led: LedHandle,
   power: PowerHandle,
   wifi: WiFiHandle,
@@ -21,8 +23,9 @@ pub struct HardwarePlatform {
 
 impl HardwarePlatform {
   /// Create a new hardware platform with all manager handles
-  pub fn new_with_managers(led: LedHandle, power: PowerHandle, wifi: WiFiHandle, input: InputHandle, system: SystemHandle) -> Self {
+  pub fn new_with_managers(display: DisplayHandle, led: LedHandle, power: PowerHandle, wifi: WiFiHandle, input: InputHandle, system: SystemHandle) -> Self {
     Self {
+      display,
       led,
       power,
       wifi,
@@ -33,6 +36,10 @@ impl HardwarePlatform {
 }
 
 impl Platform for HardwarePlatform {
+  fn display_manager(&self) -> DisplayHandle {
+    self.display.clone()
+  }
+
   fn led_manager(&self) -> LedHandle {
     self.led.clone()
   }

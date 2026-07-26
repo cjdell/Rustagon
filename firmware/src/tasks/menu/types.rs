@@ -1,4 +1,4 @@
-use crate::{apps::MenuAppInputChannel, tasks::lcd::LcdSignal, types::*, utils::*};
+use crate::{apps::MenuAppInputChannel, platform::{display::DisplayHandle, Platform}, types::*, utils::*};
 use alloc::string::{String, ToString};
 use core::net::Ipv4Addr;
 use embassy_net::Stack;
@@ -90,8 +90,6 @@ pub struct MenuRunnerContext {
   pub http_event_receiver: HttpReceiver,
   pub host_ipc_sender: HostIpcSender,
   pub wasm_ipc_channel: &'static WasmIpcChannel,
-
-  pub lcd_signal: &'static LcdSignal,
   pub platform: crate::platform::HardwarePlatform,
 }
 
@@ -103,7 +101,7 @@ pub struct MenuContext {
   pub platform: crate::platform::HardwarePlatform,
 
   pub host_ipc_sender: HostIpcSender,
-  pub lcd_signal: &'static LcdSignal,
+  pub display: DisplayHandle,
 
   pub menu_app_input_channel: &'static MenuAppInputChannel,
 }

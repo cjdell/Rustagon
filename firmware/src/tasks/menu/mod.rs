@@ -32,7 +32,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
     device_state: runner_ctx.device_state.clone(),
     platform: runner_ctx.platform.clone(),
     host_ipc_sender: runner_ctx.host_ipc_sender,
-    lcd_signal: runner_ctx.lcd_signal,
+    display: runner_ctx.platform.display_manager(),
     menu_app_input_channel,
   };
 
@@ -110,7 +110,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
                 let _ = runner_ctx.platform.led_manager().request(LedRequest::Sparkle(LedState::new(255, 255, 255)));
               }
               HexButton::Fire => {
-                runner_ctx.lcd_signal.signal(LcdScreen::Progress("Please wait...".to_string()));
+                let _ = runner_ctx.platform.display_manager().signal(LcdScreen::Progress("Please wait...".to_string()));
                 state.execute_option().await;
               }
               HexButton::Down => {
@@ -137,12 +137,12 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
             }
             WasmIpcMessage::Stopped => {
               *state.app.write().await = AppState::None;
-              runner_ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "App Terminated".to_string()));
+              let _ = runner_ctx.platform.display_manager().signal(LcdScreen::Headline(Icon40::Info, "App Terminated".to_string()));
               sleep(1_000).await;
             }
             WasmIpcMessage::LcdScreen(lcd_screen) => {
               println!("lcd_screen 1: {:?}", lcd_screen);
-              runner_ctx.lcd_signal.signal(lcd_screen);
+              let _ = runner_ctx.platform.display_manager().signal(lcd_screen);
               yield_now().await;
             }
             WasmIpcMessage::HttpRequest(http_request) => {
@@ -194,7 +194,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
           runner_ctx.local_fs.clone(),
           runner_ctx.device_state.clone(),
           runner_ctx.stack,
-          runner_ctx.lcd_signal,
+          runner_ctx.platform.display_manager(),
         );
 
         let mut menu_app = Box::new_in(MenuAppType::load_app_async(app_name, ctx), ExternalMemory);

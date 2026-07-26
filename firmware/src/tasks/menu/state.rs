@@ -189,6 +189,6 @@ impl MenuState {
       };
     }
 
-    self.ctx.lcd_signal.signal(self.get_menu_screen(&self.menu_options));
+    let _ = self.ctx.display.signal(self.get_menu_screen(&self.menu_options));
   }
 }

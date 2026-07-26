@@ -1,4 +1,4 @@
-use crate::{tasks::lcd::LcdSignal, types::*, utils::local_fs::LocalFs};
+use crate::{platform::display::DisplayHandle, types::*, utils::local_fs::LocalFs};
 use alloc::string::String;
 use embassy_net::Stack;
 use embassy_sync::{
@@ -31,7 +31,7 @@ pub struct MenuAppContext {
   pub local_fs: LocalFs,
   pub device_state: DeviceState,
   pub stack: Stack<'static>,
-  lcd_signal: &'static LcdSignal,
+  display: DisplayHandle,
 }
 
 impl MenuAppContext {
@@ -40,18 +40,18 @@ impl MenuAppContext {
     local_fs: LocalFs,
     device_state: DeviceState,
     stack: Stack<'static>,
-    lcd_signal: &'static LcdSignal,
+    display: DisplayHandle,
   ) -> Self {
     Self {
       input_receiver,
       local_fs,
       device_state,
       stack,
-      lcd_signal,
+      display,
     }
   }
 
   pub fn update_lcd(&self, screen: LcdScreen) {
-    self.lcd_signal.signal(screen);
+    let _ = self.display.signal(screen);
   }
 }

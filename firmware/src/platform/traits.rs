@@ -1,3 +1,4 @@
+use super::display::DisplayHandle;
 use super::input::InputHandle;
 use super::led::LedHandle;
 use super::power::PowerHandle;
@@ -8,6 +9,9 @@ use core::fmt;
 /// Central abstraction for all platform hardware operations
 /// Allows swapping between real hardware and mocks without changing application code
 pub trait Platform: Clone + Send + Sync + fmt::Debug {
+  /// Get the display manager handle
+  fn display_manager(&self) -> DisplayHandle;
+
   /// Get the LED manager handle
   fn led_manager(&self) -> LedHandle;
 

@@ -33,6 +33,7 @@ use firmware::utils::*;
 use firmware::{
   d_i2c::*,
   platform::{
+    display::{HardwareDisplayManager, LcdSignal, lcd_task},
     HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareWifiManager, InputHandle, LedHandle,
     Platform, PowerHandle, WiFiHandle,
   },
@@ -108,19 +109,22 @@ async fn main(spawner: Spawner) {
 
   spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal)).ok();
 
-  lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Init".to_string()));
+  let display_manager = alloc::sync::Arc::new(HardwareDisplayManager::new(lcd_signal));
+  let display = firmware::platform::display::DisplayHandle::new(display_manager.clone());
+
+  let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Init".to_string()));
   sleep(1_000).await;
-  lcd_signal.signal(LcdScreen::Splash);
+  let _ = display.signal(LcdScreen::Splash);
   sleep(1_000).await;
 
-  lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Checking filesystem...".to_owned()));
+  let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Checking filesystem...".to_owned()));
 
   let flash = make_static!(FlashStorage, FlashStorage::new(peripherals.FLASH));
 
   let local_fs = match LocalFs::new(flash) {
     Ok(local_fs) => {
       info!("Local OK");
-      lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Filesystem OK".to_owned()));
+      let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Filesystem OK".to_owned()));
       sleep(100).await;
       local_fs
     }
@@ -128,16 +132,16 @@ async fn main(spawner: Spawner) {
       error!("Filesystem Error: {err:?}");
       wdt.disable();
 
-      lcd_signal.signal(LcdScreen::Headline(Icon40::Warn, "Format may take a while".to_owned()));
+      let _ = display.signal(LcdScreen::Headline(Icon40::Warn, "Format may take a while".to_owned()));
       sleep(2_000).await;
 
-      lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Reformatting...".to_owned()));
+      let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Reformatting...".to_owned()));
       sleep(100).await;
 
       let flash = make_static!(FlashStorage, FlashStorage::new(unsafe { FLASH::steal() }));
       LocalFs::make_new_filesystem(flash);
       warn!("New File System Created! Rebooting...");
-      lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Format Complete!".to_string()));
+      let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Format Complete!".to_string()));
       sleep(1_000).await;
 
       esp_hal::system::software_reset();
@@ -148,7 +152,7 @@ async fn main(spawner: Spawner) {
   info!("Filesystem verified. Free clusters: {free_clusters}");
 
   if free_clusters == 0 {
-    lcd_signal.signal(LcdScreen::Headline(Icon40::Error, "Filesystem Unwritable!".to_string()));
+    let _ = display.signal(LcdScreen::Headline(Icon40::Error, "Filesystem Unwritable!".to_string()));
     sleep(2_000).await;
   }
 
@@ -183,7 +187,7 @@ async fn main(spawner: Spawner) {
   print_memory_info();
 
   println!("Starting connection...");
-  lcd_signal.signal(LcdScreen::Progress("Connecting...".to_string()));
+  let _ = display.signal(LcdScreen::Progress("Connecting...".to_string()));
 
   print_memory_info();
 
@@ -217,7 +221,7 @@ async fn main(spawner: Spawner) {
 
   let system = SystemHandle::new(HardwareSystemManager::new(spawner, peripherals.GPIO0));
 
-  let platform = HardwarePlatform::new_with_managers(led, power, wifi, input, system);
+  let platform = HardwarePlatform::new_with_managers(display, led, power, wifi, input, system);
 
   let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 
@@ -259,14 +263,13 @@ async fn main(spawner: Spawner) {
     http_event_receiver: http_channel.receiver(),
     host_ipc_sender: host_ipc_channel.sender(),
     wasm_ipc_channel,
-    lcd_signal,
     platform: platform.clone(),
   };
 
   let platform_for_ws = platform.clone();
 
   // Spawn WiFi monitor task to handle status changes
-  spawner.spawn(wifi_monitor_task(platform, lcd_signal, device_state.clone())).ok();
+  spawner.spawn(wifi_monitor_task(platform, device_state.clone())).ok();
 
   spawner.spawn(menu_task(runner_ctx)).ok();
 

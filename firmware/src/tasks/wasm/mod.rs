@@ -4,7 +4,7 @@ pub mod timers;
 pub use context::*;
 pub use timers::*;
 
-use crate::{native::*, protocol::*, tasks::*, types::*, utils::*};
+use crate::{native::*, platform::display::{BUFFER, SPI_DISPLAY_INTERFACE}, protocol::*, tasks::*, types::*, utils::*};
 use alloc::{
   boxed::Box,
   format,

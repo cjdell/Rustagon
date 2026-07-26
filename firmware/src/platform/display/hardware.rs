@@ -1,8 +1,7 @@
-pub mod common;
-
+use super::traits::{DisplayError, DisplayManager, LcdSignal};
+use super::common::draw_icon;
 use crate::{
   d_i2c::*,
-  tasks::lcd::common::draw_icon,
   types::*,
   utils::{
     graphics::{BufferTarget, SCREEN_HEIGHT, SCREEN_WIDTH},
@@ -10,8 +9,9 @@ use crate::{
     *,
   },
 };
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 use aw9523b::Pin;
+use core::fmt;
 use core::ptr;
 use core::slice::from_raw_parts_mut;
 use display_interface::{DataFormat, WriteOnlyDataCommand};
@@ -63,7 +63,35 @@ pub static mut BUFFER: *mut u8 = ptr::null_mut::<u8>();
 pub static mut SPI_DISPLAY_INTERFACE: *mut SPIInterface<SpiExclusiveDevice<'_>, Output<'_>> =
   ptr::null_mut::<SPIInterface<SpiExclusiveDevice<'_>, Output<'_>>>();
 
-pub type LcdSignal = Signal<CriticalSectionRawMutex, LcdScreen>;
+pub struct HardwareDisplayManager {
+  signal: &'static LcdSignal,
+}
+
+impl HardwareDisplayManager {
+  pub fn new(signal: &'static LcdSignal) -> Self {
+    Self { signal }
+  }
+}
+
+impl fmt::Debug for HardwareDisplayManager {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("HardwareDisplayManager").finish()
+  }
+}
+
+impl DisplayManager for HardwareDisplayManager {
+  fn signal(&self, screen: LcdScreen) -> Result<(), DisplayError> {
+    self.signal.signal(screen);
+    Ok(())
+  }
+
+  fn try_signal(&self, screen: LcdScreen) -> Result<(), DisplayError> {
+    if self.signal.try_take().is_none() {
+      self.signal.signal(screen);
+    }
+    Ok(())
+  }
+}
 
 #[embassy_executor::task]
 pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
@@ -244,7 +272,7 @@ impl LcdState {
         .draw_styled(&PrimitiveStyle::with_stroke(Rgb565::GREEN, 10), display)
         .unwrap();
 
-        let status = format!("{transferred} of {total}");
+        let status = alloc::format!("{transferred} of {total}");
 
         let text_width = status.chars().count() as i32 * CHAR_WIDTH;
 
@@ -265,25 +293,22 @@ impl LcdState {
         let total_items = menu.len() as i32;
         let selected_idx = *selected as i32;
 
-        // Calculate visible range
         let visible_lines = MAX_LINES;
         let mut start_idx = 0;
         let mut end_idx = total_items.min(visible_lines);
 
-        // Center the selected item if possible
         if total_items > visible_lines {
-          let center_line = visible_lines / 2; // middle line index (0-indexed in visible area)
+          let center_line = visible_lines / 2;
           start_idx = (selected_idx - center_line).max(0);
           end_idx = (start_idx + visible_lines).min(total_items);
 
-          // If at the bottom, snap to bottom
           if end_idx == total_items {
             start_idx = (total_items - visible_lines).max(0);
           }
         }
 
-        const ANIMATION_DURATION: i32 = 500; // Animation: slide menu in from right
-        const START_SCROLLING: i32 = 2000; // When to start scrolling long text
+        const ANIMATION_DURATION: i32 = 500;
+        const START_SCROLLING: i32 = 2000;
         const SCROLLING_PIXELS_PER_SECOND: i32 = 25;
 
         let x = if time_ms < ANIMATION_DURATION {
@@ -292,11 +317,9 @@ impl LcdState {
           MARGIN
         };
 
-        // Allow overflow for the parts of the screen that aren't considered usable
         let render_start_idx = (start_idx - OVERFLOW_LINES).max(0);
         let render_end_idx = (end_idx + OVERFLOW_LINES).min(total_items);
 
-        // Draw each visible item
         let mut i = render_start_idx;
         while i < render_end_idx {
           let line = &menu[i as usize];
@@ -309,7 +332,6 @@ impl LcdState {
             MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE)
           };
 
-          // Horizontal scrolling for long text on selected item
           let mut scroll = 0;
           if i == selected_idx && text_width > USABLE_WIDTH && time_ms >= ANIMATION_DURATION + START_SCROLLING {
             let scroll_speed = 1000 / SCROLLING_PIXELS_PER_SECOND;
@@ -319,8 +341,6 @@ impl LcdState {
             scroll = scroll_offset;
           }
 
-          // Clamp text to usable width
-          // let display_width = USABLE_WIDTH.min(text_width);
           let start_x = x - scroll;
           let text_x = start_x + ICON_WIDTH;
 
@@ -349,7 +369,6 @@ impl LcdState {
           i += 1;
         }
 
-        // Return 0 if animation still running, else 100
         if x > MARGIN {
           return 0;
         } else {

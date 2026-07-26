@@ -1,3 +1,4 @@
+use super::display::{DisplayHandle, MockDisplayManager};
 use super::input::{InputHandle, MockInputManager};
 use super::led::{LedHandle, MockLedManager};
 use super::power::{MockPowerManager, PowerHandle};
@@ -9,6 +10,7 @@ use core::fmt;
 /// Mock platform implementation for testing without hardware
 #[derive(Clone, Debug)]
 pub struct MockPlatform {
+  display: DisplayHandle,
   led: LedHandle,
   power: PowerHandle,
   wifi: WiFiHandle,
@@ -17,6 +19,9 @@ pub struct MockPlatform {
 
 impl MockPlatform {
   pub fn new() -> Self {
+    let display_manager = Arc::new(MockDisplayManager::new());
+    let display = DisplayHandle::new(display_manager);
+
     let led_manager = Arc::new(MockLedManager::new());
     let led = LedHandle::new(led_manager);
 
@@ -29,7 +34,7 @@ impl MockPlatform {
     let input_manager = MockInputManager::new();
     let input = InputHandle::new(input_manager);
 
-    Self { led, power, wifi, input }
+    Self { display, led, power, wifi, input }
   }
 }
 
@@ -40,6 +45,10 @@ impl Default for MockPlatform {
 }
 
 impl Platform for MockPlatform {
+  fn display_manager(&self) -> DisplayHandle {
+    self.display.clone()
+  }
+
   fn led_manager(&self) -> LedHandle {
     self.led.clone()
   }

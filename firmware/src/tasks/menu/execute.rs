@@ -61,11 +61,11 @@ impl MenuState {
             };
           }
           Setting::Format => {
-            self.ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Formatting...".to_string()));
+            let _ = self.ctx.display.signal(LcdScreen::Headline(Icon40::Info, "Formatting...".to_string()));
             let flash = make_static!(FlashStorage, FlashStorage::new(unsafe { FLASH::steal() }));
             LocalFs::erase_filesystem(flash);
             warn!("File System Erased! Rebooting...");
-            self.ctx.lcd_signal.signal(LcdScreen::Headline(Icon40::Info, "Erase Complete!".to_string()));
+            let _ = self.ctx.display.signal(LcdScreen::Headline(Icon40::Info, "Erase Complete!".to_string()));
             Timer::after(Duration::from_secs(5)).await;
             esp_hal::system::software_reset();
           }

@@ -1,3 +1,4 @@
+pub mod display;
 pub mod hardware;
 pub mod input;
 pub mod led;
@@ -7,6 +8,7 @@ pub mod system;
 pub mod traits;
 pub mod wifi;
 
+pub use display::{HardwareDisplayManager, DisplayError, DisplayHandle, DisplayManager, LcdSignal, MockDisplayManager, lcd_task};
 pub use hardware::HardwarePlatform;
 pub use input::{HardwareInputManager, InputHandle, InputManager, MockInputManager};
 pub use led::{

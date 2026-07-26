@@ -1,5 +1,5 @@
 use crate::{
-  tasks::lcd::BUFFER,
+  platform::display::BUFFER,
   types::*,
   utils::{
     graphics::{SCREEN_HEIGHT, SCREEN_WIDTH},
