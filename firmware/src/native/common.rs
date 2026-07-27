@@ -1,4 +1,4 @@
-use crate::{protocol::*, types::*, utils::*};
+use crate::{platform::StorageHandle, protocol::*, types::*, utils::*};
 use alloc::{
   string::{String, ToString as _},
   vec::Vec,
@@ -18,15 +18,15 @@ pub trait NativeApp {
 }
 
 pub struct NativeAppContext {
-  pub local_fs: LocalFs,
+  pub storage: StorageHandle,
   pub sender: WasmIpcSender,
   pub receiver: HostIpcReceiver,
 }
 
 impl NativeAppContext {
-  pub fn new(local_fs: LocalFs, sender: WasmIpcSender, receiver: HostIpcReceiver) -> Self {
+  pub fn new(storage: StorageHandle, sender: WasmIpcSender, receiver: HostIpcReceiver) -> Self {
     Self {
-      local_fs,
+      storage,
       sender,
       receiver,
     }

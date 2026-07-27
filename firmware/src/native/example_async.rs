@@ -45,7 +45,7 @@ impl ExampleNativeAsyncApp {
   }
 
   async fn read_file(&self) {
-    let device = self.ctx.local_fs.read_text_file("device.jsn").unwrap();
+    let device = self.ctx.storage.read_text_file("device.jsn".to_string()).await.unwrap();
 
     let mut state = timeout_result!(self.state.write(), 1_000, "Refresh: State Lock Timeout").unwrap();
     state.display = Some(device);

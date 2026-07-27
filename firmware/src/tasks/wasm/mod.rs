@@ -4,7 +4,7 @@ pub mod timers;
 pub use context::*;
 pub use timers::*;
 
-use crate::{native::*, platform::display::{BUFFER, SPI_DISPLAY_INTERFACE}, protocol::*, tasks::*, types::*, utils::*};
+use crate::{native::*, platform::{display::{BUFFER, SPI_DISPLAY_INTERFACE}, StorageHandle}, protocol::*, tasks::*, types::*, utils::*};
 use alloc::{
   boxed::Box,
   format,
@@ -27,11 +27,11 @@ use log::{error, info};
 use wasmi::{Caller, Engine, Extern, Linker, Module, Store};
 
 #[embassy_executor::task]
-pub async fn second_core_task(local_fs: LocalFs, sender: WasmIpcSender, receiver: HostIpcReceiver) {
+pub async fn second_core_task(storage: StorageHandle, sender: WasmIpcSender, receiver: HostIpcReceiver) {
   println!("Starting WASM on SECOND CORE...");
 
   loop {
-    if let Err(err) = wasmi_runner(local_fs.clone(), sender, receiver).await {
+    if let Err(err) = wasmi_runner(storage.clone(), sender, receiver).await {
       error!("second_core_task: An error occurred: {err:?}");
     }
 
@@ -43,7 +43,7 @@ pub async fn second_core_task(local_fs: LocalFs, sender: WasmIpcSender, receiver
 // In this simple example we are going to compile the below Wasm source,
 // instantiate a Wasm module from it and call its exported "hello" function.
 async fn wasmi_runner(
-  local_fs: LocalFs,
+  storage: StorageHandle,
   wasm_ipc_sender: WasmIpcSender,
   host_ipc_receiver: HostIpcReceiver,
 ) -> Result<(), anyhow::Error> {
@@ -73,7 +73,7 @@ async fn wasmi_runner(
         let screen = LcdScreen::Blank;
         wasm_ipc_sender.send((0, WasmIpcMessage::LcdScreen(screen))).await;
 
-        let ctx = NativeAppContext::new(local_fs.clone(), wasm_ipc_sender, host_ipc_receiver);
+        let ctx = NativeAppContext::new(storage.clone(), wasm_ipc_sender, host_ipc_receiver);
         let app = NativeAppType::load_app_async(app_name, ctx);
 
         app.app_main().await;
@@ -94,11 +94,11 @@ async fn wasmi_runner(
         info!("Wasm: Started");
         print_memory_info();
 
-        let buf = local_fs.read_binary_chunk(filename.as_str(), 0, 256 * 1024).unwrap(); // TODO
+        let buf = storage.read_binary_chunk(filename.clone(), 0, 256 * 1024).await.unwrap(); // TODO
 
         info!("WASM: File size: {}", buf.len());
 
-        if let Err(err) = run_program(host_ipc_receiver, wasm_ctx, VecHelper::to_global_vec(buf)).await {
+        if let Err(err) = run_program(host_ipc_receiver, wasm_ctx, buf).await {
           error!("A error occurred whilst running the program: {err}");
         }
 

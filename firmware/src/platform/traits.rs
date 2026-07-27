@@ -2,6 +2,7 @@ use super::display::DisplayHandle;
 use super::input::InputHandle;
 use super::led::LedHandle;
 use super::power::PowerHandle;
+use super::storage::{ConfigHandle, StorageHandle};
 use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
 use core::fmt;
@@ -25,4 +26,8 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
   fn input_manager(&self) -> InputHandle;
 
   fn system_manager(&self) -> SystemHandle;
+
+  fn storage_manager(&self) -> StorageHandle;
+
+  fn config_manager(&self) -> ConfigHandle;
 }

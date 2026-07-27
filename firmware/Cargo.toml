@@ -7,6 +7,8 @@ publish = false
 [dependencies]
 cy8cmbr3116 = { path = "../cy8cmbr3116" }
 bq25895 = { path = "../bq25895" }
+embedded-tools = { path = "../embedded_tools" }
+esp32s3-embedded-tools = { path = "../esp32s3_embedded_tools" }
 
 esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", package = "esp-backtrace", features = [
     "panic-handler",

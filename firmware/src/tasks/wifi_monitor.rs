@@ -1,7 +1,7 @@
 use crate::{
   platform::{Platform, WifiStatus},
   types::*,
-  utils::*,
+  utils::led_service::LedState,
 };
 use alloc::format;
 use alloc::string::String;
@@ -10,7 +10,7 @@ use esp_println::println;
 
 /// Monitor WiFi status changes and update LCD/LED accordingly
 #[embassy_executor::task]
-pub async fn wifi_monitor_task(platform: crate::platform::HardwarePlatform, device_state: DeviceState) {
+pub async fn wifi_monitor_task(platform: crate::platform::HardwarePlatform) {
   loop {
     let status = platform.wifi_manager().wait_for_status_change().await;
     println!("WiFi Status: {:?}", status);
@@ -30,7 +30,7 @@ pub async fn wifi_monitor_task(platform: crate::platform::HardwarePlatform, devi
         Timer::after(Duration::from_millis(2_000)).await;
         let _ = platform.display_manager().signal(LcdScreen::Headline(
           Icon40::Info,
-          format!("AP: {}", device_state.get_data().ap_ssid),
+          format!("AP: {}", platform.config_manager().get_data().await.ap_ssid),
         ));
         Timer::after(Duration::from_millis(2_000)).await;
         let _ = platform.display_manager().signal(LcdScreen::Headline(Icon40::Info, String::from("IP: 192.168.1.1")));

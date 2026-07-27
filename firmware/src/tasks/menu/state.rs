@@ -3,6 +3,7 @@ use crate::{
   apps::{MenuAppInput, MenuAppType},
   device::DeviceConfigurator as _,
   native::NativeAppType,
+  platform::Platform,
   tasks::menu::{menus::*, types::*},
   types::*,
 };
@@ -46,7 +47,9 @@ impl MenuState {
     }
   }
 
-  pub fn get_menu_provider(&self) -> MenuTypes {
+  pub async fn get_menu_provider(&mut self) -> MenuTypes {
+    let ap_ssid = self.ctx.platform.config_manager().get_data().await.ap_ssid;
+
     match &self.current_menu {
       Menu::Root => MenuTypes::StaticMenu(Box::new(StaticMenu {
         items: vec![
@@ -84,7 +87,7 @@ impl MenuState {
             MenuOption::Text {
               text: match self.wifi_status {
                 WifiStatus::Connected(ip) => format!("{ip:?}"),
-                WifiStatus::AccessPoint => format!("AP:{}", self.ctx.device_state.get_data().ap_ssid),
+                WifiStatus::AccessPoint => format!("AP:{}", ap_ssid),
                 WifiStatus::Offline => format!("Disconnected"),
               },
             },
@@ -108,9 +111,9 @@ impl MenuState {
             setting_type: SettingType::Boolean,
           },
           MenuOption::Setting {
-            name: match self.ctx.device_state.get_wifi_mode() {
-              WifiMode::Station => "Toggle AP Mode",
-              WifiMode::AccessPoint => "Toggle STA Mode",
+            name: match self.ctx.platform.config_manager().get_data().await.wifi_mode {
+              crate::types::WifiMode::Station => "Toggle AP Mode",
+              crate::types::WifiMode::AccessPoint => "Toggle STA Mode",
             }
             .to_owned(),
             setting: Setting::WifiMode,
@@ -125,7 +128,7 @@ impl MenuState {
         ],
       })),
       Menu::Files(path) => MenuTypes::DynamicFilesystemMenu(Box::new(DynamicFilesystemMenu {
-        local_fs: self.ctx.local_fs.clone(),
+        storage: self.ctx.storage.clone(),
         path: path.clone(),
       })),
       Menu::Wifi => MenuTypes::DynamicWifiMenu(Box::new(DynamicWifiMenu::new(

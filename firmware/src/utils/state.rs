@@ -1,11 +1,11 @@
-use crate::utils::local_fs::LocalFs;
+use crate::platform::StorageHandle;
 use alloc::{format, string::String, sync::Arc};
 use core::cell::RefCell;
 use log::{error, info};
 use serde::{Serialize, de::DeserializeOwned};
 
 pub struct PersistentStateService<State> {
-  local_fs: LocalFs,
+  storage: StorageHandle,
   file_name: String,
   state: Arc<RefCell<State>>,
 }
@@ -13,7 +13,7 @@ pub struct PersistentStateService<State> {
 impl<State> Clone for PersistentStateService<State> {
   fn clone(&self) -> Self {
     Self {
-      local_fs: self.local_fs.clone(),
+      storage: self.storage.clone(),
       file_name: self.file_name.clone(),
       state: Arc::clone(&self.state),
     }
@@ -21,23 +21,24 @@ impl<State> Clone for PersistentStateService<State> {
 }
 
 impl<State: Clone + DeserializeOwned + Serialize> PersistentStateService<State> {
-  pub fn new(local_fs: LocalFs, file_name: String, initial: State) -> PersistentStateService<State> {
+  pub fn new(storage: StorageHandle, file_name: String, initial: State) -> PersistentStateService<State> {
     PersistentStateService {
-      local_fs,
+      storage,
       file_name,
       state: Arc::new(RefCell::new(initial)),
     }
   }
 
-  fn read_json(&self) -> Result<String, StateError> {
+  async fn read_json(&self) -> Result<String, StateError> {
     self
-      .local_fs
-      .read_text_file(&self.file_name)
+      .storage
+      .read_text_file(self.file_name.clone())
+      .await
       .map_err(|err| StateError::Error(format!("Read text file error {err:?}")))
   }
 
-  pub fn init(&mut self) -> Result<(), StateError> {
-    match self.read_json() {
+  pub async fn init(&mut self) -> Result<(), StateError> {
+    match self.read_json().await {
       Ok(json) => {
         info!("PersistentStateService.init: {}", json);
 
@@ -73,12 +74,12 @@ impl<State: Clone + DeserializeOwned + Serialize> PersistentStateService<State> 
     *self.state.borrow_mut() = new_state;
   }
 
-  pub fn save(&self) -> Result<(), StateError> {
+  pub async fn save(&self) -> Result<(), StateError> {
     let json = self.get_json()?;
 
     info!("PersistentStateService.save: {}", json);
 
-    self.local_fs.write_text_file(&self.file_name, &json).map_err(|err| StateError::Error(format!("{err:?}")))?;
+    self.storage.write_text_file(self.file_name.clone(), json).await.map_err(|err| StateError::Error(format!("{err:?}")))?;
 
     Ok(())
   }

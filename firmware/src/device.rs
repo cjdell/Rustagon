@@ -1,36 +1,33 @@
-use super::types::{DeviceState, KnownWifiNetwork, WifiMode};
-use crate::utils::state::StateError;
+use crate::platform::ConfigHandle;
+use crate::types::{DeviceConfig, KnownWifiNetwork};
 use alloc::string::String;
 
 pub trait DeviceConfigurator {
-  fn get_wifi_mode(&self) -> WifiMode;
-  fn set_wifi_mode(&self, mode: WifiMode) -> Result<(), StateError>;
-
-  fn add_known_wifi_network(&self, ssid: String, pass: String) -> Result<(), StateError>;
+  fn get_wifi_mode(&self) -> impl Future<Output = crate::types::WifiMode>;
+  fn set_wifi_mode(&self, mode: crate::types::WifiMode) -> impl Future<Output = Result<(), crate::platform::StateError>>;
+  fn add_known_wifi_network(&self, ssid: String, pass: String) -> impl Future<Output = Result<(), crate::platform::StateError>>;
 }
 
-impl DeviceConfigurator for DeviceState {
-  fn get_wifi_mode(&self) -> WifiMode {
-    let data = self.get_data();
-    data.wifi_mode
+impl DeviceConfigurator for ConfigHandle {
+  async fn get_wifi_mode(&self) -> crate::types::WifiMode {
+    self.get_data().await.wifi_mode
   }
 
-  fn set_wifi_mode(&self, mode: WifiMode) -> Result<(), StateError> {
-    let mut data = self.get_data();
+  async fn set_wifi_mode(&self, mode: crate::types::WifiMode) -> Result<(), crate::platform::StateError> {
+    let mut data = self.get_data().await;
     data.wifi_mode = mode;
-    self.set_data(data);
-    self.save()?;
-    Ok(())
+    self.set_data(data).await;
+    self.save().await
   }
 
-  fn add_known_wifi_network(&self, ssid: String, pass: String) -> Result<(), StateError> {
-    let mut data = self.get_data();
+  async fn add_known_wifi_network(&self, ssid: String, pass: String) -> Result<(), crate::platform::StateError> {
+    let mut data = self.get_data().await;
     let mut found = false;
 
-    for known_wifi_network in &mut data.known_wifi_networks {
-      if known_wifi_network.ssid == ssid {
+    for known in &mut data.known_wifi_networks {
+      if known.ssid == ssid {
         found = true;
-        known_wifi_network.pass = pass.clone();
+        known.pass = pass.clone();
       }
     }
 
@@ -41,12 +38,9 @@ impl DeviceConfigurator for DeviceState {
       });
     }
 
-    data.wifi_mode = WifiMode::Station;
+    data.wifi_mode = crate::types::WifiMode::Station;
 
-    self.set_data(data);
-
-    self.save()?;
-
-    Ok(())
+    self.set_data(data).await;
+    self.save().await
   }
 }

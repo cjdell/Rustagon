@@ -193,7 +193,15 @@ Based on LED, Power, and WiFi implementations:
    - Protected by mutexes for safe concurrent access
    - Prefer `CriticalSectionRawMutex` over `NoopRawMutex` to avoid unsafe impls
 
-6. **Creating Helper Primitives**
+6. **Object-Safe Traits for Handles**
+   - When a trait will be used as `Arc<dyn Trait>` in a handle, make it object-safe:
+     - No `Clone` supertrait (handles provide Clone via `Arc`)
+     - No `impl Future` returns — use `Pin<Box<dyn Future + Send + '_>>`
+     - Mark `Send + Sync + Debug` for `Arc<dyn Trait>` compatibility
+   - The trait can still be used as a generic bound too (e.g., `LocalFsTrait` is both
+     object-safe and usable as `T: LocalFsTrait`)
+
+7. **Creating Helper Primitives**
    - Don't be afraid to suggest or create new helper types when a pattern emerges
    - If an async pattern keeps getting duplicated, extract it into a utility primitive
    - Example: `WatchedValue<T>` was created when multiple managers needed:
@@ -228,10 +236,12 @@ Based on LED, Power, and WiFi implementations:
      - Uses `WatchedValue<WifiStatus>` for clean state management
      - Monitor task accesses via Platform trait - no extra receivers needed
 
-4. **Storage Manager** (`firmware/src/platform/storage/`)
-   - Currently: Direct access to `device_state: DeviceState` and `local_fs: LocalFs`
-   - Need: Trait-based access to config/file operations
-   - Challenge: Return types for file handles and iterators
+4. ~~**Storage Manager**~~ ✅ **COMPLETED**
+   - Implemented in `firmware/src/platform/storage/`
+   - `StorageHandle` wraps `Arc<dyn LocalFsTrait>`, exposes via `Deref`
+   - `LocalFsTrait` from `embedded_tools` is the object-safe FS operations trait
+   - `HardwareStorageManager` wraps `LocalFs<LittleFsFlashStorage>` from `esp32s3_embedded_tools`
+   - `MockStorageManager` for testing
 
 5. **Refactor MenuRunnerContext**
    - Make it generic over `<P: Platform>`
@@ -275,6 +285,29 @@ Based on LED, Power, and WiFi implementations:
 - Managers wrapped in `Arc<dyn Trait>` for shared ownership
 - Handles (`LedHandle`, `PowerHandle`) clone cheaply
 - Allows passing to tasks/spawned code without lifetime issues
+- **Prefer `Clone` over `Sync` for crossing cores** — cloning an `Arc` is cheap and doesn't
+  require `unsafe` assertions. Avoid adding `Sync` bounds to traits unless the type genuinely
+  needs shared mutable access across threads.
+
+### Handle Design: `Deref` over Proxying
+
+- Handle types (like `StorageHandle`) should expose the inner trait via `Deref` rather than
+  proxying every method. This eliminates boilerplate while keeping the full API available.
+- Example pattern:
+  ```rust
+  pub struct StorageHandle {
+    inner: Arc<dyn LocalFsTrait>,
+  }
+  impl Deref for StorageHandle {
+    type Target = dyn LocalFsTrait;
+    fn deref(&self) -> &Self::Target { &*self.inner }
+  }
+  ```
+- Callers then use `handle.method().await` directly — method resolution goes through `Deref`
+  to the inner trait object. No proxy methods needed.
+- The tradeoff: when the inner trait takes owned params (e.g. `String` instead of `&str`),
+  callers must convert explicitly (`"foo".to_string()`). Accept this — it's better than
+  maintaining proxy methods that accept `&str` and convert internally.
 
 ### Why Async Methods in Traits
 
@@ -351,6 +384,31 @@ pub trait WiFiManager {
 **Problem:** `NoopRawMutex` breaks trait object storage in Arc.
 **Solution:** Add unsafe impl carefully, document safety rationale, consider fixing root cause (upgrade to CriticalSectionRawMutex) if possible.
 
+### Pitfall: Littlefs `Filesystem` is not `Send`
+**Problem:** `littlefs_rust::Filesystem` wraps C code with raw pointers (`*mut c_void`, `*mut u8`),
+making it `!Send`. Storing it in `Arc<Mutex<CriticalSectionRawMutex, Filesystem>>` requires
+`Filesystem: Send`, otherwise the compiler rejects it.
+
+**Solution:** Wrap in a `SendFilesystem<S>` newtype with `unsafe impl<S: Storage> Send` and
+`Deref`/`DerefMut` to the inner `Filesystem`. Sound because all access is serialized through
+the `Mutex` and littlefs is reentrant for individual `lfs_t` handles.
+
+```rust
+struct SendFilesystem<S: Storage>(Filesystem<S>);
+unsafe impl<S: Storage> Send for SendFilesystem<S> {}
+impl<S: Storage> Deref for SendFilesystem<S> { type Target = Filesystem<S>; ... }
+impl<S: Storage> DerefMut for SendFilesystem<S> { ... }
+```
+
+### Pitfall: `Pin<Box<dyn Future>>` methods taking `&str` params
+**Problem:** An object-safe trait that returns `Pin<Box<dyn Future + Send + '_>>` cannot borrow
+function parameters in the returned future — the future must outlive the call, but params are
+dropped when the function returns.
+
+**Solution:** Take owned types (`String`, `Vec<u8>`) instead of references (`&str`, `&[u8]`).
+Move them into `async move { }` blocks inside the `Box::pin(...)`. Callers convert with
+`.to_string()`, `.to_vec()`, or `.clone()`.
+
 ### Pitfall: Duplicate State Representations
 **Problem:** Having both `WifiStatus` and `WifiStatusMessage` with conversion logic between them.
 **Solution:** Use a single enum for state throughout the codebase. The watch stores the same type as the application sees. Keep state centralized - one enum, one source of truth.
@@ -359,6 +417,7 @@ pub trait WiFiManager {
 
 - **Main trait definitions:** `firmware/src/platform/traits.rs`
 - **Platform implementations:** `firmware/src/platform/{led,power,wifi,etc.}/`
+- **Storage manager:** `firmware/src/platform/storage/`
 - **WiFi status monitoring:** `firmware/src/tasks/wifi_monitor.rs`
 - **WatchedValue primitive:** `firmware/src/utils/watched_value.rs`
 - **EventQueue primitive:** `firmware/src/utils/event_queue.rs`
@@ -366,3 +425,5 @@ pub trait WiFiManager {
 - **Menu system (to be extracted):** `firmware/src/tasks/menu/`
 - **Shared types:** `firmware/src/types.rs`
 - **Network infrastructure:** `firmware/src/tasks/net.rs`
+- **ESP32-S3 flash driver:** `esp32s3_embedded_tools/src/flash.rs`
+- **Generic LocalFs (littlefs):** `embedded_tools/src/local_fs.rs`

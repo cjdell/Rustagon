@@ -1,9 +1,8 @@
 use crate::{
-  platform::Platform,
+  platform::{Platform, StorageHandle},
   tasks::menu::types::{ItemType, MenuOption},
   timeout_result,
   types::*,
-  utils::local_fs::{FileEntry, LocalFs},
 };
 use alloc::vec;
 use alloc::{boxed::Box, string::String, vec::Vec};
@@ -42,22 +41,22 @@ impl MenuProvider for StaticMenu {
 
 // Dynamic menu provider (example: filesystem)
 pub struct DynamicFilesystemMenu {
-  pub local_fs: LocalFs,
+  pub storage: StorageHandle,
   pub path: String,
 }
 
 impl MenuProvider for DynamicFilesystemMenu {
   async fn get_items(&mut self) -> Vec<MenuOption> {
-    let files = self.local_fs.dir().unwrap_or_default();
+    let files = self.storage.list_files().await.unwrap_or_default();
 
     vec![files.iter().map(|file| file.into()).collect(), vec![MenuOption::Back]].concat()
   }
 }
 
-impl Into<MenuOption> for &FileEntry {
+impl Into<MenuOption> for &embedded_tools::local_fs::DirEntry {
   fn into(self) -> MenuOption {
     MenuOption::Item {
-      name: self.name.clone(), //  format!("{} - {} bytes", self.name, self.size),
+      name: self.name.clone(),
       item_type: ItemType::File,
     }
   }
@@ -83,7 +82,7 @@ impl MenuProvider for DynamicWifiMenu {
     if self.results.is_none() {
       // Scan WiFi networks via platform
       let platform_results = self.platform.wifi_manager().scan().await;
-      
+
       // Convert from platform WifiResult to types::WifiResult
       let results: Vec<WifiResult> = platform_results
         .iter()

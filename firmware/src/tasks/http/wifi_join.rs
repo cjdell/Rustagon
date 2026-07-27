@@ -1,4 +1,4 @@
-use crate::{device::DeviceConfigurator as _, platform::Platform, types::*};
+use crate::{device::DeviceConfigurator as _, platform::{ConfigHandle, Platform}, types::*};
 use alloc::{format, vec::Vec};
 use embedded_io_async::Read;
 use esp_alloc::ExternalMemory;
@@ -10,14 +10,14 @@ use picoserve::{
 };
 
 pub struct HandleWifiJoin {
-  device_state: DeviceState,
+  config: ConfigHandle,
   platform: crate::platform::HardwarePlatform,
 }
 
 impl HandleWifiJoin {
-  pub fn new(device_state: DeviceState, platform: crate::platform::HardwarePlatform) -> Self {
+  pub fn new(config: ConfigHandle, platform: crate::platform::HardwarePlatform) -> Self {
     Self {
-      device_state,
+      config,
       platform,
     }
   }
@@ -38,17 +38,17 @@ impl RequestHandlerService<()> for HandleWifiJoin {
       Err(err) => return format_response!(request, response_writer, "Error parsing JSON: {err:?}"),
     };
 
-    if let Err(err) = self.device_state.add_known_wifi_network(network.ssid.clone(), network.pass.clone()) {
+    if let Err(err) = self.config.add_known_wifi_network(network.ssid.clone(), network.pass.clone()).await {
       return format_response!(request, response_writer, "Error saving wifi network: {err:?}");
     }
 
-    match self.device_state.get_data().wifi_mode {
+    match self.config.get_data().await.wifi_mode {
       WifiMode::Station => {
         // WiFi manager will automatically rescan and reconnect
         self.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Online).await;
       }
       WifiMode::AccessPoint => {
-        if let Err(err) = self.device_state.set_wifi_mode(WifiMode::Station) {
+        if let Err(err) = self.config.set_wifi_mode(WifiMode::Station).await {
           return format_response!(request, response_writer, "Error changing wifi mode: {err:?}");
         }
 

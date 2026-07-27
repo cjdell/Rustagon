@@ -28,8 +28,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
 
   let ctx = MenuContext {
     stack: runner_ctx.stack,
-    local_fs: runner_ctx.local_fs.clone(),
-    device_state: runner_ctx.device_state.clone(),
+    storage: runner_ctx.storage.clone(),
     platform: runner_ctx.platform.clone(),
     host_ipc_sender: runner_ctx.host_ipc_sender,
     display: runner_ctx.platform.display_manager(),
@@ -51,7 +50,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
   };
 
   let menu_runner = async {
-    state.menu_options = state.get_menu_provider().get_items().await;
+    state.menu_options = state.get_menu_provider().await.get_items().await;
 
     loop {
       print!("m");
@@ -191,8 +190,8 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
 
         let ctx = MenuAppContext::new(
           menu_app_input_channel.receiver(),
-          runner_ctx.local_fs.clone(),
-          runner_ctx.device_state.clone(),
+          runner_ctx.platform.storage_manager(),
+          runner_ctx.platform.config_manager(),
           runner_ctx.stack,
           runner_ctx.platform.display_manager(),
         );

@@ -2,6 +2,7 @@ use super::display::{DisplayHandle, MockDisplayManager};
 use super::input::{InputHandle, MockInputManager};
 use super::led::{LedHandle, MockLedManager};
 use super::power::{MockPowerManager, PowerHandle};
+use super::storage::{ConfigHandle, MockConfigManager, MockStorageManager, StorageHandle};
 use super::traits::Platform;
 use super::wifi::{MockWifiManager, WiFiHandle};
 use alloc::sync::Arc;
@@ -15,6 +16,8 @@ pub struct MockPlatform {
   power: PowerHandle,
   wifi: WiFiHandle,
   input: InputHandle,
+  storage: StorageHandle,
+  config: ConfigHandle,
 }
 
 impl MockPlatform {
@@ -34,7 +37,12 @@ impl MockPlatform {
     let input_manager = MockInputManager::new();
     let input = InputHandle::new(input_manager);
 
-    Self { display, led, power, wifi, input }
+    let storage_manager = MockStorageManager::new();
+    let storage = StorageHandle::new(Arc::new(storage_manager));
+
+    let config = ConfigHandle::new(Arc::new(MockConfigManager::new()));
+
+    Self { display, led, power, wifi, input, storage, config }
   }
 }
 
@@ -67,5 +75,13 @@ impl Platform for MockPlatform {
 
   fn system_manager(&self) -> super::SystemHandle {
     todo!()
+  }
+
+  fn storage_manager(&self) -> StorageHandle {
+    self.storage.clone()
+  }
+
+  fn config_manager(&self) -> ConfigHandle {
+    self.config.clone()
   }
 }

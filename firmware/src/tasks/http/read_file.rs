@@ -1,25 +1,23 @@
-use crate::{types::*, utils::*};
-use alloc::{
-  format,
-  string::{String, ToString},
-};
+use crate::{platform::StorageHandle, types::*, utils::*};
+use alloc::{format, string::String, string::ToString};
 use embedded_io_async::Read;
 use esp_println::print;
-use esp_storage::FlashStorage;
 use log::info;
 use picoserve::response::{
   IntoResponse,
   chunked::{ChunkWriter, ChunkedResponse, Chunks, ChunksWritten},
 };
 
+const CHUNK_SIZE: u32 = 4096;
+
 pub struct ReadFileHandler {
-  local_fs: LocalFs,
+  storage: StorageHandle,
   sender: HttpSender,
 }
 
 impl ReadFileHandler {
-  pub fn new(local_fs: LocalFs, sender: HttpSender) -> Self {
-    Self { local_fs, sender }
+  pub fn new(storage: StorageHandle, sender: HttpSender) -> Self {
+    Self { storage, sender }
   }
 }
 
@@ -36,8 +34,8 @@ impl picoserve::routing::RequestHandlerService<()> for ReadFileHandler {
     let file_name = query.replace("file=", "");
 
     let file_size = {
-      match self.local_fs.get_file_size(&file_name) {
-        Ok(file_size) => file_size,
+      match self.storage.get_file_size(file_name.clone()).await {
+        Ok(file_size) => file_size as u64,
         Err(err) => {
           return format!("Read File Size Error: {err:?}")
             .write_to(request.body_connection.finalize().await?, response_writer)
@@ -51,7 +49,7 @@ impl picoserve::routing::RequestHandlerService<()> for ReadFileHandler {
     let connection = request.body_connection.finalize().await?;
 
     ChunkedResponse::new(FileChunks::new(
-      self.local_fs.clone(),
+      self.storage.clone(),
       self.sender,
       file_name,
       file_size,
@@ -67,41 +65,22 @@ impl picoserve::routing::RequestHandlerService<()> for ReadFileHandler {
 }
 
 struct FileChunks {
-  local_fs: LocalFs,
+  storage: StorageHandle,
   sender: HttpSender,
   file_name: String,
   file_size: u64,
 }
 
 impl FileChunks {
-  pub fn new(local_fs: LocalFs, sender: HttpSender, file_name: String, file_size: u64) -> Self {
+  pub fn new(storage: StorageHandle, sender: HttpSender, file_name: String, file_size: u64) -> Self {
     Self {
-      local_fs,
+      storage,
       sender,
       file_name,
       file_size,
     }
   }
 }
-
-// pub fn with<R>(f: impl FnOnce(CriticalSection) -> R) -> R {
-//   // Helper for making sure `release` is called even if `f` panics.
-//   struct Guard {
-//     state: critical_section::RestoreState,
-//   }
-
-//   impl Drop for Guard {
-//     #[inline(always)]
-//     fn drop(&mut self) {
-//       unsafe { critical_section::release(self.state) }
-//     }
-//   }
-
-//   let state = unsafe { critical_section::acquire() };
-//   let _guard = Guard { state };
-
-//   unsafe { f(CriticalSection::new()) }
-// }
 
 impl Chunks for FileChunks {
   fn content_type(&self) -> &'static str {
@@ -118,11 +97,11 @@ impl Chunks for FileChunks {
     self,
     mut chunk_writer: ChunkWriter<W>,
   ) -> Result<ChunksWritten, W::Error> {
-    let mut read_bytes = 0u64;
+    let mut read_bytes = 0u32;
 
     loop {
       let buffer = {
-        match self.local_fs.read_binary_chunk(&self.file_name, read_bytes, FlashStorage::SECTOR_SIZE as u64) {
+        match self.storage.read_binary_chunk(self.file_name.clone(), read_bytes, CHUNK_SIZE).await {
           Ok(buffer) => buffer,
           Err(err) => {
             write!(chunk_writer, "Read Error: {err:?}").await.expect("Error writing error!");
@@ -133,12 +112,12 @@ impl Chunks for FileChunks {
       };
 
       chunk_writer.write_chunk(&buffer).await?;
-      self.sender.send(HttpStatusMessage::Progress(read_bytes as u32, self.file_size as u32)).await;
+      self.sender.send(HttpStatusMessage::Progress(read_bytes, self.file_size as u32)).await;
       print!(".");
 
-      read_bytes += buffer.len() as u64;
+      read_bytes += buffer.len() as u32;
 
-      if read_bytes == self.file_size {
+      if read_bytes as u64 == self.file_size {
         break;
       }
     }

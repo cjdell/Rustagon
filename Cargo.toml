@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "bq25895",
     "cy8cmbr3116",
+    "embedded_tools",
     "emulator",
     "firmware",
     "sdk",

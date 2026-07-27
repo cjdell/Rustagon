@@ -1,4 +1,4 @@
-use crate::{apps::MenuAppInputChannel, platform::{display::DisplayHandle, Platform}, types::*, utils::*};
+use crate::{apps::MenuAppInputChannel, platform::{self, display::DisplayHandle, Platform, StorageHandle}, types::*, utils::*};
 use alloc::string::{String, ToString};
 use core::net::Ipv4Addr;
 use embassy_net::Stack;
@@ -84,21 +84,19 @@ pub enum WifiStatus {
 
 pub struct MenuRunnerContext {
   pub stack: Stack<'static>,
-  pub local_fs: LocalFs,
-  pub device_state: DeviceState,
+  pub storage: StorageHandle,
 
   pub http_event_receiver: HttpReceiver,
   pub host_ipc_sender: HostIpcSender,
   pub wasm_ipc_channel: &'static WasmIpcChannel,
-  pub platform: crate::platform::HardwarePlatform,
+  pub platform: platform::HardwarePlatform,
 }
 
 #[derive(Clone)]
 pub struct MenuContext {
   pub stack: Stack<'static>,
-  pub local_fs: LocalFs,
-  pub device_state: DeviceState,
-  pub platform: crate::platform::HardwarePlatform,
+  pub storage: StorageHandle,
+  pub platform: platform::HardwarePlatform,
 
   pub host_ipc_sender: HostIpcSender,
   pub display: DisplayHandle,

@@ -16,38 +16,40 @@
 use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc};
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::rwlock::RwLock;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
 use esp_hal::{
   i2c::master::{BusTimeout, I2c},
   interrupt::software::SoftwareInterruptControl,
-  peripherals::FLASH,
   time::Rate,
   timer::timg::{MwdtStage, TimerGroup},
 };
 use esp_println::println;
-use esp_storage::FlashStorage;
+use esp_storage::FlashStorage as EspFlashStorage;
+use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
+use firmware::d_i2c::*;
+use embedded_tools::config::ConfigFile;
+use embedded_tools::config::storage::LocalFsConfigFileStorage;
+use firmware::platform::{
+  ConfigHandle, HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareStorageManager,
+  HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle, WiFiHandle,
+};
+use firmware::platform::{
+  display::{HardwareDisplayManager, LcdSignal, lcd_task},
+  system::{HardwareSystemManager, SystemHandle},
+};
+use firmware::tasks::*;
 use firmware::types::*;
 use firmware::utils::*;
-use firmware::{
-  d_i2c::*,
-  platform::{
-    display::{HardwareDisplayManager, LcdSignal, lcd_task},
-    HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareWifiManager, InputHandle, LedHandle,
-    Platform, PowerHandle, WiFiHandle,
-  },
-};
-use firmware::{
-  platform::system::{HardwareSystemManager, SystemHandle},
-  tasks::*,
-};
 use log::{error, info, warn};
 use picoserve::make_static;
 use static_cell::StaticCell;
 
 extern crate alloc;
 extern crate core;
+
+const VFS_PARTITION_OFFSET: u32 = 0x00290000;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -97,7 +99,6 @@ async fn main(spawner: Spawner) {
   init_gpio(sys_bus.clone(), I2C_1).await;
   init_gpio(sys_bus.clone(), I2C_2).await;
 
-  // let system_watch: &mut embassy_sync::watch::Watch<CriticalSectionRawMutex, SystemMessage, 1> = make_static!(SystemWatch, SystemWatch::new());
   let lcd_signal = make_static!(LcdSignal, LcdSignal::new());
   let i2c_channel = make_static!(HexButtonChannel, HexButtonChannel::new());
   let wasm_ipc_channel = make_static!(WasmIpcChannel, WasmIpcChannel::new());
@@ -105,7 +106,7 @@ async fn main(spawner: Spawner) {
   let http_channel = make_static!(HttpChannel, HttpChannel::new());
   let web_socket_incoming_channel = make_static!(WebSocketIncomingChannel, WebSocketIncomingChannel::new());
 
-  let i2c_publisher = i2c_channel.publisher().unwrap();
+  let _i2c_publisher = i2c_channel.publisher().unwrap();
 
   spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal)).ok();
 
@@ -119,17 +120,33 @@ async fn main(spawner: Spawner) {
 
   let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Checking filesystem...".to_owned()));
 
-  let flash = make_static!(FlashStorage, FlashStorage::new(peripherals.FLASH));
+  // Create shared flash storage with auto-park for multicore safety
+  let flash = Arc::new(RwLock::new(
+    EspFlashStorage::new(peripherals.FLASH).multicore_auto_park(),
+  ));
 
-  let local_fs = match LocalFs::new(flash) {
+  // Try to mount the filesystem
+  let littlefs_storage = LittleFsFlashStorage::new(flash.clone(), VFS_PARTITION_OFFSET);
+
+  let (storage, config_handle) = match embedded_tools::local_fs::LocalFs::new(littlefs_storage) {
     Ok(local_fs) => {
-      info!("Local OK");
+      info!("Filesystem OK");
       let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Filesystem OK".to_owned()));
       sleep(100).await;
-      local_fs
+
+      let fs_for_config = local_fs.clone();
+      let storage_manager = Arc::new(HardwareStorageManager::new(local_fs, flash.clone(), VFS_PARTITION_OFFSET));
+
+      let config_file = ConfigFile::new(
+        LocalFsConfigFileStorage::new(fs_for_config, "device.jsn".to_string()),
+        DeviceConfig::default(),
+      ).await;
+      let config_handle = ConfigHandle::new(Arc::new(config_file));
+
+      (StorageHandle::new(storage_manager), config_handle)
     }
-    Err(err) => {
-      error!("Filesystem Error: {err:?}");
+    Err(_) => {
+      error!("Filesystem Error: Corrupt. Formatting...");
       wdt.disable();
 
       let _ = display.signal(LcdScreen::Headline(Icon40::Warn, "Format may take a while".to_owned()));
@@ -138,8 +155,11 @@ async fn main(spawner: Spawner) {
       let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Reformatting...".to_owned()));
       sleep(100).await;
 
-      let flash = make_static!(FlashStorage, FlashStorage::new(unsafe { FLASH::steal() }));
-      LocalFs::make_new_filesystem(flash);
+      // Format the filesystem
+      {
+        let mut format_storage = LittleFsFlashStorage::new(flash.clone(), VFS_PARTITION_OFFSET);
+        embedded_tools::local_fs::LocalFs::format(&mut format_storage).unwrap();
+      }
       warn!("New File System Created! Rebooting...");
       let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Format Complete!".to_string()));
       sleep(1_000).await;
@@ -148,29 +168,13 @@ async fn main(spawner: Spawner) {
     }
   };
 
-  let free_clusters = local_fs.stats().unwrap().free_clusters();
-  info!("Filesystem verified. Free clusters: {free_clusters}");
-
-  if free_clusters == 0 {
-    let _ = display.signal(LcdScreen::Headline(Icon40::Error, "Filesystem Unwritable!".to_string()));
-    sleep(2_000).await;
-  }
-
-  let mut device_state = DeviceState::new(local_fs.clone(), "device.jsn".to_string(), DeviceConfig::default());
-  if let Err(err) = device_state.init() {
-    warn!("Could not correctly initialise device config. Using defaults. Error: {err:?}");
-  }
-
-  match device_state.get_json() {
-    Ok(json) => info!("JSON: {json}"),
-    Err(err) => error!("JSON Error: {err:?}"),
-  }
-
   let (controller, interfaces) = esp_radio::wifi::new(peripherals.WIFI, Default::default()).unwrap();
 
-  let wifi_interface = match device_state.get_data().wifi_mode {
-    WifiMode::Station => interfaces.station,
-    WifiMode::AccessPoint => interfaces.access_point,
+  let wifi_mode = config_handle.get_data().await.wifi_mode;
+
+  let wifi_interface = match wifi_mode {
+    firmware::types::WifiMode::Station => interfaces.station,
+    firmware::types::WifiMode::AccessPoint => interfaces.access_point,
   };
 
   let rng = esp_hal::rng::Rng::new();
@@ -194,14 +198,12 @@ async fn main(spawner: Spawner) {
   let ap_ip = Ipv4Addr::from_str("192.168.1.1").expect("Failed to parse AP IP!");
 
   // Create and initialize WiFi manager
-  // (Status is managed internally via WatchedValue)
   let wifi_manager = HardwareWifiManager::new();
-
-  wifi_manager.spawn_connection_task(spawner, device_state.clone(), controller, stack, ap_ip);
+  wifi_manager.spawn_connection_task(spawner, config_handle.clone(), controller, stack, ap_ip);
 
   spawner.spawn(net_task(runner)).ok();
 
-  if let WifiMode::AccessPoint = device_state.get_data().wifi_mode {
+  if let firmware::types::WifiMode::AccessPoint = wifi_mode {
     spawner.spawn(dhcp_task(stack, ap_ip)).ok();
     spawner.spawn(captive_task(stack, ap_ip)).ok();
   }
@@ -221,7 +223,7 @@ async fn main(spawner: Spawner) {
 
   let system = SystemHandle::new(HardwareSystemManager::new(spawner, peripherals.GPIO0));
 
-  let platform = HardwarePlatform::new_with_managers(display, led, power, wifi, input, system);
+  let platform = HardwarePlatform::new_with_managers(display, led, power, wifi, input, system, storage.clone(), config_handle.clone());
 
   let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 
@@ -231,14 +233,14 @@ async fn main(spawner: Spawner) {
   let wasm_sender = wasm_ipc_channel.sender();
   let host_receiver = host_ipc_channel.receiver();
 
-  let local_fs_2nd_core = local_fs.clone();
+  let storage_2nd_core = storage.clone();
 
   esp_rtos::start_second_core(peripherals.CPU_CTRL, sw_int.software_interrupt1, app_core_stack, move || {
     static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     let executor = EXECUTOR.init(esp_rtos::embassy::Executor::new());
 
     executor.run(|spawner| {
-      spawner.spawn(second_core_task(local_fs_2nd_core, wasm_sender, host_receiver)).ok();
+      spawner.spawn(second_core_task(storage_2nd_core, wasm_sender, host_receiver)).ok();
     });
   });
 
@@ -247,8 +249,7 @@ async fn main(spawner: Spawner) {
   start_http(
     spawner,
     stack,
-    local_fs.clone(),
-    device_state.clone(),
+    storage.clone(),
     http_channel.sender(),
     web_socket_incoming_channel.sender(),
     platform.clone(),
@@ -258,8 +259,7 @@ async fn main(spawner: Spawner) {
 
   let runner_ctx = MenuRunnerContext {
     stack,
-    local_fs: local_fs.clone(),
-    device_state: device_state.clone(),
+    storage: storage.clone(),
     http_event_receiver: http_channel.receiver(),
     host_ipc_sender: host_ipc_channel.sender(),
     wasm_ipc_channel,
@@ -269,7 +269,7 @@ async fn main(spawner: Spawner) {
   let platform_for_ws = platform.clone();
 
   // Spawn WiFi monitor task to handle status changes
-  spawner.spawn(wifi_monitor_task(platform, device_state.clone())).ok();
+  spawner.spawn(wifi_monitor_task(platform)).ok();
 
   spawner.spawn(menu_task(runner_ctx)).ok();
 

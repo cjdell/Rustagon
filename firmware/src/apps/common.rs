@@ -1,4 +1,5 @@
-use crate::{platform::display::DisplayHandle, types::*, utils::local_fs::LocalFs};
+use crate::platform::{display::DisplayHandle, ConfigHandle, StorageHandle};
+use crate::types::{HexButton, LcdScreen};
 use alloc::string::String;
 use embassy_net::Stack;
 use embassy_sync::{
@@ -28,8 +29,8 @@ pub type MenuAppInputSender = Sender<'static, NoopRawMutex, MenuAppInput, 1>;
 
 pub struct MenuAppContext {
   pub input_receiver: MenuAppInputReceiver,
-  pub local_fs: LocalFs,
-  pub device_state: DeviceState,
+  pub storage: StorageHandle,
+  pub config: ConfigHandle,
   pub stack: Stack<'static>,
   display: DisplayHandle,
 }
@@ -37,15 +38,15 @@ pub struct MenuAppContext {
 impl MenuAppContext {
   pub fn new(
     input_receiver: MenuAppInputReceiver,
-    local_fs: LocalFs,
-    device_state: DeviceState,
+    storage: StorageHandle,
+    config: ConfigHandle,
     stack: Stack<'static>,
     display: DisplayHandle,
   ) -> Self {
     Self {
       input_receiver,
-      local_fs,
-      device_state,
+      storage,
+      config,
       stack,
       display,
     }

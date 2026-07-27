@@ -1,20 +1,25 @@
-use crate::utils::local_fs::{FileEntry, LocalFs};
-use alloc::format;
+use crate::platform::StorageHandle;
+use alloc::{format, string::String};
 use embedded_io_async::Read;
-use esp_hal::peripherals::Peripherals;
-use esp_storage::FlashStorage;
 use picoserve::response::{
   IntoResponse,
   chunked::{ChunkWriter, ChunkedResponse, Chunks, ChunksWritten},
 };
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct FileEntry {
+  pub name: String,
+  pub size: u32,
+}
 
 pub struct HandleFileList {
-  local_fs: LocalFs,
+  storage: StorageHandle,
 }
 
 impl HandleFileList {
-  pub fn new(local_fs: LocalFs) -> Self {
-    Self { local_fs }
+  pub fn new(storage: StorageHandle) -> Self {
+    Self { storage }
   }
 }
 
@@ -28,7 +33,7 @@ impl picoserve::routing::RequestHandlerService<()> for HandleFileList {
   ) -> Result<picoserve::ResponseSent, W::Error> {
     let connection = request.body_connection.finalize().await?;
 
-    ChunkedResponse::new(FileListChunks::new(self.local_fs.clone()))
+    ChunkedResponse::new(FileListChunks::new(self.storage.clone()))
       .into_response()
       .with_headers([("Access-Control-Allow-Origin", "*")])
       .write_to(connection, response_writer)
@@ -37,12 +42,12 @@ impl picoserve::routing::RequestHandlerService<()> for HandleFileList {
 }
 
 struct FileListChunks {
-  local_fs: LocalFs,
+  storage: StorageHandle,
 }
 
 impl FileListChunks {
-  pub fn new(local_fs: LocalFs) -> Self {
-    Self { local_fs }
+  pub fn new(storage: StorageHandle) -> Self {
+    Self { storage }
   }
 }
 
@@ -55,7 +60,7 @@ impl Chunks for FileListChunks {
     self,
     mut chunk_writer: ChunkWriter<W>,
   ) -> Result<ChunksWritten, W::Error> {
-    let entries = match self.local_fs.dir() {
+    let entries = match self.storage.list_files().await {
       Ok(entries) => entries,
       Err(err) => {
         chunk_writer.write_chunk(format!("Dir Error: {err:?}").as_bytes()).await?;
@@ -67,7 +72,12 @@ impl Chunks for FileListChunks {
     chunk_writer.write_chunk(b"[").await?;
 
     for (i, entry) in entries.iter().enumerate() {
-      let json = match serde_json::to_string::<FileEntry>(entry) {
+      let file_entry = FileEntry {
+        name: entry.name.clone(),
+        size: entry.size,
+      };
+
+      let json = match serde_json::to_string::<FileEntry>(&file_entry) {
         Ok(json) => json,
         Err(err) => {
           panic!("JSON Error: {err:?}");

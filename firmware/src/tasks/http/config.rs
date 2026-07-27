@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::platform::ConfigHandle;
 use alloc::{format, vec::Vec};
 use esp_alloc::ExternalMemory;
 use picoserve::{
@@ -10,12 +10,12 @@ use picoserve::{
 };
 
 pub struct GetConfigHandler {
-  device_state: DeviceState,
+  config: ConfigHandle,
 }
 
 impl GetConfigHandler {
-  pub fn new(device_state: DeviceState) -> Self {
-    Self { device_state }
+  pub fn new(config: ConfigHandle) -> Self {
+    Self { config }
   }
 }
 
@@ -27,7 +27,7 @@ impl RequestHandlerService<()> for GetConfigHandler {
     request: Request<'_, R>,
     response_writer: W,
   ) -> Result<ResponseSent, W::Error> {
-    let json = match self.device_state.get_json() {
+    let json = match self.config.get_json().await {
       Ok(json) => json,
       Err(err) => {
         return format_response!(request, response_writer, "Error reading JSON: {err:?}");
@@ -39,12 +39,12 @@ impl RequestHandlerService<()> for GetConfigHandler {
 }
 
 pub struct SaveConfigHandler {
-  device_state: DeviceState,
+  config: ConfigHandle,
 }
 
 impl SaveConfigHandler {
-  pub fn new(device_state: DeviceState) -> Self {
-    Self { device_state }
+  pub fn new(config: ConfigHandle) -> Self {
+    Self { config }
   }
 }
 
@@ -58,11 +58,11 @@ impl RequestHandlerService<()> for SaveConfigHandler {
   ) -> Result<ResponseSent, W::Error> {
     let buffer = read_request_to_buffer!(request, response_writer);
 
-    if let Err(err) = self.device_state.set_json(buffer.as_slice()) {
+    if let Err(err) = self.config.set_json(buffer.to_vec()).await {
       return format_response!(request, response_writer, "Error applying JSON: {err:?}");
     }
 
-    if let Err(err) = self.device_state.save() {
+    if let Err(err) = self.config.save().await {
       return format_response!(request, response_writer, "Error save JSON: {err:?}");
     }
 

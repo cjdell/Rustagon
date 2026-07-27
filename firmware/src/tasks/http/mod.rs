@@ -13,6 +13,7 @@ mod wifi_scan;
 mod write_file;
 
 use crate::{
+  platform::{ConfigHandle, Platform, StorageHandle},
   tasks::http::{
     common::*, config::*, delete_file::DeleteFileHandler, list_files::HandleFileList, ota::OtaUpdateHandler,
     read_file::ReadFileHandler, receive_file::ReceiveFileHandler, web_socket::WebSocketHandler,
@@ -34,8 +35,7 @@ use picoserve::{
 };
 
 struct AppProps {
-  local_fs: LocalFs,
-  device_state: DeviceState,
+  storage: StorageHandle,
   sender: HttpSender,
   web_socket_incoming_sender: WebSocketIncomingSender,
   platform: crate::platform::HardwarePlatform,
@@ -43,15 +43,13 @@ struct AppProps {
 
 impl AppProps {
   pub fn new(
-    local_fs: LocalFs,
-    device_state: DeviceState,
+    storage: StorageHandle,
     sender: HttpSender,
     web_socket_incoming_sender: WebSocketIncomingSender,
     platform: crate::platform::HardwarePlatform,
   ) -> Self {
     Self {
-      local_fs,
-      device_state,
+      storage,
       sender,
       web_socket_incoming_sender,
       platform,
@@ -63,9 +61,6 @@ impl AppBuilder for AppProps {
   type PathRouter = impl PathRouter;
 
   fn build_app(self) -> Router<Self::PathRouter> {
-    let device_state_1 = self.device_state.clone();
-    let device_state_2 = self.device_state.clone();
-
     Router::from_service(CustomNotFound)
       .route("/", get(async || html_app_response()))
       .route("/emulator", get(async || html_app_response()))
@@ -77,20 +72,20 @@ impl AppBuilder for AppProps {
         Router::new()
           .route(
             "/config",
-            get_service(GetConfigHandler::new(device_state_1)).post_service(SaveConfigHandler::new(device_state_2)),
+            get_service(GetConfigHandler::new(self.platform.config_manager())).post_service(SaveConfigHandler::new(self.platform.config_manager())),
           )
           .route(
             "/wifi",
             get_service(HandleWifiScan::new(self.platform.clone()))
-              .post_service(HandleWifiJoin::new(self.device_state, self.platform.clone()))
+              .post_service(HandleWifiJoin::new(self.platform.config_manager(), self.platform.clone()))
               .options(async || cors_options_response()),
           )
-          .route("/files", get_service(HandleFileList::new(self.local_fs.clone())))
+          .route("/files", get_service(HandleFileList::new(self.storage.clone())))
           .route(
             "/file",
-            get_service(ReadFileHandler::new(self.local_fs.clone(), self.sender))
-              .post_service(WriteFileHandler::new(self.local_fs.clone(), self.sender))
-              .delete_service(DeleteFileHandler::new(self.local_fs.clone()))
+            get_service(ReadFileHandler::new(self.storage.clone(), self.sender))
+              .post_service(WriteFileHandler::new(self.storage.clone(), self.sender))
+              .delete_service(DeleteFileHandler::new(self.storage.clone()))
               .options(async || cors_options_response()),
           )
           .route(
@@ -165,8 +160,7 @@ async fn web_task(id: usize, stack: Stack<'static>, app: &'static AppRouter<AppP
 pub fn start_http(
   spawner: Spawner,
   stack: Stack<'static>,
-  local_fs: LocalFs,
-  device_state: DeviceState,
+  storage: StorageHandle,
   sender: HttpSender,
   web_socket_incoming_sender: WebSocketIncomingSender,
   platform: crate::platform::HardwarePlatform,
@@ -174,8 +168,7 @@ pub fn start_http(
   let app = make_static!(
     AppRouter<AppProps>,
     AppProps::new(
-      local_fs,
-      device_state,
+      storage,
       sender,
       web_socket_incoming_sender,
       platform

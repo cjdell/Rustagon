@@ -91,7 +91,7 @@ impl OtaUpdaterApp {
   async fn download_manifest(&mut self) -> Result<VersionInfo, anyhow::Error> {
     let req = HttpRequest::new(format!(
       "{}/version.json",
-      self.ctx.device_state.get_data().firmware_url,
+      self.ctx.config.get_data().await.firmware_url,
     ));
 
     let res = perform_http_request(self.ctx.stack, req).await.map_err(|_| anyhow::anyhow!("HTTP err"))?;
@@ -102,7 +102,7 @@ impl OtaUpdaterApp {
   async fn do_update(&mut self, version_info: VersionInfo) -> Result<(), ()> {
     let req = HttpRequest::new(format!(
       "{}/firmware.bin",
-      self.ctx.device_state.get_data().firmware_url,
+      self.ctx.config.get_data().await.firmware_url,
     ));
 
     let channel = Channel::<NoopRawMutex, HttpEvent, 1>::new();

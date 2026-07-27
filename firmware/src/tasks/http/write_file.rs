@@ -1,20 +1,21 @@
-use crate::{tasks::http::common::json_response_fn, types::*, utils::*};
+use crate::{platform::StorageHandle, tasks::http::common::json_response_fn, types::*, utils::*};
 use alloc::{format, vec::Vec};
 use esp_alloc::ExternalMemory;
 use esp_println::print;
-use esp_storage::FlashStorage;
 use log::info;
 use picoserve::{io::Read, response::IntoResponse};
 use serde::Serialize;
 
+const CHUNK_SIZE: usize = 4096;
+
 pub struct WriteFileHandler {
-  local_fs: LocalFs,
+  storage: StorageHandle,
   sender: HttpSender,
 }
 
 impl WriteFileHandler {
-  pub fn new(local_fs: LocalFs, sender: HttpSender) -> Self {
-    Self { local_fs, sender }
+  pub fn new(storage: StorageHandle, sender: HttpSender) -> Self {
+    Self { storage, sender }
   }
 }
 
@@ -36,7 +37,7 @@ impl picoserve::routing::RequestHandlerService<()> for WriteFileHandler {
     let mut reader = request.body_connection.body().reader();
 
     let mut buffer = Vec::new_in(ExternalMemory);
-    buffer.resize(FlashStorage::SECTOR_SIZE as usize, 0u8);
+    buffer.resize(CHUNK_SIZE, 0u8);
 
     let mut written_bytes: usize = 0;
 
@@ -62,7 +63,7 @@ impl picoserve::routing::RequestHandlerService<()> for WriteFileHandler {
       let last_chunk = file_size <= written_bytes + chunk_bytes;
 
       if let Err(err) =
-        self.local_fs.write_binary_chunk(&file_name, written_bytes as u64, &buffer[0..chunk_bytes], last_chunk)
+        self.storage.write_binary_chunk(file_name.clone(), written_bytes as u32, buffer[..chunk_bytes].to_vec(), last_chunk).await
       {
         self.sender.send(HttpStatusMessage::Idle).await;
         return format!("Write Error: {err:?}")

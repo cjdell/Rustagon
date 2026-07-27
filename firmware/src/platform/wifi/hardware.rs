@@ -16,8 +16,8 @@ use esp_radio::wifi::{
 };
 use log::{error, info};
 
-use crate::types::DeviceConfig;
-use crate::utils::{PersistentStateService, WatchedValue};
+use crate::platform::ConfigHandle;
+use crate::utils::WatchedValue;
 
 const RETRY_INTERVAL: u64 = 60_000;
 
@@ -74,7 +74,7 @@ impl HardwareWifiManager {
   pub fn spawn_connection_task(
     &self,
     spawner: Spawner,
-    device_config: PersistentStateService<DeviceConfig>,
+    device_config: ConfigHandle,
     controller: WifiController<'static>,
     stack: embassy_net::Stack<'static>,
     ap_ip: Ipv4Addr,
@@ -86,7 +86,7 @@ impl HardwareWifiManager {
 
 #[embassy_executor::task]
 pub async fn wifi_connection_task(
-  device_config: PersistentStateService<DeviceConfig>,
+  device_config: ConfigHandle,
   mut controller: WifiController<'static>,
   stack: embassy_net::Stack<'static>,
   ap_ip: Ipv4Addr,
@@ -97,7 +97,7 @@ pub async fn wifi_connection_task(
   let mut was_connected = false;
   let mut retry_in: u64 = 0;
 
-  let wifi_mode = device_config.get_data().wifi_mode;
+  let wifi_mode = device_config.get_data().await.wifi_mode;
 
   loop {
     Timer::after(Duration::from_millis(1_000)).await;
@@ -178,8 +178,8 @@ pub async fn wifi_connection_task(
                 Ok(found_networks) => {
                   manager.store_scan_results(to_wifi_results(&found_networks)).await;
 
-                  for found_network in found_networks {
-                    for known in device_config.get_data().known_wifi_networks {
+                    for found_network in found_networks {
+                      for known in device_config.get_data().await.known_wifi_networks {
                       if known.ssid == found_network.ssid {
                         match best_network {
                           Some((_, _, best_so_far)) => {
@@ -275,7 +275,7 @@ pub async fn wifi_connection_task(
         }
         crate::types::WifiMode::AccessPoint => {
           if !controller.is_started().unwrap_or_default() {
-            let ap_ssid = device_config.get_data().ap_ssid;
+            let ap_ssid = device_config.get_data().await.ap_ssid;
 
             let config = AccessPointConfig::default().with_ssid(ap_ssid.clone());
 

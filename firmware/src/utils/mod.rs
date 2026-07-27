@@ -1,13 +1,11 @@
 pub mod cpu_guard;
 pub mod dns;
 pub mod event_queue;
-pub mod flash_stream;
 pub mod gpio;
 pub mod graphics;
 pub mod http;
 pub mod i2c;
 pub mod led_service;
-pub mod local_fs;
 pub mod ota;
 pub mod spi;
 pub mod state;
@@ -19,7 +17,6 @@ pub use graphics::*;
 pub use http::*;
 pub use i2c::*;
 pub use led_service::*;
-pub use local_fs::*;
 pub use state::*;
 pub use watched_value::*;
 
