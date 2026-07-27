@@ -67,7 +67,7 @@ impl MenuState {
               app_type: AppType::NativeApp,
             })
             .collect(),
-          vec![
+            vec![
             MenuOption::PowerOff,
             MenuOption::Menu {
               menu: Menu::Information,
@@ -76,7 +76,6 @@ impl MenuState {
             MenuOption::Menu {
               menu: Menu::Files("/".to_string()),
             },
-            MenuOption::Menu { menu: Menu::Wifi },
           ],
         ]
         .concat(),
@@ -131,9 +130,6 @@ impl MenuState {
         storage: self.ctx.storage.clone(),
         path: path.clone(),
       })),
-      Menu::Wifi => MenuTypes::DynamicWifiMenu(Box::new(DynamicWifiMenu::new(
-        self.ctx.platform.clone(),
-      ))),
     }
   }
 

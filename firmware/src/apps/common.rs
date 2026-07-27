@@ -1,4 +1,4 @@
-use crate::platform::{display::DisplayHandle, ConfigHandle, StorageHandle};
+use crate::platform::{self, display::DisplayHandle, ConfigHandle, StorageHandle};
 use crate::types::{HexButton, LcdScreen};
 use alloc::string::String;
 use embassy_net::Stack;
@@ -33,6 +33,7 @@ pub struct MenuAppContext {
   pub config: ConfigHandle,
   pub stack: Stack<'static>,
   display: DisplayHandle,
+  platform: platform::HardwarePlatform,
 }
 
 impl MenuAppContext {
@@ -42,6 +43,7 @@ impl MenuAppContext {
     config: ConfigHandle,
     stack: Stack<'static>,
     display: DisplayHandle,
+    platform: platform::HardwarePlatform,
   ) -> Self {
     Self {
       input_receiver,
@@ -49,10 +51,15 @@ impl MenuAppContext {
       config,
       stack,
       display,
+      platform,
     }
   }
 
   pub fn update_lcd(&self, screen: LcdScreen) {
     let _ = self.display.signal(screen);
+  }
+
+  pub fn platform(&self) -> &platform::HardwarePlatform {
+    &self.platform
   }
 }

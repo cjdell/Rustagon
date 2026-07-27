@@ -1,15 +1,17 @@
 pub mod app_store;
 pub mod common;
 pub mod ota_updater;
+pub mod wifi_scanner;
 
 pub use common::{MenuAppAsync, MenuAppContext, MenuAppInput, MenuAppInputChannel, MenuAppInputReceiver};
 
-use crate::apps::{app_store::AppStoreApp, common::AppName, ota_updater::OtaUpdaterApp};
+use crate::apps::{app_store::AppStoreApp, common::AppName, ota_updater::OtaUpdaterApp, wifi_scanner::WifiScannerApp};
 use alloc::string::String;
 
 pub enum MenuAppType {
   AppStoreApp(AppStoreApp),
   OtaUpdaterApp(OtaUpdaterApp),
+  WifiScannerApp(WifiScannerApp),
 }
 
 impl MenuAppAsync for MenuAppType {
@@ -17,16 +19,20 @@ impl MenuAppAsync for MenuAppType {
     match self {
       MenuAppType::AppStoreApp(app) => app.work().await,
       MenuAppType::OtaUpdaterApp(app) => app.work().await,
+      MenuAppType::WifiScannerApp(app) => app.work().await,
     }
   }
 }
 
 impl MenuAppType {
-  pub fn list_apps() -> [&'static str; 2] {
-    [AppStoreApp::app_name(), OtaUpdaterApp::app_name()]
+  pub fn list_apps() -> [&'static str; 3] {
+    [WifiScannerApp::app_name(), AppStoreApp::app_name(), OtaUpdaterApp::app_name()]
   }
 
   pub fn load_app_async(name: String, ctx: MenuAppContext) -> MenuAppType {
+    if name == WifiScannerApp::app_name() {
+      return MenuAppType::WifiScannerApp(WifiScannerApp::new(ctx));
+    }
     if name == AppStoreApp::app_name() {
       return MenuAppType::AppStoreApp(AppStoreApp::new(ctx));
     }

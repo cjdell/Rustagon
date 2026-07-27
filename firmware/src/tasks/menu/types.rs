@@ -10,7 +10,6 @@ pub enum Menu {
   Information,
   Config,
   Files(String),
-  Wifi,
 }
 
 impl ToString for Menu {
@@ -20,7 +19,6 @@ impl ToString for Menu {
       Menu::Information => "Information".to_string(),
       Menu::Config => "Config".to_string(),
       Menu::Files(_) => "Files".to_string(),
-      Menu::Wifi => "Wifi".to_string(),
     }
   }
 }
