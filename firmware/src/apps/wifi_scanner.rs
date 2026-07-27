@@ -101,13 +101,13 @@ impl WifiScannerApp {
   }
 
   async fn connect_to_network(&mut self, ssid: &str) {
-    let known_networks = self.ctx.config.get_data().await.known_wifi_networks;
+    let known_networks = self.ctx.platform.config_manager().get_data().await.known_wifi_networks;
     let known = known_networks.iter().find(|n| n.ssid == ssid);
 
     match known {
       Some(_network) => {
         info!("Connecting to known network: {}", ssid);
-        self.ctx.platform().wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Online).await;
+        self.ctx.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Online).await;
         self.set_status(format!("Connecting to {}...", ssid)).await;
       }
       None => {
@@ -124,7 +124,7 @@ impl MenuAppAsync for WifiScannerApp {
     self.state.screen = Screen::Scanning;
     self.ctx.update_lcd(self.render());
 
-    let networks = self.ctx.platform().wifi_manager().scan().await;
+    let networks = self.ctx.platform.wifi_manager().scan().await;
 
     self.state.networks = networks;
     self.state.screen = Screen::NetworkList;
@@ -160,7 +160,7 @@ impl MenuAppAsync for WifiScannerApp {
                   self.state.screen = Screen::Scanning;
                   self.ctx.update_lcd(self.render());
 
-                  let networks = self.ctx.platform().wifi_manager().scan().await;
+                  let networks = self.ctx.platform.wifi_manager().scan().await;
                   self.state.networks = networks;
                   self.state.screen = Screen::NetworkList;
                   self.state.cursor = 0;

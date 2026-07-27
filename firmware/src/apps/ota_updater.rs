@@ -1,6 +1,7 @@
 use super::{AppName, MenuAppAsync, MenuAppContext, MenuAppInput};
 use crate::{
   FIRMWARE_VERSION,
+  platform::Platform,
   types::*,
   utils::{
     cpu_guard::CpuGuard,
@@ -91,7 +92,7 @@ impl OtaUpdaterApp {
   async fn download_manifest(&mut self) -> Result<VersionInfo, anyhow::Error> {
     let req = HttpRequest::new(format!(
       "{}/version.json",
-      self.ctx.config.get_data().await.firmware_url,
+      self.ctx.platform.config_manager().get_data().await.firmware_url,
     ));
 
     let res = perform_http_request(self.ctx.stack, req).await.map_err(|_| anyhow::anyhow!("HTTP err"))?;
@@ -102,7 +103,7 @@ impl OtaUpdaterApp {
   async fn do_update(&mut self, version_info: VersionInfo) -> Result<(), ()> {
     let req = HttpRequest::new(format!(
       "{}/firmware.bin",
-      self.ctx.config.get_data().await.firmware_url,
+      self.ctx.platform.config_manager().get_data().await.firmware_url,
     ));
 
     let channel = Channel::<NoopRawMutex, HttpEvent, 1>::new();

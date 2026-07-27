@@ -190,10 +190,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
 
         let ctx = MenuAppContext::new(
           menu_app_input_channel.receiver(),
-          runner_ctx.platform.storage_manager(),
-          runner_ctx.platform.config_manager(),
           runner_ctx.stack,
-          runner_ctx.platform.display_manager(),
           runner_ctx.platform.clone(),
         );
 

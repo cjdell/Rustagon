@@ -3,6 +3,7 @@ use crate::{
     MenuAppAsync, MenuAppInput,
     common::{AppName, MenuAppContext},
   },
+  platform::Platform,
   types::*,
   utils::*,
 };
@@ -111,7 +112,7 @@ impl AppStoreApp {
   async fn download_manifest(&mut self) -> Result<AppList, anyhow::Error> {
     let req = HttpRequest::new(format!(
       "{}/manifest.json",
-      self.ctx.config.get_data().await.app_store_url,
+      self.ctx.platform.config_manager().get_data().await.app_store_url,
     ));
 
     let res = perform_http_request(self.ctx.stack, req).await.map_err(|_| anyhow::anyhow!("HTTP err"))?;
@@ -243,7 +244,7 @@ impl AppStoreApp {
 
     let req = HttpRequest::new(format!(
       "{}/{}",
-      self.ctx.config.get_data().await.app_store_url,
+      self.ctx.platform.config_manager().get_data().await.app_store_url,
       app.name
     ));
 
@@ -256,7 +257,7 @@ impl AppStoreApp {
           HttpEvent::Meta(_) => (),
           HttpEvent::Chunk(chunk) => {
             self.ctx.update_lcd(LcdScreen::BoundedProgress(bytes_written as u32, app.size));
-            self.ctx.storage.write_binary_chunk(app.name.clone(), bytes_written as u32, chunk.clone(), false).await.unwrap();
+            self.ctx.platform.storage_manager().write_binary_chunk(app.name.clone(), bytes_written as u32, chunk.clone(), false).await.unwrap();
             bytes_written += chunk.len() as u64;
           }
           HttpEvent::Done => {
