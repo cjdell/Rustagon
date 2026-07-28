@@ -140,6 +140,10 @@ pub enum LcdScreen {
   Progress(String),
   BoundedProgress(u32, u32),
   Menu { menu: Vec<MenuLine>, selected: u32 },
+  /// A temporary notification overlay. The display system handles the
+  /// animation lifecycle (slide in, hold 2s, slide out) and restores
+  /// whatever screen was being shown before.
+  Notification(Icon40, String),
 }
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]

@@ -25,7 +25,7 @@ use embedded_graphics::{
   mono_font::{MonoTextStyle, ascii::FONT_10X20},
   pixelcolor::Rgb565,
   prelude::{Angle, Point, RgbColor},
-  primitives::{Arc, PrimitiveStyle, StyledDrawable},
+  primitives::{Arc, PrimitiveStyle, RoundedRectangle, StyledDrawable},
   text::{Baseline, Text},
 };
 use esp_alloc::ExternalMemory;
@@ -53,6 +53,7 @@ impl LcdScreen {
       (LcdScreen::Menu { menu: m1, selected: _ }, LcdScreen::Menu { menu: m2, selected: _ }) => {
         !VecHelper::do_vecs_match(m1, m2)
       }
+      (LcdScreen::Notification(..), LcdScreen::Notification(..)) => true,
       _ => true,
     }
   }
@@ -146,12 +147,17 @@ pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
         state.update(new_screen);
       }
 
+      // Restore underlying screen if notification animation has finished
+      state.notification_cleanup();
+
       if let LcdScreen::Blank = state.screen {
         continue 'await_signal;
       }
 
       loop {
         target.clear();
+
+        state.notification_cleanup();
 
         let next_frame = state.draw(&mut target, &state.screen);
 
@@ -187,31 +193,87 @@ const OVERFLOW_LINES: i32 = MARGIN / LINE_HEIGHT;
 const ICON_WIDTH: i32 = 20;
 const ICON_HEIGHT: i32 = 20;
 
+// Notification card constants (GC9A01 is circular — card is centered, not a top bar)
+const NOTIF_CARD_W: i32 = 190;
+const NOTIF_CARD_H: i32 = 70;
+const NOTIF_CARD_X: i32 = (SCREEN_WIDTH as i32 - NOTIF_CARD_W) / 2;
+const NOTIF_CARD_Y: i32 = 75;          // Target top edge of card (fully in the circle)
+const NOTIF_CARD_RADIUS: i32 = 16;     // Rounded corners for the card
+const NOTIF_SLIDE_DIST: i32 = 100;     // px it travels during slide phases
+const NOTIF_SLIDE_IN_MS: i32 = 350;
+const NOTIF_HOLD_MS: i32 = 2_000;
+const NOTIF_SLIDE_OUT_MS: i32 = 350;
+const NOTIF_TOTAL_MS: i32 = NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS + NOTIF_SLIDE_OUT_MS;
+
 struct LcdState {
   screen: LcdScreen,
+  /// Screen that was active before a notification, restored on completion
+  underlying: Option<LcdScreen>,
+  /// Animation timing baseline for the current (or underlying) screen
   start_time: i32,
+  /// Animation timing baseline saved when a notification interrupts — allows
+  /// the underlying screen to resume its animation from where it left off
+  underlying_start_time: i32,
 }
 
 impl LcdState {
   pub fn new(screen: LcdScreen) -> Self {
+    let now = Instant::now().duration_since_epoch().as_millis() as i32;
     Self {
       screen,
-      start_time: Instant::now().duration_since_epoch().as_millis() as i32,
+      underlying: None,
+      start_time: now,
+      underlying_start_time: now,
     }
   }
 
   pub fn update(&mut self, new_screen: LcdScreen) -> () {
-    if LcdScreen::should_restart_animation(&self.screen, &new_screen) {
-      self.start_time = Instant::now().duration_since_epoch().as_millis() as i32;
+    let now = Instant::now().duration_since_epoch().as_millis() as i32;
+    match &new_screen {
+      LcdScreen::Notification(..) => {
+        if !matches!(self.screen, LcdScreen::Notification(..)) {
+          // First notification — save the current screen + its animation clock
+          self.underlying = Some(self.screen.clone());
+          self.underlying_start_time = self.start_time;
+        }
+        self.start_time = now;
+        self.screen = new_screen;
+      }
+      _ => {
+        self.underlying = None;
+        if LcdScreen::should_restart_animation(&self.screen, &new_screen) {
+          self.start_time = now;
+        }
+        self.screen = new_screen;
+      }
     }
+  }
 
-    self.screen = new_screen;
+  /// Check if a notification has finished and restore the underlying screen.
+  /// Called before each draw to ensure we render the right content.
+  pub fn notification_cleanup(&mut self) {
+    if let LcdScreen::Notification(..) = &self.screen {
+      let now = Instant::now().duration_since_epoch().as_millis() as i32;
+      if now - self.start_time >= NOTIF_TOTAL_MS {
+        if let Some(underlying) = self.underlying.take() {
+          self.start_time = self.underlying_start_time;
+          self.screen = underlying;
+        }
+      }
+    }
   }
 
   pub fn draw<'a>(&self, display: &mut BufferTarget, screen: &LcdScreen) -> i32 {
     let now = Instant::now().duration_since_epoch().as_millis() as i32;
     let time_ms = now - self.start_time;
 
+    match screen {
+      LcdScreen::Notification(icon, text) => self.draw_notification(display, icon, text, time_ms),
+      _ => self.draw_screen(display, screen, time_ms, now),
+    }
+  }
+
+  fn draw_screen(&self, display: &mut BufferTarget, screen: &LcdScreen, time_ms: i32, now: i32) -> i32 {
     let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
 
     match screen {
@@ -375,8 +437,87 @@ impl LcdState {
           return 100;
         }
       }
-    };
+      _ => {}
+    }
 
     return 1_000;
   }
+
+  /// Draw a notification card that drops into the centre of the circular
+  /// GC9A01 display, holds, then slides back out.
+  fn draw_notification(&self, display: &mut BufferTarget, icon: &Icon40, text: &str, elapsed: i32) -> i32 {
+    // Draw the underlying screen first so the notification overlays it
+    if let Some(underlying) = &self.underlying {
+      let now = Instant::now().duration_since_epoch().as_millis() as i32;
+      let underlying_elapsed = now - self.underlying_start_time;
+      self.draw_screen(display, underlying, underlying_elapsed, now);
+    }
+
+    // Vertical offset during slide: 0 = target position, negative = above
+    let y_offset = if elapsed < NOTIF_SLIDE_IN_MS {
+      let t = elapsed as f32 / NOTIF_SLIDE_IN_MS as f32;
+      (-NOTIF_SLIDE_DIST as f32 * (1.0 - smoothstep(t))) as i32
+    } else if elapsed < NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS {
+      0
+    } else if elapsed < NOTIF_TOTAL_MS {
+      let t = (elapsed - NOTIF_SLIDE_IN_MS - NOTIF_HOLD_MS) as f32 / NOTIF_SLIDE_OUT_MS as f32;
+      (-NOTIF_SLIDE_DIST as f32 * smoothstep(t)) as i32
+    } else {
+      -NOTIF_SLIDE_DIST
+    };
+
+    let card_top = NOTIF_CARD_Y + y_offset;
+
+    let corner_size = Size::new(NOTIF_CARD_RADIUS as u32, NOTIF_CARD_RADIUS as u32);
+    let card_rect = Rectangle::new(
+      Point::new(NOTIF_CARD_X, card_top),
+      Size::new(NOTIF_CARD_W as u32, NOTIF_CARD_H as u32),
+    );
+
+    // Icon (40x40) position
+    let icon_x = NOTIF_CARD_X + 16;
+    let icon_y = card_top + (NOTIF_CARD_H - 40) / 2;
+
+    // Split point — right edge of icon plus gap
+    let split_x = icon_x + 40 + 8;
+
+    // Full card — dark blue (dominant background colour)
+    RoundedRectangle::with_equal_corners(card_rect, corner_size)
+      .draw_styled(&PrimitiveStyle::with_fill(Rgb565::new(0, 0, 24)), display)
+      .unwrap();
+
+    // Icon area overlay — black rounded rect clipped to the left portion.
+    // Using RoundedRectangle means its right corners also curve, which keeps
+    // the blue background from protruding past the card's corner rounding.
+    let icon_bg_w = (split_x - NOTIF_CARD_X) as u32;
+    let icon_bg = Rectangle::new(Point::new(NOTIF_CARD_X, card_top), Size::new(icon_bg_w, NOTIF_CARD_H as u32));
+    RoundedRectangle::with_equal_corners(icon_bg, corner_size)
+      .draw_styled(&PrimitiveStyle::with_fill(Rgb565::BLACK), display)
+      .unwrap();
+
+    // Thin border around the whole card
+    RoundedRectangle::with_equal_corners(card_rect, corner_size)
+      .draw_styled(&PrimitiveStyle::with_stroke(Rgb565::new(20, 20, 60), 1), display)
+      .unwrap();
+
+    draw_icon(display, Point::new(icon_x, icon_y), *icon);
+
+    let text_x = split_x + 8;
+    let text_y = card_top + (NOTIF_CARD_H - LINE_HEIGHT) / 2;
+    let text_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+    let mut t = Text::new(text, Point::new(text_x, text_y), text_style);
+    t.text_style.baseline = Baseline::Top;
+    t.draw(display).unwrap();
+
+    // Return redraw interval based on phase
+    if elapsed < NOTIF_SLIDE_IN_MS || elapsed >= NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS {
+      0 // Continuous redraw during animation
+    } else {
+      (NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS - elapsed).min(200)
+    }
+  }
+}
+
+fn smoothstep(t: f32) -> f32 {
+  t * t * (3.0 - 2.0 * t)
 }
