@@ -413,6 +413,13 @@ Move them into `async move { }` blocks inside the `Box::pin(...)`. Callers conve
 **Problem:** Having both `WifiStatus` and `WifiStatusMessage` with conversion logic between them.
 **Solution:** Use a single enum for state throughout the codebase. The watch stores the same type as the application sees. Keep state centralized - one enum, one source of truth.
 
+### Pitfall: `Rgb565::new()` treats args as raw 5/6/5 values
+**Problem:** `embedded_graphics::pixelcolor::Rgb565::new(r, g, b)` expects `r` in 0–31, `g` in 0–63,
+`b` in 0–31 (the raw channel bit depths). Passing 8‑bit values (0–255) produces wrong colours.
+**Solution:** Always construct from 8‑bit values via `Rgb565::from(Rgb888::new(r, g, b))` — this does
+the proper 8‑bit→5/6/5 conversion with correct rounding. Or use the constants
+(`Rgb565::WHITE`, `Rgb565::BLACK`, etc.) when possible.
+
 ## Related Files
 
 - **Main trait definitions:** `firmware/src/platform/traits.rs`

@@ -15,7 +15,7 @@ use esp_println::println;
 use esp_storage::FlashStorage;
 use fatfs::{FileSystem, FileSystemStats, FormatVolumeOptions, FsOptions, Read, Seek, SeekFrom, Write, format_volume};
 use log::{error, info};
-use partitions_macro::{partition_offset, partition_size};
+use procmacros::{partition_offset, partition_size};
 use serde::Serialize;
 
 const FS_OFFSET: u64 = partition_offset!("vfs") as u64;

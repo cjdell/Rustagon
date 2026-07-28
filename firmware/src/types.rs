@@ -132,44 +132,7 @@ pub struct WifiResult {
 
 pub type DisplayInterface<'a> = SPIInterface<SpiExclusiveDevice<'a>, Output<'a>>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum LcdScreen {
-  Blank,
-  Splash,
-  Headline(Icon40, String),
-  Progress(String),
-  BoundedProgress(u32, u32),
-  Menu { menu: Vec<MenuLine>, selected: u32 },
-  /// A temporary notification overlay. The display system handles the
-  /// animation lifecycle (slide in, hold 2s, slide out) and restores
-  /// whatever screen was being shown before.
-  Notification(Icon40, String),
-}
-
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-pub struct MenuLine(pub Icon20, pub String);
-
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
-pub enum Icon20 {
-  Home,
-  Config,
-  Wifi,
-  File,
-  Info,
-}
-
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
-pub enum Icon40 {
-  Info,
-  Warn,
-  Error,
-  Wifi,
-}
-
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
-pub enum Image {
-  RustLogo,
-}
+pub use display_types::{Icon20, Icon40, Image, LcdScreen, MenuLine};
 
 // ================================ LED ================================
 

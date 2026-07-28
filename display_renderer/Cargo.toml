@@ -1,0 +1,11 @@
+[package]
+name = "display_renderer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+display_types = { path = "../display_types" }
+embedded-graphics = "0.8.1"
+micromath = "2.1.0"
+procmacros = { path = "../procmacros" }

@@ -20,7 +20,7 @@ use esp_hal::{
 use esp_println::println;
 use esp_storage::FlashStorage;
 use log::{error, info};
-use partitions_macro::partition_offset;
+use procmacros::partition_offset;
 use serde::{Deserialize, Serialize};
 
 const OTA_0_OFFSET: u32 = partition_offset!("ota_0");

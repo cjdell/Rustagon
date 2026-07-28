@@ -1,5 +1,4 @@
 use super::traits::{DisplayError, DisplayManager, LcdSignal};
-use super::common::draw_icon;
 use crate::{
   d_i2c::*,
   types::*,
@@ -15,19 +14,9 @@ use core::fmt;
 use core::ptr;
 use core::slice::from_raw_parts_mut;
 use display_interface::{DataFormat, WriteOnlyDataCommand};
+use display_renderer::LcdState;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::Delay;
-use embedded_graphics::pixelcolor::Rgb888;
-use embedded_graphics::prelude::Size;
-use embedded_graphics::primitives::Rectangle;
-use embedded_graphics::{
-  Drawable as _,
-  mono_font::{MonoTextStyle, ascii::FONT_10X20},
-  pixelcolor::Rgb565,
-  prelude::{Angle, Point, RgbColor},
-  primitives::{Arc, PrimitiveStyle, RoundedRectangle, StyledDrawable},
-  text::{Baseline, Text},
-};
 use esp_alloc::ExternalMemory;
 use esp_hal::{
   gpio::{Level, Output, OutputConfig},
@@ -45,19 +34,6 @@ use gc9a01::{
   prelude::{DisplayResolution240x240, DisplayRotation, SPIInterface},
 };
 use log::info;
-use micromath::F32Ext;
-
-impl LcdScreen {
-  fn should_restart_animation(screen: &LcdScreen, new_screen: &LcdScreen) -> bool {
-    match (screen, new_screen) {
-      (LcdScreen::Menu { menu: m1, selected: _ }, LcdScreen::Menu { menu: m2, selected: _ }) => {
-        !VecHelper::do_vecs_match(m1, m2)
-      }
-      (LcdScreen::Notification(..), LcdScreen::Notification(..)) => true,
-      _ => true,
-    }
-  }
-}
 
 pub static mut BUFFER: *mut u8 = ptr::null_mut::<u8>();
 
@@ -97,7 +73,6 @@ impl DisplayManager for HardwareDisplayManager {
 #[embassy_executor::task]
 pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
   info!("Starting LCD Task...");
-
   info!("LCD: Initialising display");
 
   let p = unsafe { Peripherals::steal() };
@@ -137,18 +112,21 @@ pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
 
   let mut target = BufferTarget::new(buffer);
 
-  let mut state = LcdState::new(LcdScreen::Blank);
+  let now = Instant::now().duration_since_epoch().as_millis() as i32;
+  let mut state = LcdState::new(LcdScreen::Blank, now);
 
   'await_signal: loop {
-    state.update(signal.wait().await);
+    let now = Instant::now().duration_since_epoch().as_millis() as i32;
+    state.update(signal.wait().await, now);
 
     loop {
+      let now = Instant::now().duration_since_epoch().as_millis() as i32;
       if let Some(new_screen) = signal.try_take() {
-        state.update(new_screen);
+        state.update(new_screen, now);
       }
 
-      // Restore underlying screen if notification animation has finished
-      state.notification_cleanup();
+      let now = Instant::now().duration_since_epoch().as_millis() as i32;
+      state.notification_cleanup(now);
 
       if let LcdScreen::Blank = state.screen {
         continue 'await_signal;
@@ -157,9 +135,10 @@ pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
       loop {
         target.clear();
 
-        state.notification_cleanup();
+        let now = Instant::now().duration_since_epoch().as_millis() as i32;
+        state.notification_cleanup(now);
 
-        let next_frame = state.draw(&mut target, &state.screen);
+        let next_frame = state.draw(&mut target, &state.screen, now);
 
         Command::ColumnAddressSet(0, SCREEN_WIDTH as u16 - 1).send(interface).ok();
         Command::RowAddressSet(0, SCREEN_HEIGHT as u16 - 1).send(interface).ok();
@@ -177,347 +156,4 @@ pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
       }
     }
   }
-}
-
-const MARGIN: i32 = 40;
-
-const CHAR_WIDTH: i32 = 10;
-const LINE_HEIGHT: i32 = 20;
-
-const USABLE_WIDTH: i32 = SCREEN_WIDTH as i32 - MARGIN * 2;
-const USABLE_HEIGHT: i32 = SCREEN_HEIGHT as i32 - MARGIN * 2;
-
-const MAX_LINES: i32 = USABLE_HEIGHT / LINE_HEIGHT;
-const OVERFLOW_LINES: i32 = MARGIN / LINE_HEIGHT;
-
-const ICON_WIDTH: i32 = 20;
-const ICON_HEIGHT: i32 = 20;
-
-// Notification card constants (GC9A01 is circular — card is centered, not a top bar)
-const NOTIF_CARD_W: i32 = 190;
-const NOTIF_CARD_H: i32 = 70;
-const NOTIF_CARD_X: i32 = (SCREEN_WIDTH as i32 - NOTIF_CARD_W) / 2;
-const NOTIF_CARD_Y: i32 = 75;          // Target top edge of card (fully in the circle)
-const NOTIF_CARD_RADIUS: i32 = 16;     // Rounded corners for the card
-const NOTIF_SLIDE_DIST: i32 = 100;     // px it travels during slide phases
-const NOTIF_SLIDE_IN_MS: i32 = 350;
-const NOTIF_HOLD_MS: i32 = 2_000;
-const NOTIF_SLIDE_OUT_MS: i32 = 350;
-const NOTIF_TOTAL_MS: i32 = NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS + NOTIF_SLIDE_OUT_MS;
-
-struct LcdState {
-  screen: LcdScreen,
-  /// Screen that was active before a notification, restored on completion
-  underlying: Option<LcdScreen>,
-  /// Animation timing baseline for the current (or underlying) screen
-  start_time: i32,
-  /// Animation timing baseline saved when a notification interrupts — allows
-  /// the underlying screen to resume its animation from where it left off
-  underlying_start_time: i32,
-}
-
-impl LcdState {
-  pub fn new(screen: LcdScreen) -> Self {
-    let now = Instant::now().duration_since_epoch().as_millis() as i32;
-    Self {
-      screen,
-      underlying: None,
-      start_time: now,
-      underlying_start_time: now,
-    }
-  }
-
-  pub fn update(&mut self, new_screen: LcdScreen) -> () {
-    let now = Instant::now().duration_since_epoch().as_millis() as i32;
-    match &new_screen {
-      LcdScreen::Notification(..) => {
-        if !matches!(self.screen, LcdScreen::Notification(..)) {
-          // First notification — save the current screen + its animation clock
-          self.underlying = Some(self.screen.clone());
-          self.underlying_start_time = self.start_time;
-        }
-        self.start_time = now;
-        self.screen = new_screen;
-      }
-      _ => {
-        self.underlying = None;
-        if LcdScreen::should_restart_animation(&self.screen, &new_screen) {
-          self.start_time = now;
-        }
-        self.screen = new_screen;
-      }
-    }
-  }
-
-  /// Check if a notification has finished and restore the underlying screen.
-  /// Called before each draw to ensure we render the right content.
-  pub fn notification_cleanup(&mut self) {
-    if let LcdScreen::Notification(..) = &self.screen {
-      let now = Instant::now().duration_since_epoch().as_millis() as i32;
-      if now - self.start_time >= NOTIF_TOTAL_MS {
-        if let Some(underlying) = self.underlying.take() {
-          self.start_time = self.underlying_start_time;
-          self.screen = underlying;
-        }
-      }
-    }
-  }
-
-  pub fn draw<'a>(&self, display: &mut BufferTarget, screen: &LcdScreen) -> i32 {
-    let now = Instant::now().duration_since_epoch().as_millis() as i32;
-    let time_ms = now - self.start_time;
-
-    match screen {
-      LcdScreen::Notification(icon, text) => self.draw_notification(display, icon, text, time_ms),
-      _ => self.draw_screen(display, screen, time_ms, now),
-    }
-  }
-
-  fn draw_screen(&self, display: &mut BufferTarget, screen: &LcdScreen, time_ms: i32, now: i32) -> i32 {
-    let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-
-    match screen {
-      LcdScreen::Blank => {}
-      LcdScreen::Splash => {
-        draw_icon(display, Point::new(0, 0), Image::RustLogo);
-      }
-      LcdScreen::Headline(icon, headline) => {
-        draw_icon(display, Point::new((SCREEN_WIDTH as i32 - 40) / 2, 60), *icon);
-
-        let text_width = headline.chars().count() as i32 * CHAR_WIDTH;
-
-        let mut text = Text::new(
-          &headline,
-          Point::new(
-            (SCREEN_WIDTH as i32 - text_width) / 2,
-            (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2,
-          ),
-          style,
-        );
-        text.text_style.baseline = Baseline::Top;
-        text.draw(display).unwrap();
-      }
-      LcdScreen::Progress(msg) => {
-        let seconds = 5;
-
-        Arc::with_center(
-          Point::new(SCREEN_WIDTH as i32 / 2, SCREEN_HEIGHT as i32 / 2),
-          200,
-          Angle::from_degrees(0.),
-          Angle::from_degrees((((360 * time_ms) / (1000 * seconds)) % 360) as f32),
-        )
-        .draw_styled(&PrimitiveStyle::with_stroke(Rgb565::MAGENTA, 10), display)
-        .unwrap();
-
-        let text_width = msg.chars().count() as i32 * CHAR_WIDTH;
-
-        let mut text = Text::new(
-          &msg,
-          Point::new(
-            (SCREEN_WIDTH as i32 - text_width) / 2,
-            (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2,
-          ),
-          style,
-        );
-        text.text_style.baseline = Baseline::Top;
-        text.draw(display).unwrap();
-
-        return 1;
-      }
-      LcdScreen::BoundedProgress(transferred, total) => {
-        Arc::with_center(
-          Point::new(SCREEN_WIDTH as i32 / 2, SCREEN_HEIGHT as i32 / 2),
-          200,
-          Angle::from_degrees(0.),
-          Angle::from_degrees(360. * (*transferred as f32) / (*total as f32)),
-        )
-        .draw_styled(&PrimitiveStyle::with_stroke(Rgb565::GREEN, 10), display)
-        .unwrap();
-
-        let status = alloc::format!("{transferred} of {total}");
-
-        let text_width = status.chars().count() as i32 * CHAR_WIDTH;
-
-        let mut text = Text::new(
-          &status,
-          Point::new(
-            (SCREEN_WIDTH as i32 - text_width) / 2,
-            (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2,
-          ),
-          style,
-        );
-        text.text_style.baseline = Baseline::Top;
-        text.draw(display).unwrap();
-
-        return 1_000;
-      }
-      LcdScreen::Menu { menu, selected } => {
-        let total_items = menu.len() as i32;
-        let selected_idx = *selected as i32;
-
-        let visible_lines = MAX_LINES;
-        let mut start_idx = 0;
-        let mut end_idx = total_items.min(visible_lines);
-
-        if total_items > visible_lines {
-          let center_line = visible_lines / 2;
-          start_idx = (selected_idx - center_line).max(0);
-          end_idx = (start_idx + visible_lines).min(total_items);
-
-          if end_idx == total_items {
-            start_idx = (total_items - visible_lines).max(0);
-          }
-        }
-
-        const ANIMATION_DURATION: i32 = 500;
-        const START_SCROLLING: i32 = 2000;
-        const SCROLLING_PIXELS_PER_SECOND: i32 = 25;
-
-        let x = if time_ms < ANIMATION_DURATION {
-          SCREEN_WIDTH as i32 - ((SCREEN_WIDTH as i32 - MARGIN) * time_ms / ANIMATION_DURATION)
-        } else {
-          MARGIN
-        };
-
-        let render_start_idx = (start_idx - OVERFLOW_LINES).max(0);
-        let render_end_idx = (end_idx + OVERFLOW_LINES).min(total_items);
-
-        let mut i = render_start_idx;
-        while i < render_end_idx {
-          let line = &menu[i as usize];
-          let text_width = line.1.len() as i32 * CHAR_WIDTH;
-          let y = MARGIN + (i - start_idx) * LINE_HEIGHT;
-
-          let style = if i == selected_idx {
-            MonoTextStyle::new(&FONT_10X20, Rgb565::BLACK)
-          } else {
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE)
-          };
-
-          let mut scroll = 0;
-          if i == selected_idx && text_width > USABLE_WIDTH && time_ms >= ANIMATION_DURATION + START_SCROLLING {
-            let scroll_speed = 1000 / SCROLLING_PIXELS_PER_SECOND;
-
-            let scroll_offset =
-              ((time_ms - ANIMATION_DURATION - START_SCROLLING) / scroll_speed) % (text_width - USABLE_WIDTH);
-            scroll = scroll_offset;
-          }
-
-          let start_x = x - scroll;
-          let text_x = start_x + ICON_WIDTH;
-
-          draw_icon(display, Point::new(x, y), line.0);
-
-          if i == selected_idx {
-            let s = (((now as f32) / 500.).sin() + 1.) / 4. + 0.5;
-            let b = (s * 255.) as u8;
-            let col = Rgb565::from(Rgb888::new(b, b, b));
-
-            Rectangle::new(
-              Point::new(text_x, y),
-              Size {
-                width: text_width as u32,
-                height: ICON_HEIGHT as u32,
-              },
-            )
-            .draw_styled(&PrimitiveStyle::with_fill(col), display)
-            .unwrap();
-          }
-
-          let mut text = Text::new(&line.1, Point::new(text_x, y), style);
-          text.text_style.baseline = Baseline::Top;
-          text.draw(display).unwrap();
-
-          i += 1;
-        }
-
-        if x > MARGIN {
-          return 0;
-        } else {
-          return 100;
-        }
-      }
-      _ => {}
-    }
-
-    return 1_000;
-  }
-
-  /// Draw a notification card that drops into the centre of the circular
-  /// GC9A01 display, holds, then slides back out.
-  fn draw_notification(&self, display: &mut BufferTarget, icon: &Icon40, text: &str, elapsed: i32) -> i32 {
-    // Draw the underlying screen first so the notification overlays it
-    if let Some(underlying) = &self.underlying {
-      let now = Instant::now().duration_since_epoch().as_millis() as i32;
-      let underlying_elapsed = now - self.underlying_start_time;
-      self.draw_screen(display, underlying, underlying_elapsed, now);
-    }
-
-    // Vertical offset during slide: 0 = target position, negative = above
-    let y_offset = if elapsed < NOTIF_SLIDE_IN_MS {
-      let t = elapsed as f32 / NOTIF_SLIDE_IN_MS as f32;
-      (-NOTIF_SLIDE_DIST as f32 * (1.0 - smoothstep(t))) as i32
-    } else if elapsed < NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS {
-      0
-    } else if elapsed < NOTIF_TOTAL_MS {
-      let t = (elapsed - NOTIF_SLIDE_IN_MS - NOTIF_HOLD_MS) as f32 / NOTIF_SLIDE_OUT_MS as f32;
-      (-NOTIF_SLIDE_DIST as f32 * smoothstep(t)) as i32
-    } else {
-      -NOTIF_SLIDE_DIST
-    };
-
-    let card_top = NOTIF_CARD_Y + y_offset;
-
-    let corner_size = Size::new(NOTIF_CARD_RADIUS as u32, NOTIF_CARD_RADIUS as u32);
-    let card_rect = Rectangle::new(
-      Point::new(NOTIF_CARD_X, card_top),
-      Size::new(NOTIF_CARD_W as u32, NOTIF_CARD_H as u32),
-    );
-
-    // Icon (40x40) position
-    let icon_x = NOTIF_CARD_X + 16;
-    let icon_y = card_top + (NOTIF_CARD_H - 40) / 2;
-
-    // Split point — right edge of icon plus gap
-    let split_x = icon_x + 40 + 8;
-
-    // Full card — dark blue (dominant background colour)
-    RoundedRectangle::with_equal_corners(card_rect, corner_size)
-      .draw_styled(&PrimitiveStyle::with_fill(Rgb565::new(0, 0, 24)), display)
-      .unwrap();
-
-    // Icon area overlay — black rounded rect clipped to the left portion.
-    // Using RoundedRectangle means its right corners also curve, which keeps
-    // the blue background from protruding past the card's corner rounding.
-    let icon_bg_w = (split_x - NOTIF_CARD_X) as u32;
-    let icon_bg = Rectangle::new(Point::new(NOTIF_CARD_X, card_top), Size::new(icon_bg_w, NOTIF_CARD_H as u32));
-    RoundedRectangle::with_equal_corners(icon_bg, corner_size)
-      .draw_styled(&PrimitiveStyle::with_fill(Rgb565::BLACK), display)
-      .unwrap();
-
-    // Thin border around the whole card
-    RoundedRectangle::with_equal_corners(card_rect, corner_size)
-      .draw_styled(&PrimitiveStyle::with_stroke(Rgb565::new(20, 20, 60), 1), display)
-      .unwrap();
-
-    draw_icon(display, Point::new(icon_x, icon_y), *icon);
-
-    let text_x = split_x + 8;
-    let text_y = card_top + (NOTIF_CARD_H - LINE_HEIGHT) / 2;
-    let text_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-    let mut t = Text::new(text, Point::new(text_x, text_y), text_style);
-    t.text_style.baseline = Baseline::Top;
-    t.draw(display).unwrap();
-
-    // Return redraw interval based on phase
-    if elapsed < NOTIF_SLIDE_IN_MS || elapsed >= NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS {
-      0 // Continuous redraw during animation
-    } else {
-      (NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS - elapsed).min(200)
-    }
-  }
-}
-
-fn smoothstep(t: f32) -> f32 {
-  t * t * (3.0 - 2.0 * t)
 }

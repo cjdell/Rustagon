@@ -4,7 +4,7 @@ use esp_hal::peripherals::FLASH;
 use esp_println::print;
 use esp_storage::FlashStorage;
 use log::info;
-use partitions_macro::partition_offset;
+use procmacros::partition_offset;
 use picoserve::{
   ResponseSent,
   io::Read,
