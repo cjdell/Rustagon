@@ -1,14 +1,10 @@
 use crate::{
-  platform::display::BUFFER,
+  platform::display::DisplayHandle,
   types::*,
-  utils::{
-    graphics::{SCREEN_HEIGHT, SCREEN_WIDTH},
-    *,
-  },
+  utils::*,
 };
 use alloc::vec;
 use alloc::vec::Vec;
-use core::slice::from_raw_parts;
 use esp_alloc::ExternalMemory;
 use esp_println::print;
 use log::error;
@@ -19,12 +15,14 @@ use picoserve::{
 
 pub struct WebSocketHandler {
   web_socket_incoming_sender: WebSocketIncomingSender,
+  display: DisplayHandle,
 }
 
 impl WebSocketHandler {
-  pub fn new(web_socket_incoming_sender: WebSocketIncomingSender) -> Self {
+  pub fn new(web_socket_incoming_sender: WebSocketIncomingSender, display: DisplayHandle) -> Self {
     Self {
       web_socket_incoming_sender,
+      display,
     }
   }
 }
@@ -63,10 +61,16 @@ impl WebSocketCallback for WebSocketHandler {
           break Some((error.code(), "Websocket Error"));
         }
         Either::Second(()) => {
-          let raw_buffer = unsafe { from_raw_parts(BUFFER.cast::<u16>(), (SCREEN_WIDTH * SCREEN_HEIGHT) as usize) };
+          let raw_buffer = self.display.frame_buffer().unwrap();
+          let pixels = unsafe {
+            core::slice::from_raw_parts(
+              raw_buffer.as_ptr().cast::<u16>(),
+              raw_buffer.len() / 2,
+            )
+          };
 
           print!("[");
-          match tx.send_binary(&u16_bitmask_to_u8_slice(raw_buffer)).await {
+          match tx.send_binary(&u16_bitmask_to_u8_slice(pixels)).await {
             Ok(()) => {
               print!("]");
               continue;

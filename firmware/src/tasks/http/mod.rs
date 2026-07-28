@@ -107,7 +107,7 @@ impl AppBuilder for AppProps {
           .route(
             "/ws",
             get(async move |upgrade: WebSocketUpgrade| {
-              upgrade.on_upgrade(WebSocketHandler::new(self.web_socket_incoming_sender)).with_protocol("messages")
+              upgrade.on_upgrade(WebSocketHandler::new(self.web_socket_incoming_sender, self.platform.display_manager())).with_protocol("messages")
             })
             .options(async || cors_options_response()),
           ),

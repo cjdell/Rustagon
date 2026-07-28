@@ -45,6 +45,10 @@ impl DisplayManager for DesktopDisplayManager {
     fn try_signal(&self, screen: LcdScreen) -> Result<(), DisplayError> {
         self.signal(screen)
     }
+
+    fn frame_buffer(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 fn now_ms() -> i64 {

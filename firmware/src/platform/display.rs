@@ -14,7 +14,7 @@ use display_renderer::LcdState;
 use aw9523b::Pin;
 use core::fmt;
 use core::ptr;
-use core::slice::from_raw_parts_mut;
+use core::slice::{from_raw_parts, from_raw_parts_mut};
 use display_interface::{DataFormat, WriteOnlyDataCommand};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::Delay;
@@ -67,6 +67,15 @@ impl DisplayManager for HardwareDisplayManager {
       self.signal.signal(screen);
     }
     Ok(())
+  }
+
+  fn frame_buffer(&self) -> Option<&[u8]> {
+    unsafe {
+      Some(from_raw_parts(
+        BUFFER,
+        (app::platform::display::DISPLAY_WIDTH * app::platform::display::DISPLAY_HEIGHT * 2) as usize,
+      ))
+    }
   }
 }
 
