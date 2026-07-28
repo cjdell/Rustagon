@@ -96,7 +96,7 @@ impl OtaUpdaterApp {
       self.ctx.platform.config_manager().get_data().await.firmware_url,
     ));
 
-    let res = perform_http_request(self.ctx.stack, req).await.map_err(|_| anyhow::anyhow!("HTTP err"))?;
+    let res = perform_http_request(self.ctx.network_stack.clone().unwrap(), req).await.map_err(|_| anyhow::anyhow!("HTTP err"))?;
 
     Ok(serde_json::from_slice::<VersionInfo>(&res.body)?)
   }
@@ -108,7 +108,7 @@ impl OtaUpdaterApp {
     ));
 
     let channel = Channel::<NoopRawMutex, HttpEvent, 1>::new();
-    let request = perform_http_request_channel(self.ctx.stack, channel.sender(), &req);
+    let request = perform_http_request_channel(self.ctx.network_stack.clone().unwrap(), channel.sender(), &req);
 
     let mut storage = FlashStorage::new(unsafe { FLASH::steal() });
     let mut ota = Ota::new(&mut storage);

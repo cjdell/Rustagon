@@ -4,6 +4,7 @@ members = [
     "app",
     "bq25895",
     "cy8cmbr3116",
+    "desktop",
     "display_renderer",
     "display_types",
     "embedded_tools",

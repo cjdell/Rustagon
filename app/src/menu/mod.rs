@@ -13,7 +13,6 @@ use crate::{
   protocol::HostIpcMessage,
   types::*,
 };
-use alloc::string::ToString as _;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, rwlock::RwLock};
@@ -24,7 +23,6 @@ pub async fn menu_task<P: Platform>(mut runner_ctx: MenuRunnerContext<P>) {
   let menu_app_input_channel = crate::apps::common::create_menu_app_channel();
 
   let ctx = MenuContext {
-    stack: runner_ctx.stack,
     storage: runner_ctx.storage.clone(),
     platform: runner_ctx.platform.clone(),
     host_ipc_sender: runner_ctx.host_ipc_sender,

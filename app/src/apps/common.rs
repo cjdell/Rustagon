@@ -39,14 +39,19 @@ pub fn create_menu_app_channel() -> &'static MenuAppInputChannel {
 
 pub struct MenuAppContext<P: Platform> {
   pub input_receiver: MenuAppInputReceiver,
-  pub stack: Stack<'static>,
   pub platform: P,
   pub host_ipc_sender: HostIpcSender,
+  pub network_stack: Option<embassy_net::Stack<'static>>,
 }
 
 impl<P: Platform> MenuAppContext<P> {
-  pub fn new(input_receiver: MenuAppInputReceiver, stack: Stack<'static>, platform: P, host_ipc_sender: HostIpcSender) -> Self {
-    Self { input_receiver, stack, platform, host_ipc_sender }
+  pub fn new(input_receiver: MenuAppInputReceiver, platform: P, host_ipc_sender: HostIpcSender) -> Self {
+    Self { input_receiver, platform, host_ipc_sender, network_stack: None }
+  }
+
+  pub fn with_stack(mut self, stack: embassy_net::Stack<'static>) -> Self {
+    self.network_stack = Some(stack);
+    self
   }
 
   pub fn update_lcd(&self, screen: LcdScreen) {

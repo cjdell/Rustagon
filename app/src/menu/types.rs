@@ -1,17 +1,12 @@
 use crate::platform::{display::DisplayHandle, Platform, StorageHandle};
 use crate::protocol::HostIpcSender;
-use alloc::string::String;
 use core::fmt;
 
 #[derive(Clone)]
-pub enum Menu {
-  Root,
-}
+pub enum Menu { Root }
 
 impl Menu {
-  pub fn label(&self) -> &str {
-    match self { Menu::Root => "Root" }
-  }
+  pub fn label(&self) -> &str { match self { Menu::Root => "Root" } }
 }
 
 #[derive(Clone)]
@@ -22,13 +17,9 @@ pub enum MenuOption {
 }
 
 #[derive(Clone, Debug)]
-pub enum AppType {
-  MenuApp,
-  NativeApp,
-}
+pub enum AppType { MenuApp, NativeApp }
 
 pub struct MenuRunnerContext<P: Platform> {
-  pub stack: embassy_net::Stack<'static>,
   pub storage: StorageHandle,
   pub platform: P,
   pub host_ipc_sender: HostIpcSender,
@@ -36,12 +27,7 @@ pub struct MenuRunnerContext<P: Platform> {
 
 impl<P: Platform> Clone for MenuRunnerContext<P> {
   fn clone(&self) -> Self {
-    Self {
-      stack: self.stack,
-      storage: self.storage.clone(),
-      platform: self.platform.clone(),
-      host_ipc_sender: self.host_ipc_sender,
-    }
+    Self { storage: self.storage.clone(), platform: self.platform.clone(), host_ipc_sender: self.host_ipc_sender }
   }
 }
 
@@ -52,7 +38,6 @@ impl<P: Platform> fmt::Debug for MenuRunnerContext<P> {
 }
 
 pub struct MenuContext<P: Platform> {
-  pub stack: embassy_net::Stack<'static>,
   pub storage: StorageHandle,
   pub platform: P,
   pub host_ipc_sender: HostIpcSender,
@@ -63,7 +48,6 @@ pub struct MenuContext<P: Platform> {
 impl<P: Platform> Clone for MenuContext<P> {
   fn clone(&self) -> Self {
     Self {
-      stack: self.stack,
       storage: self.storage.clone(),
       platform: self.platform.clone(),
       host_ipc_sender: self.host_ipc_sender,

@@ -19,6 +19,8 @@ pub struct DeviceConfig {
   pub firmware_url: String,
   pub wifi_mode: WifiMode,
   pub ap_ssid: String,
+  #[serde(default)]
+  pub ap_password: String,
   pub known_wifi_networks: Vec<KnownWifiNetwork>,
 }
 
@@ -30,6 +32,7 @@ impl Default for DeviceConfig {
       firmware_url: "http://firmware.rustagon.chrisdell.info".to_string(),
       wifi_mode: WifiMode::AccessPoint,
       ap_ssid: "Rustagon".to_string(),
+      ap_password: "rustagon".to_string(),
       known_wifi_networks: Vec::new(),
     }
   }
@@ -64,7 +67,7 @@ pub enum HttpStatusMessage {
 
 // ================================ WiFi ================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WifiDesiredState {
   Online,
   Offline,

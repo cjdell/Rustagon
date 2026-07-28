@@ -1,26 +1,23 @@
 pub mod display;
+pub mod effects;
 pub mod hardware;
 pub mod input;
 pub mod led;
-pub mod mock;
 pub mod power;
 pub mod storage;
 pub mod system;
 pub mod traits;
 pub mod wifi;
 
-pub use display::{DisplayError, DisplayHandle, DisplayManager, HardwareDisplayManager, LcdSignal, MockDisplayManager, lcd_task};
+pub use display::{DisplayError, DisplayHandle, DisplayManager, HardwareDisplayManager, LcdSignal, lcd_task};
 pub use hardware::HardwarePlatform;
-pub use input::{HardwareInputManager, InputHandle, InputManager, MockInputManager};
+pub use input::{HardwareInputManager, InputHandle, InputManager};
 pub use led::{
   BreatheEffect, ChaseEffect, FireEffect, HardwareLedManager, LedEffect, LedHandle, LedManager, OffEffect, RainbowEffect, SolidEffect,
   SparkleEffect, TheaterChaseEffect,
 };
-pub use mock::MockPlatform;
-pub use power::{HardwarePowerManager, MockPowerManager, PowerError, PowerHandle, PowerManager};
-pub use storage::{ConfigHandle, HardwareStorageManager, MockStorageManager, StateError, StorageHandle};
+pub use power::{HardwarePowerManager, PowerError, PowerHandle, PowerManager};
+pub use storage::{ConfigHandle, HardwareStorageManager, StateError, StorageHandle};
 pub use system::{HardwareSystemManager, SystemHandle};
 pub use traits::Platform;
-pub use wifi::{
-  HardwareWifiManager, MockWifiManager, WiFiHandle, WiFiManager, WifiDesiredState, WifiMode, WifiResult, WifiStats, WifiStatus,
-};
+pub use wifi::{HardwareWifiManager, WiFiHandle, WiFiManager, WifiDesiredState, WifiMode, WifiResult, WifiStats, WifiStatus};

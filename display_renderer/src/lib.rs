@@ -56,15 +56,13 @@ pub fn draw_raw_image(
     let target_start = target_row_offset;
     let target_end = target_start + width * 2;
 
-    if target_end <= buf.len() {
+    if target_end <= buf.len() && source_end <= image.len() {
       buf[target_start..target_end].copy_from_slice(&image[source_start..source_end]);
     }
   }
 }
 
 // ============================== Icon system ==============================
-
-use procmacros::include_rgb565_icon;
 
 pub trait Icon {
   fn size(&self) -> Size;
@@ -119,29 +117,30 @@ pub fn draw_icon(display: &mut impl FrameBuffer, pos: Point, icon: impl Icon) {
 
 // ============================== Icon data (RGB565 raw) ==============================
 
-// Paths are relative to the workspace root (Cargo runs workspace members from there)
-#[unsafe(link_section = ".rodata.mydata")]
-static RUST_LOGO: &[u8] = include_rgb565_icon!("firmware/assets/images/rust.png");
+use procmacros::include_rgb565_icon;
 
-#[unsafe(link_section = ".rodata.mydata")]
-static HOME_20: &[u8] = include_rgb565_icon!("firmware/assets/icons/20x20/home.png");
-#[unsafe(link_section = ".rodata.mydata")]
-static CONFIG_20: &[u8] = include_rgb565_icon!("firmware/assets/icons/20x20/config.png");
-#[unsafe(link_section = ".rodata.mydata")]
-static WIFI_20: &[u8] = include_rgb565_icon!("firmware/assets/icons/20x20/wifi.png");
-#[unsafe(link_section = ".rodata.mydata")]
-static FILE_20: &[u8] = include_rgb565_icon!("firmware/assets/icons/20x20/file.png");
-#[unsafe(link_section = ".rodata.mydata")]
-static INFO_20: &[u8] = include_rgb565_icon!("firmware/assets/icons/20x20/info.png");
-
-#[unsafe(link_section = ".rodata.mydata")]
-static INFO_40: &[u8] = include_rgb565_icon!("firmware/assets/icons/40x40/info.png");
-#[unsafe(link_section = ".rodata.mydata")]
-static WARN_40: &[u8] = include_rgb565_icon!("firmware/assets/icons/40x40/warn.png");
-#[unsafe(link_section = ".rodata.mydata")]
-static ERROR_40: &[u8] = include_rgb565_icon!("firmware/assets/icons/40x40/error.png");
-#[unsafe(link_section = ".rodata.mydata")]
-static WIFI_40: &[u8] = include_rgb565_icon!("firmware/assets/icons/40x40/wifi.png");
+// On ESP32 (xtensa) icon data is placed in a custom flash section.
+// On other targets the default .rodata is used.
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static RUST_LOGO: &[u8] = include_rgb565_icon!("../firmware/assets/images/rust.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static HOME_20: &[u8] = include_rgb565_icon!("../firmware/assets/icons/20x20/home.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static CONFIG_20: &[u8] = include_rgb565_icon!("../firmware/assets/icons/20x20/config.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static WIFI_20: &[u8] = include_rgb565_icon!("../firmware/assets/icons/20x20/wifi.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static FILE_20: &[u8] = include_rgb565_icon!("../firmware/assets/icons/20x20/file.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static INFO_20: &[u8] = include_rgb565_icon!("../firmware/assets/icons/20x20/info.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static INFO_40: &[u8] = include_rgb565_icon!("../firmware/assets/icons/40x40/info.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static WARN_40: &[u8] = include_rgb565_icon!("../firmware/assets/icons/40x40/warn.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static ERROR_40: &[u8] = include_rgb565_icon!("../firmware/assets/icons/40x40/error.png");
+#[cfg_attr(target_arch = "xtensa", unsafe(link_section = ".rodata.mydata"))]
+static WIFI_40: &[u8] = include_rgb565_icon!("../firmware/assets/icons/40x40/wifi.png");
 
 // ============================== Display constants ==============================
 

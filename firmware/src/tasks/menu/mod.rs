@@ -196,10 +196,9 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
 
         let ctx = MenuAppContext::new(
           menu_app_input_channel.receiver(),
-          runner_ctx.stack,
           runner_ctx.platform.clone(),
           runner_ctx.host_ipc_sender,
-        );
+        ).with_stack(runner_ctx.stack);
 
         // Try firmware-specific apps first, then app crate apps
         match app_name.as_str() {

@@ -1,28 +1,25 @@
+pub use app::platform::input::{InputHandle, InputManager};
+
 use alloc::boxed::Box;
 use aw9523b::{Aw9523b, Dir, Pin};
-use crate::d_i2c::*;
 use core::fmt;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 
-use super::traits::*;
+use crate::d_i2c::*;
+use crate::types::HexButton;
 use crate::utils::{EventQueue, MaskedI2cBus};
 
-/// Depth of the pending button event queue.
 const EVENT_QUEUE_DEPTH: usize = 10;
 
 type ButtonEventQueue = EventQueue<HexButton, EVENT_QUEUE_DEPTH>;
 
-/// Hardware Input Manager for button press events
-/// 
-/// Spawns a background task that monitors I2C GPIO expanders for button presses
 #[derive(Clone)]
 pub struct HardwareInputManager {
   events: ButtonEventQueue,
 }
 
 impl HardwareInputManager {
-  /// Create a new hardware input manager and spawn the I2C monitoring task
   pub fn new(spawner: Spawner, sys_bus: MaskedI2cBus, top_bus: MaskedI2cBus) -> Self {
     let events = ButtonEventQueue::new();
     spawner.spawn(button_monitoring_task(sys_bus, top_bus, events.clone())).ok();
@@ -52,18 +49,18 @@ async fn button_monitoring_task(sys_bus: MaskedI2cBus, top_bus: MaskedI2cBus, ev
   let mut gpio_i2c_2 = Aw9523b::new(sys_bus.clone(), I2C_2);
   let mut gpio_i2c_3 = Aw9523b::new(top_bus, I2C_3);
 
-  gpio_i2c_2.set_io_direction(Pin::P06, Dir::INPUT).unwrap(); // A / Up
-  gpio_i2c_2.set_io_direction(Pin::P07, Dir::INPUT).unwrap(); // B / Right
-  gpio_i2c_1.set_io_direction(Pin::P00, Dir::INPUT).unwrap(); // C / Fire
-  gpio_i2c_1.set_io_direction(Pin::P01, Dir::INPUT).unwrap(); // D / Down
-  gpio_i2c_1.set_io_direction(Pin::P03, Dir::INPUT).unwrap(); // F / Left
+  gpio_i2c_2.set_io_direction(Pin::P06, Dir::INPUT).unwrap();
+  gpio_i2c_2.set_io_direction(Pin::P07, Dir::INPUT).unwrap();
+  gpio_i2c_1.set_io_direction(Pin::P00, Dir::INPUT).unwrap();
+  gpio_i2c_1.set_io_direction(Pin::P01, Dir::INPUT).unwrap();
+  gpio_i2c_1.set_io_direction(Pin::P03, Dir::INPUT).unwrap();
 
-  gpio_i2c_3.set_io_direction(Pin::P12, Dir::INPUT).unwrap(); // HexA
-  gpio_i2c_3.set_io_direction(Pin::P11, Dir::INPUT).unwrap(); // HexB
-  gpio_i2c_3.set_io_direction(Pin::P10, Dir::INPUT).unwrap(); // HexC
-  gpio_i2c_3.set_io_direction(Pin::P15, Dir::INPUT).unwrap(); // HexD
-  gpio_i2c_3.set_io_direction(Pin::P14, Dir::INPUT).unwrap(); // HexE
-  gpio_i2c_3.set_io_direction(Pin::P13, Dir::INPUT).unwrap(); // HexF
+  gpio_i2c_3.set_io_direction(Pin::P12, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P11, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P10, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P15, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P14, Dir::INPUT).unwrap();
+  gpio_i2c_3.set_io_direction(Pin::P13, Dir::INPUT).unwrap();
 
   let mut button_a_down = false;
   let mut button_b_down = false;

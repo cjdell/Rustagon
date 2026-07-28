@@ -127,36 +127,58 @@ Used by `HardwareSystemManager` (boot button) and `HardwareInputManager` (hex bu
 that both adds latency and hogs locks. Use `EventQueue` (events) or `WatchedValue`
 (state) instead.
 
-## Target Architecture (End State)
-
-The goal is to split the firmware into **three crates** with the platform abstraction as the boundary:
+## Current Crate Architecture
 
 ```
 rustagon/
-├── app/              # Platform-agnostic application library
-│   ├── menu/         # Menu system (currently in tasks/menu)
-│   ├── apps/         # App implementations
-│   ├── protocol/     # Application protocol definitions
-│   └── lib.rs
-├── firmware/         # Hardware-specific implementation
-│   ├── src/platform/ # Platform implementations (HW + mocks)
-│   ├── src/bin/rustagon.rs # Only initialization and task spawning
-│   └── lib.rs
-└── Cargo.toml        # Workspace
-```
+├── app/                    # Platform-agnostic application library (no_std)
+│   ├── apps/               # Menu apps (Config, Files, WiFiScanner — generic over P: Platform)
+│   │   ├── common.rs       #   MenuAppAsync trait, MenuAppContext<P>, WASM_LAUNCHING flag
+│   │   ├── config.rs       #   ConfigApp<P>
+│   │   ├── files.rs        #   FilesApp<P>
+│   │   └── wifi_scanner.rs #   WifiScannerApp<P>
+│   ├── menu/               # Generic menu system (async fn, not Embassy task)
+│   │   ├── mod.rs          #   menu_task<P: Platform>()
+│   │   ├── state.rs        #   MenuState<P>
+│   │   ├── execute.rs      #   MenuState::execute_option
+│   │   ├── types.rs        #   MenuRunnerContext<P>, MenuContext<P>
+│   │   └── menus.rs        #   MenuProvider trait, StaticMenu
+│   ├── native/             # Native app types (stub, firmware-specific apps live in firmware)
+│   ├── platform/           # Platform trait + 8 handle/manager pairs
+│   │   ├── traits.rs       #   Platform trait (9 methods)
+│   │   ├── display.rs      #   DisplayManager trait + DisplayHandle
+│   │   ├── input.rs        #   InputManager trait + InputHandle
+│   │   ├── led.rs          #   LedManager trait + LedHandle + LedError
+│   │   ├── power.rs        #   PowerManager trait + PowerHandle
+│   │   ├── wifi.rs         #   WiFiManager trait + WiFiHandle + WifiStatus
+│   │   ├── system.rs       #   SystemManager trait + SystemHandle
+│   │   └── storage.rs      #   StorageHandle, ConfigHandle<State>
+│   ├── protocol.rs         # WasmIpcMessage, HostIpcMessage, HttpRequest, channel types
+│   ├── types.rs            # Domain types (HexButton, LedRequest, DeviceConfig, etc.)
+│   └── utils/              # Sleep helper only
+├── desktop/                # Desktop platform (std, minifb)
+│   └── src/
+│       ├── main.rs         #   Minifb window, menu_task on bg thread, DesktopFrameBuffer
+│       └── platform/       #   DesktopPlatform, DesktopDisplayManager, DesktopInputManager
+├── display_renderer/       # LcdState, FrameBuffer trait, icon drawing, menu/notification rendering
+├── display_types/          # LcdScreen, Icon20/40, MenuLine, Image types (no_std, serde)
+├── firmware/               # ESP32-S3 specific implementation
+│   ├── src/
+│   │   ├── bin/rustagon.rs # Entry point, hardware init, task spawning
+│   │   ├── platform/       # HardwarePlatform + flat manager files (display.rs, input.rs, etc.)
+│   │   ├── tasks/          # WASM runtime, HTTP server, wifi_monitor, menu (ESP32-specific)
+│   │   └── utils/          # ESP32-specific (LedService, MaskedI2cBus, etc.)
+│   └── Cargo.toml
+├── embedded_tools/         # LocalFsTrait, ConfigFileTrait (no_std, littlefs-backed)
+├── procmacros/             # include_rgb565_icon!, partition_offset!, partition_size! macros
+├── emulator/               # Legacy WASM emulator (separate from the new desktop crate)
+└── Cargo.toml              # Workspace root
 
-### Application Library Requirements
+### Build
 
-The `app` crate should:
-- Depend ONLY on the `Platform` trait, never concrete types
-- Never import from `firmware/src/tasks/*` directly
-- Not know about channels, I2C buses, or hardware details
-- Be compilable on localhost for unit/integration testing
+cd firmware && cargo build -r --bin rustagon    # ESP32-S3
+cd desktop && cargo build                       # macOS/linux (minifb window)
 
-**Currently blocking this:**
-- `MenuRunnerContext` still contains Display and Input hardware-specific types
-- Application tasks mixed with framework tasks
-- WiFi, Power, and LED managers have been abstracted
 
 ### What Makes a Good Platform Manager
 
@@ -217,36 +239,30 @@ Based on LED, Power, and WiFi implementations:
 
 ## Remaining Work
 
-### High Priority (Unblock app library extraction)
+### High Priority (Unblock `app` crate usage from desktop)
 
-1. **Display/LCD Manager** (`firmware/src/platform/display/`)
-   - Currently `lcd_signal: &'static LcdSignal` in MenuRunnerContext
-   - Need: `DisplayManager` trait with methods like `show_screen(Screen)`, `clear()`
-   - Challenge: Lifetimes of static LCD signal - may need different approach
+1. **Move `WatchedValue` and `EventQueue` into `app` crate**
+   - Currently in `firmware/src/utils/` — used by `WiFiManager` and `InputManager` implementations
+   - Both are platform-agnostic (no ESP32 HAL, only embassy-sync)
+   - Blocking desktop from implementing WiFi and Input managers that use the same patterns
 
-2. **Input/Button Manager** (`firmware/src/platform/input/`)
-   - Currently `hex_button_subscriber: HexButtonReceiver` in MenuRunnerContext
-   - Need: `InputManager` trait with event subscription
-   - Pattern: Observer/subscription pattern via trait
+2. **Abstract HTTP client for AppStore / OTA apps**
+   - `AppStoreApp` and `OtaUpdaterApp` remain in `firmware/src/apps/` because they depend on
+     ESP32-specific HTTP functions (`perform_http_request` in `utils/http.rs`)
+   - Need an `HttpClient` trait in `app::platform` so both firmware (reqwless) and desktop
+     (reqwest) can implement it
+   - AppStore and OTA can then move into `app` crate and be generic over `P: Platform`
 
-3. ~~**Network/WiFi Manager**~~ ✅ **COMPLETED**
-     - Implemented in `firmware/src/platform/wifi/`
-     - High-level API with connect, scan, get status
-     - Async state machine handled by manager background task
-     - Uses `WatchedValue<WifiStatus>` for clean state management
-     - Monitor task accesses via Platform trait - no extra receivers needed
+3. **Make firmware's `tasks/menu/` use `app::menu::menu_task()`**
+   - Firmware still has its own `tasks/menu/mod.rs` with hardcoded WASM IPC and HTTP event handling
+   - Should use `app::menu::menu_task()` and add WASM/HTTP event sources via the Platform trait
+     or a separate abstraction
+   - This is the last major piece coupling the menu system to ESP32
 
-4. ~~**Storage Manager**~~ ✅ **COMPLETED**
-   - Implemented in `firmware/src/platform/storage/`
-   - `StorageHandle` wraps `Arc<dyn LocalFsTrait>`, exposes via `Deref`
-   - `LocalFsTrait` from `embedded_tools` is the object-safe FS operations trait
-   - `HardwareStorageManager` wraps `LocalFs<LittleFsFlashStorage>` from `esp32s3_embedded_tools`
-   - `MockStorageManager` for testing
-
-5. **Refactor MenuRunnerContext**
-   - Make it generic over `<P: Platform>`
-   - Remove all channel types - only use Platform
-   - This enables testing with MockPlatform
+4. **Add `WASM_LAUNCHING` handling to `app::menu::menu_task()`**
+   - Currently `WASM_LAUNCHING` atomic flag is in `app::apps::common` but only firmware's
+     `tasks/menu/mod.rs` checks it
+   - The app crate's `menu_task()` should handle it too so desktop can launch WASM stubs
 
 ### Medium Priority (Code quality)
 
@@ -254,23 +270,34 @@ Based on LED, Power, and WiFi implementations:
    - Similar to LED's work loop pattern
    - Would remove `power_monitoring_task` from `i2c.rs`
 
-2. **Create PlatformAgnostic Type Aliases**
-   - Define commonly-needed types in a way that doesn't depend on embassy_sync
-   - Example: `type NetworkStatus` instead of exposing WifiStatusMessage
+2. **Add feature flags to `app` crate**
+   - `#[cfg(feature = "std")]` for desktop-specific impls (e.g. sleep via std::thread)
+   - `#[cfg(feature = "embassy")]` for embassy-based impls
+   - Currently the crate is `no_std` with embassy deps, which is fine for both
 
-3. **Clean Up Imports in Menu Module**
-   - Remove direct imports of firmware-specific types
-   - Use only types from `Platform` trait
+3. **Remove `esp_hal::system::software_reset()` calls in `wifi_join.rs` and `*_updater.rs`**
+   - Replace with `Platform::software_reset()` which is already in the trait
+   - `wifi_join.rs` line 56 still calls `esp_hal::system::software_reset()` directly
 
-### Low Priority (Optimization)
+4. **Clean up warnings across all crates**
+   - Many unused imports from the refactoring
+   - `app` crate has ~20 warnings, firmware has ~45
 
-1. **Add Feature Flags**
-   - `#[cfg(feature = "mock-platform")]` for test builds
-   - Allow `cargo build --example menu_standalone --features mock-platform`
+### Low Priority (Testing & Desktop)
 
-2. **Implement Default MockPlatform**
-   - Provide a fully-functional mock for running app logic locally
-   - Useful for developing UI without hardware
+1. **Desktop crate improvements**
+   - Render icons (currently empty on non-xtensa)
+   - Add WASM stubs so FilesApp "Execute" shows a message instead of hanging
+   - Add network stack for AppStore/OTA testing
+   - Improve keyboard mappings
+
+2. **Add unit tests to `app` crate**
+   - Create `app/tests/` directory
+   - Use `MockPlatform` (from desktop or a dedicated test module) for deterministic tests
+
+3. **Add `#[serde(default)]` to new `DeviceConfig` fields**
+   - Any field added after initial release needs `#[serde(default)]` to avoid
+     breaking deserialization of existing stored configs (e.g., `ap_password`)
 
 ## Key Decisions & Rationale
 
@@ -423,8 +450,8 @@ the proper 8‑bit→5/6/5 conversion with correct rounding. Or use the constant
 ## Related Files
 
 - **Main trait definitions:** `firmware/src/platform/traits.rs`
-- **Platform implementations:** `firmware/src/platform/{led,power,wifi,etc.}/`
-- **Storage manager:** `firmware/src/platform/storage/`
+- **Platform implementations:** `firmware/src/platform/{display,led,power,wifi,etc}.rs`
+- **Storage manager:** `firmware/src/platform/storage.rs`
 - **WiFi status monitoring:** `firmware/src/tasks/wifi_monitor.rs`
 - **WatchedValue primitive:** `firmware/src/utils/watched_value.rs`
 - **EventQueue primitive:** `firmware/src/utils/event_queue.rs`

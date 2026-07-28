@@ -1,4 +1,5 @@
-use super::traits::*;
+pub use app::platform::wifi::{WiFiHandle, WiFiManager, WifiStatus};
+pub use app::types::{WifiDesiredState, WifiMode, WifiResult};
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 use core::fmt;
 use core::net::Ipv4Addr;
@@ -18,6 +19,12 @@ use log::{error, info};
 
 use crate::platform::ConfigHandle;
 use crate::utils::WatchedValue;
+
+#[derive(Clone, Debug, Default)]
+pub struct WifiStats {
+  pub connection_attempts: u32,
+  pub successful_connections: u32,
+}
 
 const RETRY_INTERVAL: u64 = 60_000;
 

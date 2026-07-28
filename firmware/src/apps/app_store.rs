@@ -113,7 +113,7 @@ impl AppStoreApp {
       self.ctx.platform.config_manager().get_data().await.app_store_url,
     ));
 
-    let res = perform_http_request(self.ctx.stack, req).await.map_err(|_| anyhow::anyhow!("HTTP err"))?;
+    let res = perform_http_request(self.ctx.network_stack.unwrap(), req).await.map_err(|_| anyhow::anyhow!("HTTP err"))?;
 
     let app_list = serde_json::from_slice::<AppList>(&res.body)?;
 
@@ -246,7 +246,7 @@ impl AppStoreApp {
       app.name
     ));
 
-    let request = perform_http_request_channel(self.ctx.stack, channel.sender(), &req);
+    let request = perform_http_request_channel(self.ctx.network_stack.clone().unwrap(), channel.sender(), &req);
     let mut bytes_written = 0u64;
 
     let listen = async {

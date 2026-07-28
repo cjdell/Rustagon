@@ -1,4 +1,5 @@
-use super::traits::{DisplayError, DisplayManager, LcdSignal};
+pub use app::platform::display::{DisplayError, DisplayHandle, DisplayManager};
+
 use crate::{
   d_i2c::*,
   types::*,
@@ -9,22 +10,19 @@ use crate::{
   },
 };
 use alloc::vec::Vec;
+use display_renderer::LcdState;
 use aw9523b::Pin;
 use core::fmt;
 use core::ptr;
 use core::slice::from_raw_parts_mut;
 use display_interface::{DataFormat, WriteOnlyDataCommand};
-use display_renderer::LcdState;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::Delay;
 use esp_alloc::ExternalMemory;
 use esp_hal::{
   gpio::{Level, Output, OutputConfig},
   peripherals::Peripherals,
-  spi::{
-    Mode,
-    master::{Config, Spi},
-  },
+  spi::{Mode, master::{Config, Spi}},
   time::{Instant, Rate},
 };
 use gc9a01::{
@@ -34,6 +32,8 @@ use gc9a01::{
   prelude::{DisplayResolution240x240, DisplayRotation, SPIInterface},
 };
 use log::info;
+
+pub type LcdSignal = Signal<CriticalSectionRawMutex, LcdScreen>;
 
 pub static mut BUFFER: *mut u8 = ptr::null_mut::<u8>();
 

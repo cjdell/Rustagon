@@ -106,8 +106,24 @@ pub fn include_rgb565_icon(input: TokenStream) -> TokenStream {
     _ => panic!("Expected a string literal, e.g., \"icons/icon.png\""),
   };
 
-  // Read the image file
-  let img = image::open(&path).unwrap_or_else(|_| panic!("Failed to open image file: {}", path));
+  // Try multiple path resolutions: as-is, relative to calling crate,
+  // and relative to the workspace root (parent of calling crate).
+  let img = (|| {
+    // 1. Try the path as-is (may be workspace-relative)
+    if let Ok(img) = image::open(&path) { return Ok(img); }
+    // 2. Try relative to CARGO_MANIFEST_DIR of calling crate
+    if let Ok(base) = std::env::var("CARGO_MANIFEST_DIR") {
+      let p = std::path::Path::new(&base).join(&path);
+      if let Ok(img) = image::open(&p) { return Ok(img); }
+      // 3. Try parent of manifest (workspace root, for "../firmware/..." style paths)
+      if let Some(parent) = std::path::Path::new(&base).parent() {
+        let p = parent.join(&path);
+        if let Ok(img) = image::open(&p) { return Ok(img); }
+      }
+    }
+    Err(())
+  })()
+  .unwrap_or_else(|_| panic!("Failed to open image file: {}", path));
 
   // Ensure it's 20x20
   let (width, height) = img.dimensions();
