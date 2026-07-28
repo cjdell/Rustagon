@@ -115,13 +115,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
               HexButton::Down => {
                 state.selected += 1;
               }
-              HexButton::Left => {}
-              HexButton::HexA => {}
-              HexButton::HexB => {}
-              HexButton::HexC => {}
-              HexButton::HexD => {}
-              HexButton::HexE => {}
-              HexButton::HexF => {}
+              _ => {}
             }
           }
         }

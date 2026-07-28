@@ -129,6 +129,18 @@ pub enum HexButton {
   HexD,
   HexE,
   HexF,
+  Touch01,
+  Touch02,
+  Touch03,
+  Touch04,
+  Touch05,
+  Touch06,
+  Touch07,
+  Touch08,
+  Touch09,
+  Touch10,
+  Touch11,
+  Touch12,
 }
 
 // ================================ WebSocket ================================
