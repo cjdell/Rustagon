@@ -45,7 +45,6 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
     current_menu: Menu::Root,
     menu_options: Vec::new(),
     selected: 0,
-    wifi_status: WifiStatus::Offline,
     http_message: HttpStatusMessage::Idle,
   };
 

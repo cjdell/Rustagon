@@ -1,32 +1,20 @@
-use crate::{apps::MenuAppInputChannel, platform::{self, display::DisplayHandle, Platform, StorageHandle}, types::*, utils::*};
-use alloc::string::{String, ToString};
-use core::net::Ipv4Addr;
+use crate::{apps::MenuAppInputChannel, platform::{self, display::DisplayHandle, StorageHandle}, types::*, utils::*};
+use alloc::string::String;
 use embassy_net::Stack;
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub enum Menu {
   Root,
-  Information,
-  Config,
   Files(String),
 }
 
-impl ToString for Menu {
-  fn to_string(&self) -> String {
+impl Menu {
+  pub fn label(&self) -> &str {
     match self {
-      Menu::Root => "Root".to_string(),
-      Menu::Information => "Information".to_string(),
-      Menu::Config => "Config".to_string(),
-      Menu::Files(_) => "Files".to_string(),
+      Menu::Root => "Root",
+      Menu::Files(_) => "Files",
     }
   }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AppType {
-  MenuApp,
-  NativeApp,
 }
 
 #[derive(Clone)]
@@ -35,12 +23,6 @@ pub enum MenuOption {
     name: &'static str,
     app_type: AppType,
   },
-  Stop,
-  Setting {
-    name: String,
-    setting: Setting,
-    setting_type: SettingType,
-  },
   Menu {
     menu: Menu,
   },
@@ -48,36 +30,20 @@ pub enum MenuOption {
     name: String,
     item_type: ItemType,
   },
-  Text {
-    text: String,
-  },
   Back,
   PowerOff,
 }
 
-#[derive(Debug, Clone)]
-pub enum Setting {
-  WifiToggle,
-  WifiMode,
-  Format,
-}
-
-#[derive(Debug, Clone)]
-pub enum SettingType {
-  Boolean,
+#[derive(Clone, Debug)]
+pub enum AppType {
+  MenuApp,
+  NativeApp,
 }
 
 #[derive(Debug, Clone)]
 pub enum ItemType {
   File,
   Directory,
-  WifiNetwork { rssi: i32 },
-}
-
-pub enum WifiStatus {
-  Offline,
-  Connected(Ipv4Addr),
-  AccessPoint,
 }
 
 pub struct MenuRunnerContext {

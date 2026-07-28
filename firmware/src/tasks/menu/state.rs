@@ -1,14 +1,11 @@
 use crate::{
-  FIRMWARE_VERSION,
   apps::{MenuAppInput, MenuAppType},
-  device::DeviceConfigurator as _,
   native::NativeAppType,
   platform::Platform,
   tasks::menu::{menus::*, types::*},
   types::*,
 };
-use alloc::vec;
-use alloc::{borrow::ToOwned as _, boxed::Box, format, string::ToString as _, sync::Arc, vec::Vec};
+use alloc::{borrow::ToOwned as _, boxed::Box, format, string::ToString as _, sync::Arc, vec, vec::Vec};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, rwlock::RwLock};
 
 pub struct MenuState {
@@ -19,7 +16,6 @@ pub struct MenuState {
   pub menu_options: Vec<MenuOption>,
   pub selected: u32,
 
-  pub wifi_status: WifiStatus,
   pub http_message: HttpStatusMessage,
 }
 
@@ -48,8 +44,6 @@ impl MenuState {
   }
 
   pub async fn get_menu_provider(&mut self) -> MenuTypes {
-    let ap_ssid = self.ctx.platform.config_manager().get_data().await.ap_ssid;
-
     match &self.current_menu {
       Menu::Root => MenuTypes::StaticMenu(Box::new(StaticMenu {
         items: vec![
@@ -67,64 +61,14 @@ impl MenuState {
               app_type: AppType::NativeApp,
             })
             .collect(),
-            vec![
+          vec![
             MenuOption::PowerOff,
-            MenuOption::Menu {
-              menu: Menu::Information,
-            },
-            MenuOption::Menu { menu: Menu::Config },
             MenuOption::Menu {
               menu: Menu::Files("/".to_string()),
             },
           ],
         ]
         .concat(),
-      })),
-      Menu::Information => MenuTypes::StaticMenu(Box::new({
-        StaticMenu {
-          items: vec![
-            MenuOption::Text {
-              text: match self.wifi_status {
-                WifiStatus::Connected(ip) => format!("{ip:?}"),
-                WifiStatus::AccessPoint => format!("AP:{}", ap_ssid),
-                WifiStatus::Offline => format!("Disconnected"),
-              },
-            },
-            MenuOption::Text {
-              text: format!("FW ver: {}", FIRMWARE_VERSION),
-            },
-            MenuOption::Back,
-          ],
-        }
-      })),
-      Menu::Config => MenuTypes::StaticMenu(Box::new(StaticMenu {
-        items: vec![
-          MenuOption::Setting {
-            name: if let WifiStatus::Connected(_) = self.wifi_status {
-              "Disable Wifi"
-            } else {
-              "Enable Wifi"
-            }
-            .to_owned(),
-            setting: Setting::WifiToggle,
-            setting_type: SettingType::Boolean,
-          },
-          MenuOption::Setting {
-            name: match self.ctx.platform.config_manager().get_data().await.wifi_mode {
-              crate::types::WifiMode::Station => "Toggle AP Mode",
-              crate::types::WifiMode::AccessPoint => "Toggle STA Mode",
-            }
-            .to_owned(),
-            setting: Setting::WifiMode,
-            setting_type: SettingType::Boolean,
-          },
-          MenuOption::Setting {
-            name: "Format FS".to_owned(),
-            setting: Setting::Format,
-            setting_type: SettingType::Boolean,
-          },
-          MenuOption::Back,
-        ],
       })),
       Menu::Files(path) => MenuTypes::DynamicFilesystemMenu(Box::new(DynamicFilesystemMenu {
         storage: self.ctx.storage.clone(),
@@ -146,30 +90,11 @@ impl MenuState {
         .iter()
         .map(|option| match option {
           MenuOption::App { name, app_type: _ } => MenuLine(Icon20::Info, name.to_string()),
-          MenuOption::Stop => MenuLine(Icon20::Info, "Stop".to_owned()),
-          MenuOption::Setting {
-            name,
-            setting: _,
-            setting_type: _,
-          } => MenuLine(Icon20::Config, name.to_owned()),
-          MenuOption::Menu { menu } => MenuLine(Icon20::Info, menu.to_string()),
+          MenuOption::Menu { menu } => MenuLine(Icon20::Info, menu.label().to_string()),
           MenuOption::Item { name, item_type } => match item_type {
             ItemType::File => MenuLine(Icon20::File, format!("{}", name)),
             ItemType::Directory => MenuLine(Icon20::File, format!("{}", name)),
-            ItemType::WifiNetwork { rssi } => {
-              let signal = if *rssi > -50 {
-                "XXXX"
-              } else if *rssi > -60 {
-                "XXX "
-              } else if *rssi > -70 {
-                "XX  "
-              } else {
-                "X   "
-              };
-              MenuLine(Icon20::Wifi, format!("{} {}", signal, name))
-            }
           },
-          MenuOption::Text { text } => MenuLine(Icon20::Info, text.clone()),
           MenuOption::Back => MenuLine(Icon20::Info, "<= Back".to_owned()),
           MenuOption::PowerOff => MenuLine(Icon20::Info, "Power Off".to_owned()),
         })
