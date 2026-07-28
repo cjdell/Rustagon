@@ -31,10 +31,10 @@ impl MockPlatform {
     let power_manager = Arc::new(MockPowerManager::new());
     let power = PowerHandle::new(power_manager);
 
-    let wifi_manager = MockWifiManager::new();
+    let wifi_manager = Arc::new(MockWifiManager::new());
     let wifi = WiFiHandle::new(wifi_manager);
 
-    let input_manager = MockInputManager::new();
+    let input_manager = Arc::new(MockInputManager::new());
     let input = InputHandle::new(input_manager);
 
     let storage_manager = MockStorageManager::new();
@@ -53,39 +53,15 @@ impl Default for MockPlatform {
 }
 
 impl Platform for MockPlatform {
-  fn display_manager(&self) -> DisplayHandle {
-    self.display.clone()
-  }
+  fn display_manager(&self) -> DisplayHandle { self.display.clone() }
+  fn led_manager(&self) -> LedHandle { self.led.clone() }
+  fn power_manager(&self) -> PowerHandle { self.power.clone() }
+  fn wifi_manager(&self) -> WiFiHandle { self.wifi.clone() }
+  fn input_manager(&self) -> InputHandle { self.input.clone() }
+  fn system_manager(&self) -> super::SystemHandle { todo!() }
+  fn storage_manager(&self) -> StorageHandle { self.storage.clone() }
+  fn config_manager(&self) -> ConfigHandle { self.config.clone() }
 
-  fn led_manager(&self) -> LedHandle {
-    self.led.clone()
-  }
-
-  fn power_manager(&self) -> PowerHandle {
-    self.power.clone()
-  }
-
-  fn wifi_manager(&self) -> WiFiHandle {
-    self.wifi.clone()
-  }
-
-  fn input_manager(&self) -> InputHandle {
-    self.input.clone()
-  }
-
-  fn system_manager(&self) -> super::SystemHandle {
-    todo!()
-  }
-
-  fn storage_manager(&self) -> StorageHandle {
-    self.storage.clone()
-  }
-
-  fn config_manager(&self) -> ConfigHandle {
-    self.config.clone()
-  }
-
-  async fn format_storage(&self) -> Result<(), FsError> {
-    Ok(())
-  }
+  async fn format_storage(&self) -> Result<(), FsError> { Ok(()) }
+  async fn software_reset(&self) {}
 }

@@ -1,12 +1,10 @@
 use crate::{
-  apps::{
-    MenuAppAsync, MenuAppInput,
-    common::{AppName, MenuAppContext},
-  },
-  platform::Platform,
+  apps::{AppName, MenuAppAsync, MenuAppInput},
+  platform::{HardwarePlatform, Platform},
   types::*,
   utils::*,
 };
+use app::apps::MenuAppContext;
 use alloc::vec;
 use alloc::{
   format,
@@ -19,7 +17,7 @@ use log::error;
 use serde::{Deserialize, Serialize};
 
 pub struct AppStoreApp {
-  ctx: MenuAppContext,
+  ctx: MenuAppContext<HardwarePlatform>,
   state: AppState,
 }
 
@@ -102,7 +100,7 @@ impl AppState {
 }
 
 impl AppStoreApp {
-  pub fn new(ctx: MenuAppContext) -> Self {
+  pub fn new(ctx: MenuAppContext<HardwarePlatform>) -> Self {
     Self {
       ctx,
       state: AppState::new(),

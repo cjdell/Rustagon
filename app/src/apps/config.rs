@@ -1,22 +1,18 @@
 use crate::{
-  apps::{
-    MenuAppAsync, MenuAppInput,
-    common::{AppName, MenuAppContext},
-  },
+  apps::{MenuAppAsync, MenuAppInput, common::{AppName, MenuAppContext}},
   platform::{Platform, WifiStatus},
   types::*,
   utils::sleep,
 };
 use alloc::{format, string::String, string::ToString, vec, vec::Vec};
-use core::net::Ipv4Addr;
-use log::{info, warn};
+use log::warn;
 
-pub struct ConfigApp {
-  ctx: MenuAppContext,
+pub struct ConfigApp<P: Platform> {
+  ctx: MenuAppContext<P>,
   state: AppState,
 }
 
-impl AppName for ConfigApp {
+impl<P: Platform> AppName for ConfigApp<P> {
   fn app_name() -> &'static str {
     "Configuration"
   }
@@ -44,21 +40,13 @@ struct AppState {
 
 impl AppState {
   fn new() -> Self {
-    Self {
-      cursor: 0,
-      wifi_status: WifiStatus::Offline,
-      free_space: 0,
-      message: None,
-    }
+    Self { cursor: 0, wifi_status: WifiStatus::Offline, free_space: 0, message: None }
   }
 }
 
-impl ConfigApp {
-  pub fn new(ctx: MenuAppContext) -> Self {
-    Self {
-      ctx,
-      state: AppState::new(),
-    }
+impl<P: Platform> ConfigApp<P> {
+  pub fn new(ctx: MenuAppContext<P>) -> Self {
+    Self { ctx, state: AppState::new() }
   }
 
   fn render(&self) -> LcdScreen {
@@ -68,37 +56,30 @@ impl ConfigApp {
 
     let ip_str: String = match self.state.wifi_status {
       WifiStatus::Connected(ip) => format!("IP: {ip}"),
-      WifiStatus::AccessPoint => format!("AP Mode"),
+      WifiStatus::AccessPoint => "AP Mode".to_string(),
       WifiStatus::Offline => "Offline".to_string(),
       _ => "Disconnected".to_string(),
     };
 
-    let menu = vec![
-      MenuLine(Icon20::Info, ip_str),
-      MenuLine(Icon20::Info, format!("Free: {}KB", self.state.free_space)),
-      MenuLine(Icon20::Config, CONFIG_OPTIONS[0].label().to_string()),
-      MenuLine(Icon20::Config, CONFIG_OPTIONS[1].label().to_string()),
-      MenuLine(Icon20::Config, CONFIG_OPTIONS[2].label().to_string()),
-      MenuLine(Icon20::Info, "<= Back".to_string()),
-    ];
-
     LcdScreen::Menu {
-      menu,
+      menu: vec![
+        MenuLine(Icon20::Info, ip_str),
+        MenuLine(Icon20::Info, format!("Free: {}KB", self.state.free_space)),
+        MenuLine(Icon20::Config, CONFIG_OPTIONS[0].label().to_string()),
+        MenuLine(Icon20::Config, CONFIG_OPTIONS[1].label().to_string()),
+        MenuLine(Icon20::Config, CONFIG_OPTIONS[2].label().to_string()),
+        MenuLine(Icon20::Info, "<= Back".to_string()),
+      ],
       selected: self.state.cursor as u32,
     }
   }
 
   async fn refresh_status(&mut self) {
-    let data = self.ctx.platform.config_manager().get_data().await;
     let wifi_status = self.ctx.platform.wifi_manager().get_status().await;
-
-    // Rough free space estimate: list files and sum sizes, compare to partition
     let files = self.ctx.platform.storage_manager().list_files().await.unwrap_or_default();
     let used: u32 = files.iter().map(|f| f.size).sum();
-    let partition_kb = 1024u32; // 1MB partition
-    let used_kb = used / 1024;
-    self.state.free_space = partition_kb.saturating_sub(used_kb);
-
+    let partition_kb = 1024u32;
+    self.state.free_space = partition_kb.saturating_sub(used / 1024);
     self.state.wifi_status = wifi_status;
   }
 
@@ -112,11 +93,11 @@ impl ConfigApp {
   async fn toggle_wifi(&mut self) {
     match self.state.wifi_status {
       WifiStatus::Offline | WifiStatus::NoNetworksFound | WifiStatus::Interrupted => {
-        self.ctx.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Online).await;
+        self.ctx.platform.wifi_manager().set_desired_state(WifiDesiredState::Online).await;
         self.set_message("WiFi enabled").await;
       }
       _ => {
-        self.ctx.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Offline).await;
+        self.ctx.platform.wifi_manager().set_desired_state(WifiDesiredState::Offline).await;
         self.set_message("WiFi disabled").await;
       }
     }
@@ -131,7 +112,7 @@ impl ConfigApp {
         self.ctx.platform.config_manager().save().await.unwrap();
         self.set_message("Switching to AP mode...").await;
         sleep(1_000).await;
-        esp_hal::system::software_reset();
+        self.ctx.platform.software_reset().await;
       }
       crate::types::WifiMode::AccessPoint => {
         cfg.wifi_mode = crate::types::WifiMode::Station;
@@ -139,7 +120,7 @@ impl ConfigApp {
         self.ctx.platform.config_manager().save().await.unwrap();
         self.set_message("Switching to STA mode...").await;
         sleep(1_000).await;
-        esp_hal::system::software_reset();
+        self.ctx.platform.software_reset().await;
       }
     };
   }
@@ -151,7 +132,7 @@ impl ConfigApp {
         warn!("Filesystem formatted! Rebooting...");
         self.ctx.update_lcd(LcdScreen::Headline(Icon40::Info, "Format Complete!".to_string()));
         sleep(2_000).await;
-        esp_hal::system::software_reset();
+        self.ctx.platform.software_reset().await;
       }
       Err(err) => {
         warn!("Format Error: {err:?}");
@@ -161,7 +142,7 @@ impl ConfigApp {
   }
 }
 
-impl MenuAppAsync for ConfigApp {
+impl<P: Platform> MenuAppAsync for ConfigApp<P> {
   async fn work(&mut self) -> bool {
     self.refresh_status().await;
 
@@ -170,18 +151,10 @@ impl MenuAppAsync for ConfigApp {
 
       match self.ctx.input_receiver.receive().await {
         MenuAppInput::HexButton(input) => {
-          let max = CONFIG_OPTIONS.len() + 1; // options + Back
+          let max = CONFIG_OPTIONS.len() + 1;
           match input {
-            HexButton::Up => {
-              if self.state.cursor > 2 {
-                self.state.cursor -= 1;
-              }
-            }
-            HexButton::Down => {
-              if self.state.cursor + 1 < max + 2 {
-                self.state.cursor += 1;
-              }
-            }
+            HexButton::Up => { if self.state.cursor > 2 { self.state.cursor -= 1; } }
+            HexButton::Down => { if self.state.cursor + 1 < max + 2 { self.state.cursor += 1; } }
             HexButton::Fire => {
               let action_idx = self.state.cursor.checked_sub(2);
               match action_idx {
@@ -190,16 +163,14 @@ impl MenuAppAsync for ConfigApp {
                   ConfigOption::WifiMode => self.toggle_mode().await,
                   ConfigOption::Format => self.format_fs().await,
                 },
-                Some(n) if n == CONFIG_OPTIONS.len() => return false, // Back
-                _ => {} // Informational lines
+                Some(n) if n == CONFIG_OPTIONS.len() => return false,
+                _ => {}
               }
             }
             _ => {}
           }
         }
-        MenuAppInput::Refresh => {
-          self.refresh_status().await;
-        }
+        MenuAppInput::Refresh => self.refresh_status().await,
         MenuAppInput::Stop => return false,
         _ => {}
       }

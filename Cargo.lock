@@ -183,6 +183,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
+name = "app"
+version = "0.0.0"
+dependencies = [
+ "critical-section",
+ "display_types",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-sync 0.7.2",
+ "embassy-time",
+ "embedded-graphics",
+ "embedded-tools",
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2546,6 +2563,7 @@ name = "firmware"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "app",
  "aw9523b",
  "bq25895",
  "bytes",

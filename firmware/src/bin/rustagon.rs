@@ -219,11 +219,11 @@ async fn main(spawner: Spawner) {
   let power_manager = Arc::new(HardwarePowerManager::new(sys_bus.clone()));
   let power = PowerHandle::new(power_manager);
 
-  let wifi = WiFiHandle::new(wifi_manager);
+  let wifi = WiFiHandle::new(Arc::new(wifi_manager));
 
-  let input = InputHandle::new(HardwareInputManager::new(spawner, sys_bus.clone(), top_bus.clone()));
+  let input = InputHandle::new(Arc::new(HardwareInputManager::new(spawner, sys_bus.clone(), top_bus.clone())));
 
-  let system = SystemHandle::new(HardwareSystemManager::new(spawner, peripherals.GPIO0));
+  let system = SystemHandle::new(Arc::new(HardwareSystemManager::new(spawner, peripherals.GPIO0)));
 
   let platform = HardwarePlatform::new_with_managers(display, led, power, wifi, input, system, storage.clone(), config_handle.clone(), storage_formatter.clone());
 

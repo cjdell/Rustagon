@@ -1,5 +1,6 @@
 use crate::{
-  apps::{MenuAppInput, MenuAppType},
+  apps::MenuAppInput,
+  firmware_apps,
   native::NativeAppType,
   tasks::menu::{menus::*, types::*},
   types::*,
@@ -35,9 +36,7 @@ impl MenuState {
         AppState::MenuApp => {
           self.ctx.menu_app_input_channel.send(MenuAppInput::Refresh).await;
         }
-        AppState::HostedApp => {
-          // Hosted apps draw themselves
-        }
+        AppState::HostedApp => {}
       };
     }
   }
@@ -45,7 +44,7 @@ impl MenuState {
   pub async fn get_menu_provider(&mut self) -> StaticMenu {
     StaticMenu {
       items: vec![
-        MenuAppType::list_apps()
+        firmware_apps::list_all_apps()
           .iter()
           .map(|name| MenuOption::App {
             name,

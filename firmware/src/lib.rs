@@ -15,15 +15,18 @@
 extern crate alloc;
 extern crate core;
 
-mod apps;
 pub mod d_i2c;
 mod device;
-mod native;
+mod firmware_apps;
+pub mod apps;
 pub mod platform;
 mod protocol;
 pub mod tasks;
 pub mod types;
 #[macro_use]
 pub mod utils;
+
+// Re-export app modules for convenience
+pub use app::native;
 
 pub const FIRMWARE_VERSION: &str = env!("FIRMWARE_VERSION");

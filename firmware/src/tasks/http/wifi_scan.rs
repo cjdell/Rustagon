@@ -26,17 +26,8 @@ impl RequestHandlerService<()> for HandleWifiScan {
     request: Request<'_, R>,
     response_writer: W,
   ) -> Result<ResponseSent, W::Error> {
-    let results = self.platform.wifi_manager().scan().await;
-
-    // Convert platform WifiResult to types::WifiResult for serialization
-    let results: Vec<crate::types::WifiResult> = results
-      .iter()
-      .map(|r| crate::types::WifiResult {
-        ssid: r.ssid.clone(),
-        signal_strength: r.signal_strength,
-        password_required: r.password_required,
-      })
-      .collect();
+    let results = self.platform.wifi_manager().scan().await.unwrap_or_default();
+    let json = serde_json::to_string(&results).unwrap();
 
     let json = serde_json::to_string(&results).unwrap();
 

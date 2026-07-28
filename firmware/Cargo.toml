@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 cy8cmbr3116 = { path = "../cy8cmbr3116" }
 bq25895 = { path = "../bq25895" }
+app = { path = "../app" }
 display_renderer = { path = "../display_renderer" }
 display_types = { path = "../display_types" }
 embedded-tools = { path = "../embedded_tools" }

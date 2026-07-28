@@ -8,6 +8,7 @@ pub use types::*;
 use crate::{apps::*, platform::Platform, protocol::*, types::*, utils::*};
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use core::future::join;
+use core::sync::atomic::Ordering;
 use embassy_futures::{
   select::{Either4, select4},
   yield_now,
@@ -125,7 +126,6 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
           }
         }
         Either4::Third((wasm_req_id, wasm_ipc_message)) => {
-          // println!("Fourth: {:?}", wasm_ipc_message);
           match wasm_ipc_message {
             WasmIpcMessage::Started => {
               *state.app.write().await = AppState::HostedApp;
@@ -134,9 +134,15 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
               *state.app.write().await = AppState::MenuApp;
             }
             WasmIpcMessage::Stopped => {
-              *state.app.write().await = AppState::None;
-              let _ = runner_ctx.platform.display_manager().signal(LcdScreen::Headline(Icon40::Info, "App Terminated".to_string()));
-              sleep(1_000).await;
+              // If a WASM app was just launched, don't draw the menu over it.
+              // Transition to HostedApp so the menu stays out of the way.
+              if app::apps::common::WASM_LAUNCHING.swap(false, Ordering::Acquire) {
+                *state.app.write().await = AppState::HostedApp;
+              } else {
+                *state.app.write().await = AppState::None;
+                let _ = runner_ctx.platform.display_manager().signal(LcdScreen::Headline(Icon40::Info, "App Terminated".to_string()));
+                sleep(1_000).await;
+              }
             }
             WasmIpcMessage::LcdScreen(lcd_screen) => {
               println!("lcd_screen 1: {:?}", lcd_screen);
@@ -169,6 +175,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
               menu_app_input_channel.send(MenuAppInput::Stop).await;
               sleep(100).await;
 
+              app::apps::common::WASM_LAUNCHING.store(true, Ordering::Release);
               runner_ctx.host_ipc_sender.send((0, HostIpcMessage::StartWasmWithBuffer(buffer))).await;
 
               state.http_message = HttpStatusMessage::Idle;
@@ -194,9 +201,21 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
           runner_ctx.host_ipc_sender,
         );
 
-        let mut menu_app = Box::new_in(MenuAppType::load_app_async(app_name, ctx), ExternalMemory);
-
-        menu_app.work().await;
+        // Try firmware-specific apps first, then app crate apps
+        match app_name.as_str() {
+          "App Store" => {
+            let mut app = crate::apps::app_store::AppStoreApp::new(ctx);
+            app.work().await;
+          }
+          "Firmware Update" => {
+            let mut app = crate::apps::ota_updater::OtaUpdaterApp::new(ctx);
+            app.work().await;
+          }
+          _ => {
+            let mut menu_app = Box::new_in(MenuAppType::<crate::platform::HardwarePlatform>::load_app_async(app_name, ctx), ExternalMemory);
+            menu_app.work().await;
+          }
+        }
 
         runner_ctx.wasm_ipc_channel.send((0, WasmIpcMessage::Stopped)).await;
       }

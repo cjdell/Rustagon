@@ -1,238 +1,54 @@
-use crate::{
-  protocol::*,
-  utils::{led_service::LedState, spi::SpiExclusiveDevice, state::PersistentStateService},
-};
-use alloc::vec;
-use alloc::{
-  string::{String, ToString},
-  vec::Vec,
-};
-use core::cell::RefCell;
-use core::net::Ipv4Addr;
+// Re-export app types (platform-agnostic domain types)
+pub use app::types::*;
+
+// Firmware-specific channel type aliases
+use crate::protocol::{HostIpcMessage, WasmIpcMessage};
+use crate::utils::{led_service::LedState, spi::SpiExclusiveDevice};
 use display_interface_spi::SPIInterface;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
 use embassy_sync::watch;
-use embassy_sync::{
-  blocking_mutex::raw::CriticalSectionRawMutex,
-  channel::{Channel, Receiver, Sender},
-};
-use esp_hal::Blocking;
 use esp_hal::gpio::Output;
-use esp_hal::i2c::master::I2c;
-use serde::{Deserialize, Serialize};
-
-// ================================ Device ================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SystemMessage {
-  BootButton,
-}
-
-pub type SystemWatch = watch::Watch<CriticalSectionRawMutex, SystemMessage, 1>;
-
-pub type SystemSender = watch::Sender<'static, CriticalSectionRawMutex, SystemMessage, 1>;
-pub type SystemReceiver = watch::Receiver<'static, CriticalSectionRawMutex, SystemMessage, 1>;
-
-// ================================ Device ================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)] // This will merge in defaults for new properties and effectively allow migrations
-pub struct DeviceConfig {
-  pub owner_name: String,
-  pub app_store_url: String,
-  pub firmware_url: String,
-  pub wifi_mode: WifiMode,
-  pub ap_ssid: String,
-  pub known_wifi_networks: Vec<KnownWifiNetwork>,
-}
-
-impl Default for DeviceConfig {
-  fn default() -> Self {
-    Self {
-      owner_name: "Rustacean".to_string(),
-      app_store_url: "http://apps.rustagon.chrisdell.info".to_string(),
-      firmware_url: "http://firmware.rustagon.chrisdell.info".to_string(),
-      wifi_mode: WifiMode::AccessPoint,
-      ap_ssid: "Rustagon".to_string(),
-      known_wifi_networks: vec![],
-    }
-  }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum WifiMode {
-  Station,
-  AccessPoint,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KnownWifiNetwork {
-  pub ssid: String,
-  pub pass: String,
-}
-
-pub type DeviceState = PersistentStateService<DeviceConfig>;
-
-// ================================ HTTP ================================
-
-#[derive(Debug, Clone)]
-pub enum HttpStatusMessage {
-  Idle,
-  Progress(u32, u32),
-  ReceivedFile(Vec<u8>),
-}
-
-pub type HttpChannel = Channel<CriticalSectionRawMutex, HttpStatusMessage, 10>;
-
-pub type HttpSender = Sender<'static, CriticalSectionRawMutex, HttpStatusMessage, 10>;
-pub type HttpReceiver = Receiver<'static, CriticalSectionRawMutex, HttpStatusMessage, 10>;
-
-// ================================ Wifi ================================
-
-#[derive(Debug)]
-pub enum WifiCommandMessage {
-  ChangeState(WifiDesiredState),
-  Scan,
-  OverrideConnect(String, String),
-}
-
-// WiFi status is now defined in platform/wifi/traits.rs as WifiStatus
-// and used throughout the codebase via the Platform trait
-
-#[derive(Debug)]
-pub enum WifiDesiredState {
-  Online,
-  Offline,
-}
-
-pub type WifiCommandChannel = Channel<CriticalSectionRawMutex, WifiCommandMessage, 10>;
-pub type WifiCommandSender = Sender<'static, CriticalSectionRawMutex, WifiCommandMessage, 10>;
-pub type WifiCommandReceiver = Receiver<'static, CriticalSectionRawMutex, WifiCommandMessage, 10>;
-
-// WiFi status now uses watch channels instead - see WifiStatusWatch types below
-
-pub type ScanWatch = watch::Watch<CriticalSectionRawMutex, Vec<WifiResult>, 2>;
-pub type ScanSender = watch::Sender<'static, CriticalSectionRawMutex, Vec<WifiResult>, 2>;
-pub type ScanReceiver = watch::Receiver<'static, CriticalSectionRawMutex, Vec<WifiResult>, 2>;
-
-pub type WifiStatusWatch = watch::Watch<CriticalSectionRawMutex, crate::platform::WifiStatus, 1>;
-pub type WifiStatusWatchSender = watch::Sender<'static, CriticalSectionRawMutex, crate::platform::WifiStatus, 1>;
-pub type WifiStatusWatchReceiver = watch::Receiver<'static, CriticalSectionRawMutex, crate::platform::WifiStatus, 1>;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WifiResult {
-  pub ssid: String,
-  pub signal_strength: i8,
-  pub password_required: bool,
-}
-
-// ================================ LCD ================================
 
 pub type DisplayInterface<'a> = SPIInterface<SpiExclusiveDevice<'a>, Output<'a>>;
 
-pub use display_types::{Icon20, Icon40, Image, LcdScreen, MenuLine};
+pub type SystemWatch = watch::Watch<CriticalSectionRawMutex, SystemMessage, 1>;
+pub type SystemSender = watch::Sender<'static, CriticalSectionRawMutex, SystemMessage, 1>;
+pub type SystemReceiver = watch::Receiver<'static, CriticalSectionRawMutex, SystemMessage, 1>;
 
-// ================================ LED ================================
+pub type HttpChannel = Channel<CriticalSectionRawMutex, HttpStatusMessage, 1>;
+pub type HttpSender = Sender<'static, CriticalSectionRawMutex, HttpStatusMessage, 1>;
+pub type HttpReceiver = Receiver<'static, CriticalSectionRawMutex, HttpStatusMessage, 1>;
 
-pub const NUM_LEDS: usize = 12; // 1 internal + 12 of front. 6 more on back disabled
+pub type WifiScanPubSub = PubSubChannel<CriticalSectionRawMutex, WifiResult, 8, 4, 4>;
+pub type WifiScanPublisher = Publisher<'static, CriticalSectionRawMutex, WifiResult, 8, 4, 4>;
+pub type WifiScanSubscriber = Subscriber<'static, CriticalSectionRawMutex, WifiResult, 8, 4, 4>;
 
-#[derive(Debug, Clone)]
-pub struct LedStates {
-  pub leds: [LedState; NUM_LEDS],
-}
+pub type WifiStatusWatch = watch::Watch<CriticalSectionRawMutex, app::platform::WifiStatus, 1>;
+pub type WifiStatusWatchSender = watch::Sender<'static, CriticalSectionRawMutex, app::platform::WifiStatus, 1>;
+pub type WifiStatusWatchReceiver = watch::Receiver<'static, CriticalSectionRawMutex, app::platform::WifiStatus, 1>;
 
-// #[derive(Debug, Clone, Copy)]
-// pub struct LedState {
-//   pub r: u8,
-//   pub g: u8,
-//   pub b: u8,
-// }
+pub type WasmIpcChannel = Channel<CriticalSectionRawMutex, (u32, WasmIpcMessage), 1>;
+pub type WasmIpcSender = Sender<'static, CriticalSectionRawMutex, (u32, WasmIpcMessage), 1>;
+pub type WasmIpcReceiver = Receiver<'static, CriticalSectionRawMutex, (u32, WasmIpcMessage), 1>;
+pub type HostIpcChannel = Channel<CriticalSectionRawMutex, (u32, HostIpcMessage), 1>;
+pub type HostIpcSender = Sender<'static, CriticalSectionRawMutex, (u32, HostIpcMessage), 1>;
+pub type HostIpcReceiver = Receiver<'static, CriticalSectionRawMutex, (u32, HostIpcMessage), 1>;
 
-// impl LedState {
-//   pub fn new(r: u8, g: u8, b: u8) -> Self {
-//     Self { r, g, b }
-//   }
-// }
-
-#[derive(Debug, Clone)]
-pub enum LedRequest {
-  Off,
-  Solid(LedState),
-  Rainbow,
-  Breathe(LedState),
-  Chase(LedState),
-  Sparkle(LedState),
-  TheaterChase(LedState),
-  Fire,
-}
-
-pub type LedChannel = Channel<CriticalSectionRawMutex, LedRequest, 10>;
-
-pub type LedSender = Sender<'static, CriticalSectionRawMutex, LedRequest, 10>;
-pub type LedReceiver = Receiver<'static, CriticalSectionRawMutex, LedRequest, 10>;
-
-// ================================ i2C ================================
-
-pub type I2cMutux = Mutex<NoopRawMutex, RefCell<I2c<'static, Blocking>>>;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum HexButton {
-  Up,
-  Right,
-  Fire,
-  Down,
-  Left,
-  HexA,
-  HexB,
-  HexC,
-  HexD,
-  HexE,
-  HexF,
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum I2cMessage {
   HexButton(HexButton),
 }
 
 pub type HexButtonChannel = PubSubChannel<CriticalSectionRawMutex, I2cMessage, 10, 2, 2>;
-
 pub type HexButtonSender = Publisher<'static, CriticalSectionRawMutex, I2cMessage, 10, 2, 2>;
 pub type HexButtonReceiver = Subscriber<'static, CriticalSectionRawMutex, I2cMessage, 10, 2, 2>;
 
-// Button event queue for platform abstraction
 pub type ButtonEventChannel = Channel<CriticalSectionRawMutex, HexButton, 10>;
-pub type ButtonEventSender = Sender<'static, CriticalSectionRawMutex, HexButton, 10>;
-pub type ButtonEventReceiver = Receiver<'static, CriticalSectionRawMutex, HexButton, 10>;
 
-pub enum PowerCtrl {
-  PowerOff,
-}
-
-pub type PowerCtrlChannel = Channel<CriticalSectionRawMutex, PowerCtrl, 1>;
-pub type PowerCtrlSender = Sender<'static, CriticalSectionRawMutex, PowerCtrl, 1>;
-pub type PowerCtrlReceiver = Receiver<'static, CriticalSectionRawMutex, PowerCtrl, 1>;
-
-// ================================ WASM ================================
-
-pub type WasmIpcChannel = Channel<CriticalSectionRawMutex, (u32, WasmIpcMessage), 1>;
-pub type WasmIpcSender = Sender<'static, CriticalSectionRawMutex, (u32, WasmIpcMessage), 1>;
-pub type WasmIpcReceiver = Receiver<'static, CriticalSectionRawMutex, (u32, WasmIpcMessage), 1>;
-
-pub type HostIpcChannel = Channel<CriticalSectionRawMutex, (u32, HostIpcMessage), 1>;
-pub type HostIpcSender = Sender<'static, CriticalSectionRawMutex, (u32, HostIpcMessage), 1>;
-pub type HostIpcReceiver = Receiver<'static, CriticalSectionRawMutex, (u32, HostIpcMessage), 1>;
-
-// ================================ Web Socket ================================
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum WebSocketIncomingMessage {
-  HexButton(HexButton),
-  SystemMessage(SystemMessage),
-}
-
-pub type WebSocketIncomingChannel = Channel<CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
 pub type WebSocketIncomingSender = Sender<'static, CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
+pub type WebSocketIncomingChannel = Channel<CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
 pub type WebSocketIncomingReceiver = Receiver<'static, CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
+
+

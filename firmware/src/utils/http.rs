@@ -24,35 +24,7 @@ use reqwless::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HttpRequest {
-  pub url: String,
-  pub headers: Vec<(String, String)>,
-}
-
-impl HttpRequest {
-  pub fn new(url: String) -> Self {
-    Self {
-      url,
-      headers: Vec::new(),
-    }
-  }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HttpResponseMeta {
-  pub status: u32,
-  pub headers: Vec<(String, String)>,
-}
-
-impl HttpResponseMeta {
-  pub fn new(status: u32) -> Self {
-    Self {
-      status,
-      headers: Vec::new(),
-    }
-  }
-}
+pub use app::protocol::{HttpRequest, HttpResponseMeta};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HttpResponse {

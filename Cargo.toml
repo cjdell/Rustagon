@@ -1,14 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
+    "app",
     "bq25895",
     "cy8cmbr3116",
     "display_renderer",
     "display_types",
     "embedded_tools",
-    "procmacros",
     "emulator",
     "firmware",
+    "procmacros",
     "sdk",
     "uploader",
 ]

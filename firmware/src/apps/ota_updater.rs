@@ -1,7 +1,7 @@
-use super::{AppName, MenuAppAsync, MenuAppContext, MenuAppInput};
+use super::{AppName, MenuAppAsync, MenuAppInput};
 use crate::{
   FIRMWARE_VERSION,
-  platform::Platform,
+  platform::{HardwarePlatform, Platform},
   types::*,
   utils::{
     cpu_guard::CpuGuard,
@@ -11,6 +11,7 @@ use crate::{
   },
 };
 use alloc::{format, string::ToString};
+use app::apps::MenuAppContext;
 use core::future::join;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use esp_hal::{
@@ -28,7 +29,7 @@ const OTA_1_OFFSET: u32 = partition_offset!("ota_1");
 const OTA_OFFSETS: [u32; 2] = [OTA_0_OFFSET, OTA_1_OFFSET];
 
 pub struct OtaUpdaterApp {
-  ctx: MenuAppContext,
+  ctx: MenuAppContext<HardwarePlatform>,
   state: AppState,
 }
 
@@ -62,7 +63,7 @@ struct VersionInfo {
 }
 
 impl OtaUpdaterApp {
-  pub fn new(ctx: MenuAppContext) -> Self {
+  pub fn new(ctx: MenuAppContext<HardwarePlatform>) -> Self {
     Self {
       ctx,
       state: AppState::new(),

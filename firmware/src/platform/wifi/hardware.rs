@@ -105,7 +105,7 @@ pub async fn wifi_connection_task(
     // Serve any pending on-demand scan before doing connection work
     service_scan_request(&mut controller, &manager).await;
 
-    let desired_state = *manager.desired_state.read().await;
+    let desired_state = manager.desired_state.read().await.clone();
 
     match desired_state {
       WifiDesiredState::Offline => {
@@ -445,13 +445,6 @@ impl WiFiManager for HardwareWifiManager {
     Box::pin(async move { status.wait_for_change().await })
   }
 
-  fn get_stats(&self) -> WifiStats {
-    WifiStats {
-      connection_attempts: self.connection_attempts.load(Ordering::Relaxed),
-      successful_connections: self.successful_connections.load(Ordering::Relaxed),
-    }
-  }
-
   fn set_desired_state(&self, state: WifiDesiredState) -> Pin<Box<dyn core::future::Future<Output = ()> + Send + '_>> {
     let desired_state = self.desired_state.clone();
     Box::pin(async move {
@@ -459,27 +452,23 @@ impl WiFiManager for HardwareWifiManager {
     })
   }
 
-  fn scan(&self) -> Pin<Box<dyn core::future::Future<Output = Vec<WifiResult>> + Send + '_>> {
+  fn scan(&self) -> Pin<Box<dyn core::future::Future<Output = Result<Vec<WifiResult>, ()>> + Send + '_>> {
     let scan_results = self.last_scan_results.clone();
     let scan_request = self.scan_request.clone();
     let scan_complete = self.scan_complete.clone();
 
     Box::pin(async move {
-      // The connection task owns the controller, so ask it to scan on our behalf
       scan_complete.reset();
       scan_request.signal(());
 
       match embassy_time::with_timeout(SCAN_TIMEOUT, scan_complete.wait()).await {
-        Ok(results) => results,
+        Ok(results) => Ok(results),
         Err(_) => {
           error!("WiFi: Scan request timed out, returning cached results");
-          scan_results.read().await.clone()
+          Ok(scan_results.read().await.clone())
         }
       }
     })
   }
 
-  fn set_wifi_mode(&self, _mode: WifiMode) -> Pin<Box<dyn core::future::Future<Output = Result<(), &'static str>> + Send + '_>> {
-    Box::pin(async { Ok(()) })
-  }
 }

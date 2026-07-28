@@ -1,4 +1,5 @@
 use crate::{apps::MenuAppInputChannel, platform::{self, display::DisplayHandle, StorageHandle}, types::*};
+use alloc::sync::Arc;
 use embassy_net::Stack;
 
 #[derive(Clone)]
