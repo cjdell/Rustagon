@@ -128,6 +128,8 @@ async fn main(spawner: Spawner) {
   // Try to mount the filesystem
   let littlefs_storage = LittleFsFlashStorage::new(flash.clone(), VFS_PARTITION_OFFSET);
 
+  let storage_formatter = HardwareStorageManager::new(flash.clone(), VFS_PARTITION_OFFSET);
+
   let (storage, config_handle) = match embedded_tools::local_fs::LocalFs::new(littlefs_storage) {
     Ok(local_fs) => {
       info!("Filesystem OK");
@@ -135,7 +137,7 @@ async fn main(spawner: Spawner) {
       sleep(100).await;
 
       let fs_for_config = local_fs.clone();
-      let storage_manager = Arc::new(HardwareStorageManager::new(local_fs, flash.clone(), VFS_PARTITION_OFFSET));
+      let storage_handle = StorageHandle::new(Arc::new(local_fs));
 
       let config_file = ConfigFile::new(
         LocalFsConfigFileStorage::new(fs_for_config, "device.jsn".to_string()),
@@ -143,7 +145,7 @@ async fn main(spawner: Spawner) {
       ).await;
       let config_handle = ConfigHandle::new(Arc::new(config_file));
 
-      (StorageHandle::new(storage_manager), config_handle)
+      (storage_handle, config_handle)
     }
     Err(_) => {
       error!("Filesystem Error: Corrupt. Formatting...");
@@ -223,7 +225,7 @@ async fn main(spawner: Spawner) {
 
   let system = SystemHandle::new(HardwareSystemManager::new(spawner, peripherals.GPIO0));
 
-  let platform = HardwarePlatform::new_with_managers(display, led, power, wifi, input, system, storage.clone(), config_handle.clone());
+  let platform = HardwarePlatform::new_with_managers(display, led, power, wifi, input, system, storage.clone(), config_handle.clone(), storage_formatter.clone());
 
   let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 

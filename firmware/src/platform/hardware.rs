@@ -2,7 +2,7 @@ use super::display::DisplayHandle;
 use super::input::InputHandle;
 use super::led::{HardwareLedManager, LedHandle};
 use super::power::PowerHandle;
-use super::storage::{ConfigHandle, StorageHandle};
+use super::storage::{ConfigHandle, FsError, HardwareStorageManager, StorageHandle};
 use super::system::SystemHandle;
 use super::traits::Platform;
 use super::wifi::WiFiHandle;
@@ -22,11 +22,22 @@ pub struct HardwarePlatform {
   system: SystemHandle,
   storage: StorageHandle,
   config: ConfigHandle,
+  storage_formatter: HardwareStorageManager,
 }
 
 impl HardwarePlatform {
   /// Create a new hardware platform with all manager handles
-  pub fn new_with_managers(display: DisplayHandle, led: LedHandle, power: PowerHandle, wifi: WiFiHandle, input: InputHandle, system: SystemHandle, storage: StorageHandle, config: ConfigHandle) -> Self {
+  pub fn new_with_managers(
+    display: DisplayHandle,
+    led: LedHandle,
+    power: PowerHandle,
+    wifi: WiFiHandle,
+    input: InputHandle,
+    system: SystemHandle,
+    storage: StorageHandle,
+    config: ConfigHandle,
+    storage_formatter: HardwareStorageManager,
+  ) -> Self {
     Self {
       display,
       led,
@@ -36,6 +47,7 @@ impl HardwarePlatform {
       system,
       storage,
       config,
+      storage_formatter,
     }
   }
 }
@@ -71,5 +83,9 @@ impl Platform for HardwarePlatform {
 
   fn config_manager(&self) -> ConfigHandle {
     self.config.clone()
+  }
+
+  async fn format_storage(&self) -> Result<(), FsError> {
+    self.storage_formatter.format().await
   }
 }

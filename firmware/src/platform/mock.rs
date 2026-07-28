@@ -2,7 +2,7 @@ use super::display::{DisplayHandle, MockDisplayManager};
 use super::input::{InputHandle, MockInputManager};
 use super::led::{LedHandle, MockLedManager};
 use super::power::{MockPowerManager, PowerHandle};
-use super::storage::{ConfigHandle, MockConfigManager, MockStorageManager, StorageHandle};
+use super::storage::{ConfigHandle, FsError, MockConfigManager, MockStorageManager, StorageHandle};
 use super::traits::Platform;
 use super::wifi::{MockWifiManager, WiFiHandle};
 use alloc::sync::Arc;
@@ -83,5 +83,9 @@ impl Platform for MockPlatform {
 
   fn config_manager(&self) -> ConfigHandle {
     self.config.clone()
+  }
+
+  async fn format_storage(&self) -> Result<(), FsError> {
+    Ok(())
   }
 }

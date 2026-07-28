@@ -2,7 +2,7 @@ use super::display::DisplayHandle;
 use super::input::InputHandle;
 use super::led::LedHandle;
 use super::power::PowerHandle;
-use super::storage::{ConfigHandle, StorageHandle};
+use super::storage::{ConfigHandle, FsError, StorageHandle};
 use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
 use core::fmt;
@@ -30,4 +30,9 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
   fn storage_manager(&self) -> StorageHandle;
 
   fn config_manager(&self) -> ConfigHandle;
+
+  /// Format the storage filesystem. Requires raw flash access — can't
+  /// be done through the mounted filesystem trait. Only meaningful on
+  /// real hardware; mock returns Ok(()).
+  async fn format_storage(&self) -> Result<(), FsError>;
 }

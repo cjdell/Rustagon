@@ -146,7 +146,7 @@ impl ConfigApp {
 
   async fn format_fs(&mut self) {
     self.ctx.update_lcd(LcdScreen::Headline(Icon40::Info, "Formatting...".to_string()));
-    match self.ctx.platform.storage_manager().format().await {
+    match self.ctx.platform.format_storage().await {
       Ok(()) => {
         warn!("Filesystem formatted! Rebooting...");
         self.ctx.update_lcd(LcdScreen::Headline(Icon40::Info, "Format Complete!".to_string()));
