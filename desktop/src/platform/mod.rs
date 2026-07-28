@@ -8,7 +8,7 @@ pub use input::DesktopInputManager;
 use crate::MockConfigManager;
 use app::platform::storage::ConfigFileTrait;
 use app::platform::*;
-use app::types::DeviceConfig;
+use app::types::{DeviceConfig, OtaError};
 use core::fmt;
 use std::sync::Arc;
 
@@ -62,4 +62,7 @@ impl Platform for DesktopPlatform {
     fn config_manager(&self) -> ConfigHandle<DeviceConfig> { self.config.clone() }
     async fn format_storage(&self) -> Result<(), FsError> { Ok(()) }
     async fn software_reset(&self) { std::process::exit(0); }
+    async fn ota_begin(&self) -> Result<u32, OtaError> { Err(OtaError::NotSupported) }
+    async fn ota_write_chunk(&self, _: u32, _: &[u8]) -> Result<(), OtaError> { Err(OtaError::NotSupported) }
+    async fn ota_commit(&self) -> Result<(), OtaError> { Err(OtaError::NotSupported) }
 }

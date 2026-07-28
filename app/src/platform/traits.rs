@@ -5,7 +5,7 @@ use super::power::PowerHandle;
 use super::storage::{ConfigHandle, FsError, StorageHandle};
 use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
-use crate::types::DeviceConfig;
+use crate::types::{DeviceConfig, OtaError};
 use core::fmt;
 
 pub trait Platform: Clone + Send + Sync + fmt::Debug {
@@ -19,4 +19,11 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
   fn config_manager(&self) -> ConfigHandle<DeviceConfig>;
   async fn format_storage(&self) -> Result<(), FsError>;
   async fn software_reset(&self);
+
+  /// Begin an OTA update. Returns the starting flash offset to write to.
+  async fn ota_begin(&self) -> Result<u32, OtaError>;
+  /// Write a chunk of firmware data at a flash offset.
+  async fn ota_write_chunk(&self, offset: u32, data: &[u8]) -> Result<(), OtaError>;
+  /// Finalise the OTA update and mark the new slot as bootable.
+  async fn ota_commit(&self) -> Result<(), OtaError>;
 }

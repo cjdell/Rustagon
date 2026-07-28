@@ -138,3 +138,17 @@ pub enum WebSocketIncomingMessage {
   HexButton(HexButton),
   SystemMessage(SystemMessage),
 }
+
+pub type WebSocketIncomingChannel = embassy_sync::channel::Channel<CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
+pub type WebSocketIncomingSender = Sender<'static, CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
+pub type WebSocketIncomingReceiver = Receiver<'static, CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
+
+// ================================ OTA ================================
+
+#[derive(Debug, Clone)]
+pub enum OtaError {
+  FlashWrite,
+  FlashRead,
+  InvalidSlot,
+  NotSupported,
+}

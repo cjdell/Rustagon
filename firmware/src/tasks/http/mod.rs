@@ -1,26 +1,7 @@
-#[macro_use]
-
-mod common;
-mod config;
-mod delete_file;
-mod list_files;
-mod ota;
-mod read_file;
-mod receive_file;
-mod web_socket;
-mod wifi_join;
-mod wifi_scan;
-mod write_file;
-
 use crate::{
-  platform::{ConfigHandle, Platform, StorageHandle},
-  tasks::http::{
-    common::*, config::*, delete_file::DeleteFileHandler, list_files::HandleFileList, ota::OtaUpdateHandler,
-    read_file::ReadFileHandler, receive_file::ReceiveFileHandler, web_socket::WebSocketHandler,
-    wifi_join::HandleWifiJoin, wifi_scan::HandleWifiScan, write_file::WriteFileHandler,
-  },
+  platform::Platform,
+  platform::StorageHandle,
   types::*,
-  utils::*,
 };
 use alloc::{boxed::Box, vec::Vec};
 use embassy_executor::Spawner;
@@ -30,97 +11,11 @@ use esp_alloc::ExternalMemory;
 use log::info;
 use picoserve::{
   AppBuilder, AppRouter, Router, Server, make_static,
-  response::WebSocketUpgrade,
-  routing::{PathRouter, get, get_service, post, post_service},
+  response::StatusCode,
+  routing::{PathRouter, get},
 };
-
-struct AppProps {
-  storage: StorageHandle,
-  sender: HttpSender,
-  web_socket_incoming_sender: WebSocketIncomingSender,
-  platform: crate::platform::HardwarePlatform,
-}
-
-impl AppProps {
-  pub fn new(
-    storage: StorageHandle,
-    sender: HttpSender,
-    web_socket_incoming_sender: WebSocketIncomingSender,
-    platform: crate::platform::HardwarePlatform,
-  ) -> Self {
-    Self {
-      storage,
-      sender,
-      web_socket_incoming_sender,
-      platform,
-    }
-  }
-}
-
-impl AppBuilder for AppProps {
-  type PathRouter = impl PathRouter;
-
-  fn build_app(self) -> Router<Self::PathRouter> {
-    Router::from_service(CustomNotFound)
-      .route("/", get(async || html_app_response()))
-      .route("/emulator", get(async || html_app_response()))
-      .route("/remote", get(async || html_app_response()))
-      .route("/fs", get(async || html_app_response()))
-      .route("/config", get(async || html_app_response()))
-      .nest(
-        "/api",
-        Router::new()
-          .route(
-            "/config",
-            get_service(GetConfigHandler::new(self.platform.config_manager())).post_service(SaveConfigHandler::new(self.platform.config_manager())),
-          )
-          .route(
-            "/wifi",
-            get_service(HandleWifiScan::new(self.platform.clone()))
-              .post_service(HandleWifiJoin::new(self.platform.config_manager(), self.platform.clone()))
-              .options(async || cors_options_response()),
-          )
-          .route("/files", get_service(HandleFileList::new(self.storage.clone())))
-          .route(
-            "/file",
-            get_service(ReadFileHandler::new(self.storage.clone(), self.sender))
-              .post_service(WriteFileHandler::new(self.storage.clone(), self.sender))
-              .delete_service(DeleteFileHandler::new(self.storage.clone()))
-              .options(async || cors_options_response()),
-          )
-          .route(
-            "/receive",
-            post_service(ReceiveFileHandler::new(self.sender)).options(async || cors_options_response()),
-          )
-          .route(
-            "/reboot",
-            post(async || {
-              esp_hal::system::software_reset();
-              "Unreachable"
-            })
-            .options(async || cors_options_response()),
-          )
-          .route(
-            "/ota",
-            post_service(OtaUpdateHandler).options(async || cors_options_response()),
-          )
-          .route(
-            "/ws",
-            get(async move |upgrade: WebSocketUpgrade| {
-              upgrade.on_upgrade(WebSocketHandler::new(self.web_socket_incoming_sender, self.platform.display_manager())).with_protocol("messages")
-            })
-            .options(async || cors_options_response()),
-          ),
-      )
-      // Captive Portal stuff...
-      .route("/generate_204", get(async || redirect_home_response()))
-      .route("/hotspot-detect.html", get(async || redirect_home_response()))
-      .route("/connecttest.txt", get(async || redirect_home_response()))
-      .route("/redirect", get(async || redirect_home_response()))
-  }
-}
-
-const WEB_TASK_POOL_SIZE: usize = 3;
+use app::http::common::{cors_options_response, html_app_response, CustomNotFound};
+use app::http::picoserve;
 
 static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
   start_read_request: Some(Duration::from_secs(300)),
@@ -128,6 +23,47 @@ static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
   read_request: Some(Duration::from_secs(300)),
   write: Some(Duration::from_secs(300)),
 });
+
+struct AppProps {
+  storage: StorageHandle,
+  sender: HttpSender,
+  web_socket_incoming_sender: WebSocketIncomingSender,
+  display: app::platform::display::DisplayHandle,
+  platform: crate::platform::HardwarePlatform,
+}
+
+fn redirect_home_response() -> impl picoserve::response::IntoResponse {
+  picoserve::response::Response::new(StatusCode::TEMPORARY_REDIRECT, "")
+    .with_headers([("Location", "/")])
+}
+
+impl AppBuilder for AppProps {
+  type PathRouter = impl PathRouter;
+
+  fn build_app(self) -> Router<Self::PathRouter> {
+    let api_router = app::http::build_api_router(
+      self.storage,
+      self.sender,
+      self.web_socket_incoming_sender,
+      self.display,
+      self.platform,
+    );
+
+    Router::from_service(CustomNotFound)
+      .route("/", get(async || html_app_response()))
+      .route("/emulator", get(async || html_app_response()))
+      .route("/remote", get(async || html_app_response()))
+      .route("/fs", get(async || html_app_response()))
+      .route("/config", get(async || html_app_response()))
+      .route("/generate_204", get(async || redirect_home_response()))
+      .route("/hotspot-detect.html", get(async || redirect_home_response()))
+      .route("/connecttest.txt", get(async || redirect_home_response()))
+      .route("/redirect", get(async || redirect_home_response()))
+      .nest("/api", api_router)
+  }
+}
+
+const WEB_TASK_POOL_SIZE: usize = 3;
 
 #[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
 async fn web_task(id: usize, stack: Stack<'static>, app: &'static AppRouter<AppProps>) -> ! {
@@ -144,13 +80,7 @@ async fn web_task(id: usize, stack: Stack<'static>, app: &'static AppRouter<AppP
 
   Box::new_in(
     Server::new(app, &CONFIG, http_buffer.as_mut())
-      .listen_and_serve(
-        id,
-        stack,
-        port,
-        tcp_rx_buffer.as_mut_slice(),
-        tcp_tx_buffer.as_mut_slice(),
-      )
+      .listen_and_serve(id, stack, port, tcp_rx_buffer.as_mut_slice(), tcp_tx_buffer.as_mut_slice())
       .await,
     ExternalMemory,
   )
@@ -165,14 +95,17 @@ pub fn start_http(
   web_socket_incoming_sender: WebSocketIncomingSender,
   platform: crate::platform::HardwarePlatform,
 ) {
+  let display = platform.display_manager();
+
   let app = make_static!(
     AppRouter<AppProps>,
-    AppProps::new(
+    AppProps {
       storage,
       sender,
       web_socket_incoming_sender,
-      platform
-    )
+      display,
+      platform,
+    }
     .build_app()
   );
 

@@ -30,6 +30,10 @@ impl HardwareStorageManager {
     Self { raw_flash, partition_offset }
   }
 
+  pub fn raw_flash(&self) -> Arc<RwLock<CriticalSectionRawMutex, EspFlashStorage<'static>>> {
+    self.raw_flash.clone()
+  }
+
   pub async fn format(&self) -> Result<(), FsError> {
     log::info!("Formatting filesystem...");
     let mut storage = LittleFsFlashStorage::new(self.raw_flash.clone(), self.partition_offset);

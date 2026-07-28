@@ -1,8 +1,6 @@
-use crate::{tasks::http::common::json_response_fn, types::*, utils::*};
+use super::alloc::allocate_http_buffer;
+use crate::types::{HttpSender, HttpStatusMessage};
 use alloc::vec::Vec;
-use esp_alloc::ExternalMemory;
-use esp_println::print;
-use log::info;
 use picoserve::{
   io::Read,
   request::Request,
@@ -30,37 +28,29 @@ impl RequestHandlerService<()> for ReceiveFileHandler {
     response_writer: W,
   ) -> Result<picoserve::ResponseSent, W::Error> {
     let file_size = request.body_connection.content_length();
-    info!("ReceiveFileHandler: file_size = {}", file_size);
 
     let mut reader = request.body_connection.body().reader();
 
-    let mut buffer = Vec::new_in(ExternalMemory);
-    buffer.resize(file_size, 0u8);
+    let mut buffer = allocate_http_buffer(file_size);
 
     let mut received_bytes: usize = 0;
 
     loop {
       let read_bytes = reader.read(&mut buffer[received_bytes..]).await?;
       received_bytes += read_bytes as usize;
-      if read_bytes == 0 {
-        break;
-      }
-
+      if read_bytes == 0 { break; }
       self.sender.send(HttpStatusMessage::Progress(received_bytes as u32, file_size as u32)).await;
-      print!(".");
     }
-
-    info!("ReceiveFileHandler: received_bytes = {}", received_bytes);
 
     let connection = request.body_connection.finalize().await?;
 
-    self.sender.send(HttpStatusMessage::ReceivedFile(VecHelper::to_global_vec(buffer))).await;
+    self.sender.send(HttpStatusMessage::ReceivedFile(buffer)).await;
 
     #[derive(Serialize)]
-    struct ResponseJson {
-      pub received_bytes: usize,
-    }
+    struct ResponseJson { pub received_bytes: usize }
 
-    json_response_fn(&serde_json::to_string(&ResponseJson { received_bytes }).unwrap()).write_to(connection, response_writer).await
+    super::common::json_response_fn(&serde_json::to_string(&ResponseJson { received_bytes }).unwrap())
+      .write_to(connection, response_writer)
+      .await
   }
 }

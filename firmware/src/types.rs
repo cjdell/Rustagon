@@ -17,10 +17,6 @@ pub type SystemWatch = watch::Watch<CriticalSectionRawMutex, SystemMessage, 1>;
 pub type SystemSender = watch::Sender<'static, CriticalSectionRawMutex, SystemMessage, 1>;
 pub type SystemReceiver = watch::Receiver<'static, CriticalSectionRawMutex, SystemMessage, 1>;
 
-pub type HttpChannel = Channel<CriticalSectionRawMutex, HttpStatusMessage, 1>;
-pub type HttpSender = Sender<'static, CriticalSectionRawMutex, HttpStatusMessage, 1>;
-pub type HttpReceiver = Receiver<'static, CriticalSectionRawMutex, HttpStatusMessage, 1>;
-
 pub type WifiScanPubSub = PubSubChannel<CriticalSectionRawMutex, WifiResult, 8, 4, 4>;
 pub type WifiScanPublisher = Publisher<'static, CriticalSectionRawMutex, WifiResult, 8, 4, 4>;
 pub type WifiScanSubscriber = Subscriber<'static, CriticalSectionRawMutex, WifiResult, 8, 4, 4>;
@@ -46,9 +42,3 @@ pub type HexButtonSender = Publisher<'static, CriticalSectionRawMutex, I2cMessag
 pub type HexButtonReceiver = Subscriber<'static, CriticalSectionRawMutex, I2cMessage, 10, 2, 2>;
 
 pub type ButtonEventChannel = Channel<CriticalSectionRawMutex, HexButton, 10>;
-
-pub type WebSocketIncomingSender = Sender<'static, CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
-pub type WebSocketIncomingChannel = Channel<CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
-pub type WebSocketIncomingReceiver = Receiver<'static, CriticalSectionRawMutex, WebSocketIncomingMessage, 1>;
-
-

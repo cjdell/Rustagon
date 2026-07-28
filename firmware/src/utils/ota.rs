@@ -15,7 +15,7 @@ static ALGO: Algorithm<u32> = Algorithm {
 
 #[derive(Debug)]
 pub struct Ota<'a> {
-  flash: &'a mut FlashStorage<'a>,
+  flash: &'a mut FlashStorage<'static>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -44,7 +44,7 @@ impl Slot {
 }
 
 impl<'a> Ota<'a> {
-  pub fn new(flash: &'a mut FlashStorage<'a>) -> Ota<'a> {
+  pub fn new(flash: &'a mut FlashStorage<'static>) -> Ota<'a> {
     Ota { flash }
   }
 

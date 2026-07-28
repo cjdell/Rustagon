@@ -1,17 +1,17 @@
 use crate::platform::StorageHandle;
 use alloc::{format, string::String};
-use embedded_io_async::Read;
-use picoserve::response::{
-  IntoResponse,
-  chunked::{ChunkWriter, ChunkedResponse, Chunks, ChunksWritten},
+use picoserve::{
+  io::Read,
+  response::{
+    IntoResponse,
+    chunked::{ChunkWriter, ChunkedResponse, Chunks, ChunksWritten},
+  },
+  routing::RequestHandlerService,
 };
 use serde::Serialize;
 
 #[derive(Serialize)]
-struct FileEntry {
-  pub name: String,
-  pub size: u32,
-}
+struct FileEntry { pub name: String, pub size: u32 }
 
 pub struct HandleFileList {
   storage: StorageHandle,
@@ -23,7 +23,7 @@ impl HandleFileList {
   }
 }
 
-impl picoserve::routing::RequestHandlerService<()> for HandleFileList {
+impl RequestHandlerService<()> for HandleFileList {
   async fn call_request_handler_service<R: Read, W: picoserve::response::ResponseWriter<Error = R::Error>>(
     &self,
     (): &(),
@@ -52,9 +52,7 @@ impl FileListChunks {
 }
 
 impl Chunks for FileListChunks {
-  fn content_type(&self) -> &'static str {
-    "application/json"
-  }
+  fn content_type(&self) -> &'static str { "application/json" }
 
   async fn write_chunks<W: picoserve::io::Write>(
     self,
@@ -64,7 +62,6 @@ impl Chunks for FileListChunks {
       Ok(entries) => entries,
       Err(err) => {
         chunk_writer.write_chunk(format!("Dir Error: {err:?}").as_bytes()).await?;
-
         return chunk_writer.finalize().await;
       }
     };
@@ -72,27 +69,15 @@ impl Chunks for FileListChunks {
     chunk_writer.write_chunk(b"[").await?;
 
     for (i, entry) in entries.iter().enumerate() {
-      let file_entry = FileEntry {
-        name: entry.name.clone(),
-        size: entry.size,
-      };
-
-      let json = match serde_json::to_string::<FileEntry>(&file_entry) {
-        Ok(json) => json,
-        Err(err) => {
-          panic!("JSON Error: {err:?}");
-        }
-      };
-
+      let file_entry = FileEntry { name: entry.name.clone(), size: entry.size };
+      let json = serde_json::to_string(&file_entry).unwrap();
       chunk_writer.write_chunk(json.as_bytes()).await?;
-
       if i < entries.len() - 1 {
         chunk_writer.write_chunk(b",").await?;
       }
     }
 
     chunk_writer.write_chunk(b"]").await?;
-
     chunk_writer.finalize().await
   }
 }

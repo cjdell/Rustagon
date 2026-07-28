@@ -218,7 +218,9 @@ dependencies = [
  "embassy-time",
  "embedded-graphics",
  "embedded-tools",
+ "esp-alloc",
  "log",
+ "picoserve",
  "serde",
  "serde_json",
 ]
@@ -4568,6 +4570,7 @@ dependencies = [
  "pin-project",
  "serde",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

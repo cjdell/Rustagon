@@ -4,6 +4,15 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 
+[features]
+default = []
+http-server = ["dep:picoserve"]
+embassy = ["http-server", "picoserve/embassy"]
+std = []
+tokio = ["http-server", "picoserve/tokio", "std", "embassy-time/std"]
+extern-alloc = ["dep:esp-alloc"]
+web-bundle = []
+
 [dependencies]
 display_types = { path = "../display_types" }
 embedded-tools = { path = "../embedded_tools" }
@@ -19,3 +28,6 @@ serde = { version = "1.0.228", default-features = false, features = ["derive", "
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
 log = "0.4.29"
 critical-section = "1.2.0"
+
+picoserve = { git = "https://github.com/sammhicks/picoserve.git", features = ["alloc", "ws"], optional = true }
+esp-alloc = { git = "https://github.com/esp-rs/esp-hal.git", package = "esp-alloc", optional = true, features = ["nightly"] }
