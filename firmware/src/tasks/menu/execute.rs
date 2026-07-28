@@ -5,7 +5,7 @@ use crate::{
   tasks::menu::{menus::MenuProvider as _, state::MenuState, types::*},
   types::*,
 };
-use alloc::{format, string::ToString as _};
+use alloc::string::ToString as _;
 use log::info;
 
 impl MenuState {
@@ -24,19 +24,6 @@ impl MenuState {
             self.ctx.host_ipc_sender.send((0, HostIpcMessage::StartNative(name.to_string()))).await;
           }
         }
-      }
-      MenuOption::Menu { menu } => new_menu = Some(menu.clone()),
-      MenuOption::Item { name, item_type } => {
-        match item_type {
-          ItemType::File => {
-            info!("Open file: {}", name);
-            self.ctx.host_ipc_sender.send((0, HostIpcMessage::StartWasm(name.clone()))).await;
-          }
-          ItemType::Directory => {
-            info!("Enter directory: {}", name);
-            new_menu = Some(Menu::Files(name.clone()));
-          }
-        };
       }
       MenuOption::Back => new_menu = Some(Menu::Root),
       MenuOption::PowerOff => {

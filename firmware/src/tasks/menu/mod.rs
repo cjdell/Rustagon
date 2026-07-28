@@ -191,6 +191,7 @@ pub async fn menu_task(mut runner_ctx: MenuRunnerContext) {
           menu_app_input_channel.receiver(),
           runner_ctx.stack,
           runner_ctx.platform.clone(),
+          runner_ctx.host_ipc_sender,
         );
 
         let mut menu_app = Box::new_in(MenuAppType::load_app_async(app_name, ctx), ExternalMemory);

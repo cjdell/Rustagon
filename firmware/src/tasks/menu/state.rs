@@ -1,11 +1,10 @@
 use crate::{
   apps::{MenuAppInput, MenuAppType},
   native::NativeAppType,
-  platform::Platform,
   tasks::menu::{menus::*, types::*},
   types::*,
 };
-use alloc::{borrow::ToOwned as _, boxed::Box, format, string::ToString as _, sync::Arc, vec, vec::Vec};
+use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc, vec, vec::Vec};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, rwlock::RwLock};
 
 pub struct MenuState {
@@ -43,37 +42,28 @@ impl MenuState {
     }
   }
 
-  pub async fn get_menu_provider(&mut self) -> MenuTypes {
-    match &self.current_menu {
-      Menu::Root => MenuTypes::StaticMenu(Box::new(StaticMenu {
-        items: vec![
-          MenuAppType::list_apps()
-            .iter()
-            .map(|name| MenuOption::App {
-              name,
-              app_type: AppType::MenuApp,
-            })
-            .collect(),
-          NativeAppType::list_apps()
-            .iter()
-            .map(|name| MenuOption::App {
-              name,
-              app_type: AppType::NativeApp,
-            })
-            .collect(),
-          vec![
-            MenuOption::PowerOff,
-            MenuOption::Menu {
-              menu: Menu::Files("/".to_string()),
-            },
-          ],
-        ]
-        .concat(),
-      })),
-      Menu::Files(path) => MenuTypes::DynamicFilesystemMenu(Box::new(DynamicFilesystemMenu {
-        storage: self.ctx.storage.clone(),
-        path: path.clone(),
-      })),
+  pub async fn get_menu_provider(&mut self) -> StaticMenu {
+    StaticMenu {
+      items: vec![
+        MenuAppType::list_apps()
+          .iter()
+          .map(|name| MenuOption::App {
+            name,
+            app_type: AppType::MenuApp,
+          })
+          .collect(),
+        NativeAppType::list_apps()
+          .iter()
+          .map(|name| MenuOption::App {
+            name,
+            app_type: AppType::NativeApp,
+          })
+          .collect(),
+        vec![
+          MenuOption::PowerOff,
+        ],
+      ]
+      .concat(),
     }
   }
 
@@ -90,11 +80,6 @@ impl MenuState {
         .iter()
         .map(|option| match option {
           MenuOption::App { name, app_type: _ } => MenuLine(Icon20::Info, name.to_string()),
-          MenuOption::Menu { menu } => MenuLine(Icon20::Info, menu.label().to_string()),
-          MenuOption::Item { name, item_type } => match item_type {
-            ItemType::File => MenuLine(Icon20::File, format!("{}", name)),
-            ItemType::Directory => MenuLine(Icon20::File, format!("{}", name)),
-          },
           MenuOption::Back => MenuLine(Icon20::Info, "<= Back".to_owned()),
           MenuOption::PowerOff => MenuLine(Icon20::Info, "Power Off".to_owned()),
         })

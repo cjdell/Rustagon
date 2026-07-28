@@ -1,5 +1,5 @@
 use crate::platform::{self, Platform};
-use crate::types::{HexButton, LcdScreen};
+use crate::types::{HexButton, HostIpcSender, LcdScreen};
 use alloc::string::String;
 use embassy_net::Stack;
 use embassy_sync::{
@@ -31,6 +31,7 @@ pub struct MenuAppContext {
   pub input_receiver: MenuAppInputReceiver,
   pub stack: Stack<'static>,
   pub platform: platform::HardwarePlatform,
+  pub host_ipc_sender: HostIpcSender,
 }
 
 impl MenuAppContext {
@@ -38,11 +39,13 @@ impl MenuAppContext {
     input_receiver: MenuAppInputReceiver,
     stack: Stack<'static>,
     platform: platform::HardwarePlatform,
+    host_ipc_sender: HostIpcSender,
   ) -> Self {
     Self {
       input_receiver,
       stack,
       platform,
+      host_ipc_sender,
     }
   }
 

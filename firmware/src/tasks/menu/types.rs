@@ -1,18 +1,15 @@
-use crate::{apps::MenuAppInputChannel, platform::{self, display::DisplayHandle, StorageHandle}, types::*, utils::*};
-use alloc::string::String;
+use crate::{apps::MenuAppInputChannel, platform::{self, display::DisplayHandle, StorageHandle}, types::*};
 use embassy_net::Stack;
 
 #[derive(Clone)]
 pub enum Menu {
   Root,
-  Files(String),
 }
 
 impl Menu {
   pub fn label(&self) -> &str {
     match self {
       Menu::Root => "Root",
-      Menu::Files(_) => "Files",
     }
   }
 }
@@ -23,13 +20,6 @@ pub enum MenuOption {
     name: &'static str,
     app_type: AppType,
   },
-  Menu {
-    menu: Menu,
-  },
-  Item {
-    name: String,
-    item_type: ItemType,
-  },
   Back,
   PowerOff,
 }
@@ -38,12 +28,6 @@ pub enum MenuOption {
 pub enum AppType {
   MenuApp,
   NativeApp,
-}
-
-#[derive(Debug, Clone)]
-pub enum ItemType {
-  File,
-  Directory,
 }
 
 pub struct MenuRunnerContext {
