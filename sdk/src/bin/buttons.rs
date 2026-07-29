@@ -44,7 +44,7 @@ fn wasm_main() {
 
           display.clear();
 
-          let mut text = Text::new(&str, Point::new(55, 120 - 10), text_style);
+          let mut text = Text::new(&str, Point::new(20, 120 - 10), text_style);
           text.text_style.baseline = Baseline::Top;
           text.draw(&mut display).unwrap();
 

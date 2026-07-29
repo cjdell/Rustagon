@@ -1,73 +1,105 @@
+import type { HexButton } from "@lib";
+
 export class HexagonCanvasManager {
   private ctx: CanvasRenderingContext2D;
-  private hexagonPoints: { x: number; y: number }[] = [];
-  private hexagonRadius: number = -1;
-  private pointRadius: number = 16; // Radius of the circular buttons
-  private isDragging: boolean = false;
-  private activePoint: number | null = null;
+
+  // Layout constants
+  private hexCenterX: number;
+  private hexCenterY: number;
+  private hexRadius: number;
+
+  // 6 hex buttons (A-F) at the outer vertices, A at top
+  private hexButtonRadius = 18;
+  private hexPositions: { x: number; y: number; label: string }[] = [];
+
+  // 12 touch buttons in a ring within the hexagon
+  private touchButtonRadius = 16;
+  private touchRingRadius = 140;
+  private touchPositions: { x: number; y: number }[] = [];
+
+  // Direction control stick below the hexagon
+  private stickButtonRadius = 18;
+  private stickCenterX: number;
+  private stickCenterY: number;
+  private stickPositions: { x: number; y: number; direction: HexButton }[] = [];
+
+  // Screen overlay
   private screen: HTMLCanvasElement | null = null;
 
-  // Placeholder handlers for each of the 6 hexagon points
-  private pointHandler = (i: number) => console.log("Point:", i);
+  // Active button highlight
+  private activeHex: number | null = null;
+  private activeTouch: number | null = null;
+  private activeStick: HexButton | null = null;
+
+  // Handlers
+  private hexHandler = (_i: number) => {};
+  private touchHandler = (_i: number) => {};
+  private stickHandler = (_dir: HexButton) => {};
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = this.canvas.getContext("2d") as CanvasRenderingContext2D;
 
-    // Set canvas size to its display size
-    this.resizeCanvas();
+    // Fixed layout dimensions
+    this.hexCenterX = this.canvas.width / 2;
+    this.hexCenterY = 200;
+    this.hexRadius = 180;
+    this.stickCenterX = this.canvas.width / 4;
+    this.stickCenterY = 400;
 
-    // Add event listeners
-    this.canvas.addEventListener("click", (e) => this.handleCanvasClick(e));
-    this.canvas.addEventListener("mousemove", (e) => this.handleCanvasMove(e));
-    this.canvas.addEventListener("mouseleave", () => this.isDragging = false);
+    this.computeHexPositions();
+    this.computeTouchPositions();
+    this.computeStickPositions();
 
-    // Initialize hexagon
-    this.updateHexagon();
-  }
-
-  private resizeCanvas(): void {
-    // Get the computed style of the canvas
-    const style = self.getComputedStyle(this.canvas);
-    const width = parseInt(style.width) || this.canvas.width;
-    const height = parseInt(style.height) || this.canvas.height;
-
-    // Set the canvas dimensions to match the display size
-    this.canvas.width = width;
-    this.canvas.height = height;
-
-    // Update hexagon after resize
-    this.updateHexagon();
-  }
-
-  private updateHexagon(): void {
-    const centerX = this.canvas.width / 2;
-    const centerY = this.canvas.height / 2;
-
-    // Calculate radius to make hexagon fill the canvas
-    // For a hexagon oriented with top/bottom points aligned with center,
-    // the height is 2 * radius, and width is radius * sqrt(3)
-    // We want to fit the hexagon within the canvas, so we use the smaller dimension
-    const availableWidth = this.canvas.width;
-    const availableHeight = this.canvas.height;
-
-    // Calculate maximum radius that fits in both dimensions
-    const radiusByWidth = availableWidth / Math.sqrt(3);
-    const radiusByHeight = availableHeight / 2;
-    this.hexagonRadius = Math.min(radiusByWidth, radiusByHeight) - 20;
-
-    // Calculate 6 points of the hexagon (top, top-right, bottom-right, bottom, bottom-left, top-left)
-    this.hexagonPoints = [];
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI * 9 / 6) + (i * Math.PI / 3); // Start at top (π/6) and go clockwise
-      const x = centerX + this.hexagonRadius * Math.cos(angle);
-      const y = centerY + this.hexagonRadius * Math.sin(angle);
-      this.hexagonPoints.push({ x, y });
-    }
+    this.canvas.addEventListener("click", (e) => this.handleClick(e));
+    this.canvas.addEventListener("mousemove", (e) => this.handleMove(e));
+    this.canvas.addEventListener("mouseleave", () => {
+      this.activeHex = null;
+      this.activeTouch = null;
+      this.activeStick = null;
+      this.draw();
+    });
 
     this.draw();
   }
 
-  public drawFrameBuffer(frameBuffer: Uint8Array<ArrayBufferLike>) {
+  private computeHexPositions(): void {
+    this.hexPositions = [];
+    const labels = ["A", "B", "C", "D", "E", "F"];
+    for (let i = 0; i < 6; i++) {
+      const angle = -Math.PI / 2 + (i * Math.PI) / 3;
+      this.hexPositions.push({
+        x: this.hexCenterX + this.hexRadius * Math.cos(angle),
+        y: this.hexCenterY + this.hexRadius * Math.sin(angle),
+        label: labels[i],
+      });
+    }
+  }
+
+  private computeTouchPositions(): void {
+    this.touchPositions = [];
+    for (let i = 0; i < 12; i++) {
+      const angle = -Math.PI / 2 + (i * Math.PI) / 6 + Math.PI / 12;
+      this.touchPositions.push({
+        x: this.hexCenterX + this.touchRingRadius * Math.cos(angle),
+        y: this.hexCenterY + this.touchRingRadius * Math.sin(angle),
+      });
+    }
+  }
+
+  private computeStickPositions(): void {
+    const cx = this.stickCenterX;
+    const cy = this.stickCenterY;
+    const spacing = 26;
+    this.stickPositions = [
+      { x: cx, y: cy - spacing, direction: "Up" as HexButton },
+      { x: cx - spacing, y: cy, direction: "Left" as HexButton },
+      { x: cx + spacing, y: cy, direction: "Right" as HexButton },
+      { x: cx, y: cy + spacing, direction: "Down" as HexButton },
+      { x: cx, y: cy, direction: "Fire" as HexButton },
+    ];
+  }
+
+  public drawFrameBuffer(frameBuffer: Uint8Array<ArrayBufferLike>): void {
     this.screen = drawRGB565BE(frameBuffer);
     this.draw();
   }
@@ -75,122 +107,239 @@ export class HexagonCanvasManager {
   private draw(): void {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Draw the hexagon
+    this.drawHexagon();
+    this.drawScreen();
+    this.drawTouchButtons();
+    this.drawHexButtons();
+    this.drawStick();
+  }
+
+  private drawHexagon(): void {
     this.ctx.beginPath();
-    this.ctx.moveTo(this.hexagonPoints[0].x, this.hexagonPoints[0].y);
-
-    for (let i = 1; i < this.hexagonPoints.length; i++) {
-      this.ctx.lineTo(this.hexagonPoints[i].x, this.hexagonPoints[i].y);
+    for (let i = 0; i < 6; i++) {
+      const angle = -Math.PI / 2 + (i * Math.PI) / 3;
+      const x = this.hexCenterX + this.hexRadius * Math.cos(angle);
+      const y = this.hexCenterY + this.hexRadius * Math.sin(angle);
+      if (i === 0) this.ctx.moveTo(x, y);
+      else this.ctx.lineTo(x, y);
     }
-
     this.ctx.closePath();
-    this.ctx.fillStyle = "#33ff33"; // Blue fill color
+    this.ctx.fillStyle = "#1a1a3a";
     this.ctx.fill();
-    this.ctx.strokeStyle = "#007700"; // Darker blue stroke
+    this.ctx.strokeStyle = "#2d2d5a";
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
+  }
 
-    // Draw the point buttons (circles)
-    for (let i = 0; i < this.hexagonPoints.length; i++) {
-      const point = this.hexagonPoints[i];
-      this.ctx.beginPath();
-
-      this.ctx.arc(point.x, point.y, this.pointRadius, 0, Math.PI * 2);
-
-      // Different color for active point
-      if (this.activePoint === i) {
-        this.ctx.fillStyle = "#e74c3c"; // Red for active
-      } else {
-        this.ctx.fillStyle = "#aaaaaa"; // Orange for normal
-      }
-      this.ctx.fill();
-
-      // Add border
-      this.ctx.strokeStyle = "#000000";
-      this.ctx.lineWidth = 2;
-      this.ctx.stroke();
-    }
-
-    // Now draw the offscreen canvas onto your main canvas
-    // This will properly composite with alpha blending
+  private drawScreen(): void {
     if (this.screen) {
-      this.ctx.drawImage(this.screen, (this.canvas.width - WIDTH) / 2, (this.canvas.height - HEIGHT) / 2);
+      this.ctx.drawImage(
+        this.screen,
+        this.hexCenterX - 120,
+        this.hexCenterY - 120,
+      );
     }
   }
 
-  private handleCanvasClick(e: MouseEvent): void {
+  private drawTouchButtons(): void {
+    for (let i = 0; i < 12; i++) {
+      const pos = this.touchPositions[i];
+      const active = this.activeTouch === i;
+
+      this.ctx.beginPath();
+      this.ctx.arc(pos.x, pos.y, this.touchButtonRadius, 0, Math.PI * 2);
+
+      if (active) {
+        this.ctx.fillStyle = "#e74c3c";
+      } else {
+        this.ctx.fillStyle = "#555555";
+      }
+      this.ctx.fill();
+      this.ctx.strokeStyle = "#888888";
+      this.ctx.lineWidth = 1.5;
+      this.ctx.stroke();
+
+      // Label
+      this.ctx.fillStyle = "#ffffff";
+      this.ctx.font = "bold 9px monospace";
+      this.ctx.textAlign = "center";
+      this.ctx.textBaseline = "middle";
+      this.ctx.fillText(`T${(i + 1).toString().padStart(2, "0")}`, pos.x, pos.y);
+    }
+  }
+
+  private drawHexButtons(): void {
+    for (let i = 0; i < 6; i++) {
+      const pos = this.hexPositions[i];
+      const active = this.activeHex === i;
+
+      this.ctx.beginPath();
+      this.ctx.arc(pos.x, pos.y, this.hexButtonRadius, 0, Math.PI * 2);
+
+      if (active) {
+        this.ctx.fillStyle = "#e74c3c";
+      } else {
+        this.ctx.fillStyle = "#336633";
+      }
+      this.ctx.fill();
+      this.ctx.strokeStyle = "#55aa55";
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+
+      this.ctx.fillStyle = "#ffffff";
+      this.ctx.font = "bold 13px monospace";
+      this.ctx.textAlign = "center";
+      this.ctx.textBaseline = "middle";
+      this.ctx.fillText(pos.label, pos.x, pos.y);
+    }
+  }
+
+  private drawStick(): void {
+    for (const btn of this.stickPositions) {
+      const active = this.activeStick === btn.direction;
+
+      this.ctx.beginPath();
+      this.ctx.arc(btn.x, btn.y, this.stickButtonRadius, 0, Math.PI * 2);
+
+      if (active) {
+        this.ctx.fillStyle = "#e74c3c";
+      } else if (btn.direction === "Fire") {
+        this.ctx.fillStyle = "#ff4444";
+      } else {
+        this.ctx.fillStyle = "#666666";
+      }
+      this.ctx.fill();
+      this.ctx.strokeStyle = "#999999";
+      this.ctx.lineWidth = 1.5;
+      this.ctx.stroke();
+
+      // Arrow labels for direction buttons
+      this.ctx.fillStyle = "#ffffff";
+      this.ctx.font = "bold 14px monospace";
+      this.ctx.textAlign = "center";
+      this.ctx.textBaseline = "middle";
+
+      let label = "";
+      switch (btn.direction) {
+        case "Up":
+          label = "▲";
+          break;
+        case "Left":
+          label = "◀";
+          break;
+        case "Fire":
+          label = "●";
+          break;
+        case "Right":
+          label = "▶";
+          break;
+        case "Down":
+          label = "▼";
+          break;
+      }
+      this.ctx.fillText(label, btn.x, btn.y);
+    }
+  }
+
+  private handleClick(e: MouseEvent): void {
     const rect = this.canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
 
-    // Check if click is within any of the point circles
-    for (let i = 0; i < this.hexagonPoints.length; i++) {
-      const point = this.hexagonPoints[i];
-      const distance = Math.sqrt(
-        Math.pow(mouseX - point.x, 2) + Math.pow(mouseY - point.y, 2),
-      );
-
-      if (distance <= this.pointRadius) {
-        // Trigger the corresponding handler
-        this.pointHandler(i);
-        this.activePoint = i;
+    // Check touch buttons (inner ring)
+    for (let i = 0; i < this.touchPositions.length; i++) {
+      const p = this.touchPositions[i];
+      if (Math.hypot(mx - p.x, my - p.y) <= this.touchButtonRadius) {
+        this.touchHandler(i);
+        this.activeTouch = i;
         this.draw();
         setTimeout(() => {
-          this.activePoint = null;
+          this.activeTouch = null;
           this.draw();
-        }, 200); // Reset after 200ms for visual feedback
+        }, 200);
+        return;
+      }
+    }
+
+    // Check hex buttons (outer vertices)
+    for (let i = 0; i < this.hexPositions.length; i++) {
+      const p = this.hexPositions[i];
+      if (Math.hypot(mx - p.x, my - p.y) <= this.hexButtonRadius) {
+        this.hexHandler(i);
+        this.activeHex = i;
+        this.draw();
+        setTimeout(() => {
+          this.activeHex = null;
+          this.draw();
+        }, 200);
+        return;
+      }
+    }
+
+    // Check direction stick
+    for (const btn of this.stickPositions) {
+      if (Math.hypot(mx - btn.x, my - btn.y) <= this.stickButtonRadius) {
+        this.stickHandler(btn.direction);
+        this.activeStick = btn.direction;
+        this.draw();
+        setTimeout(() => {
+          this.activeStick = null;
+          this.draw();
+        }, 200);
         return;
       }
     }
   }
 
-  private handleCanvasMove(e: MouseEvent): void {
+  private handleMove(e: MouseEvent): void {
     const rect = this.canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
 
-    // Check if mouse is over any point circle
-    let hoveredPoint = null;
-    for (let i = 0; i < this.hexagonPoints.length; i++) {
-      const point = this.hexagonPoints[i];
-      const distance = Math.sqrt(
-        Math.pow(mouseX - point.x, 2) + Math.pow(mouseY - point.y, 2),
-      );
-
-      if (distance <= this.pointRadius) {
-        hoveredPoint = i;
+    let hovering = false;
+    for (const p of this.touchPositions) {
+      if (Math.hypot(mx - p.x, my - p.y) <= this.touchButtonRadius) {
+        hovering = true;
         break;
       }
     }
-
-    // Change cursor if hovering over a point
-    this.canvas.style.cursor = hoveredPoint !== null ? "pointer" : "default";
-
-    // If we're dragging, update the point position
-    if (this.isDragging && this.activePoint !== null) {
-      // This would allow dragging points if you wanted to implement it
-      // For now, we're just using click handlers
+    if (!hovering) {
+      for (const p of this.hexPositions) {
+        if (Math.hypot(mx - p.x, my - p.y) <= this.hexButtonRadius) {
+          hovering = true;
+          break;
+        }
+      }
     }
+    if (!hovering) {
+      for (const btn of this.stickPositions) {
+        if (Math.hypot(mx - btn.x, my - btn.y) <= this.stickButtonRadius) {
+          hovering = true;
+          break;
+        }
+      }
+    }
+    this.canvas.style.cursor = hovering ? "pointer" : "default";
   }
 
-  // Public method to update point handlers
-  public setPointHandler(handler: (i: number) => void): void {
-    this.pointHandler = handler;
+  public setHexHandler(handler: (i: number) => void): void {
+    this.hexHandler = handler;
   }
 
-  // Public method to refresh the canvas
+  public setTouchHandler(handler: (i: number) => void): void {
+    this.touchHandler = handler;
+  }
+
+  public setStickHandler(handler: (dir: HexButton) => void): void {
+    this.stickHandler = handler;
+  }
+
   public refresh(): void {
-    this.updateHexagon();
+    this.draw();
   }
 
-  // Public method to get canvas dimensions
   public getCanvasDimensions(): { width: number; height: number } {
     return { width: this.canvas.width, height: this.canvas.height };
-  }
-
-  // Public method to get hexagon points
-  public getHexagonPoints(): { x: number; y: number }[] {
-    return [...this.hexagonPoints];
   }
 }
 

@@ -1,4 +1,4 @@
-import { Buttons, CANVAS_HEIGHT, CANVAS_WIDTH, WasmRuntimeRemote } from "@lib";
+import { CANVAS_HEIGHT, CANVAS_WIDTH, HexButton, TouchButtons, WasmRuntimeRemote } from "@lib";
 import * as Comlink from "comlink";
 import { createEffect, createResource } from "solid-js";
 import { HexagonCanvasManager } from "../helper.ts";
@@ -19,8 +19,17 @@ export function BadgeEmulator(props: Props) {
     if (runtime && canvas) {
       const hexagon = new HexagonCanvasManager(canvas);
 
-      hexagon.setPointHandler((i) => {
-        runtime.sendHostIpcMessage({ HexButton: Buttons[i] });
+      hexagon.setHexHandler((i) => {
+        const hexButtons: HexButton[] = ["HexA", "HexB", "HexC", "HexD", "HexE", "HexF"];
+        runtime.sendHostIpcMessage({ HexButton: hexButtons[i] });
+      });
+
+      hexagon.setTouchHandler((i) => {
+        runtime.sendHostIpcMessage({ HexButton: TouchButtons[i] });
+      });
+
+      hexagon.setStickHandler((dir: HexButton) => {
+        runtime.sendHostIpcMessage({ HexButton: dir });
       });
 
       runtime.addFrameBufferHandler(Comlink.proxy((frameBuffer: Uint8Array) => {

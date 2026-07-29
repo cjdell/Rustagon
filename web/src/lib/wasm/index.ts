@@ -22,9 +22,24 @@ interface WasmCtx {
 export const WIDTH = 240;
 export const HEIGHT = 240;
 
-export const Buttons = ["A", "B", "C", "D", "E", "F"] as const;
+export const HexButtons = ["HexA", "HexB", "HexC", "HexD", "HexE", "HexF"] as const;
 
-export type Button = ElementOf<typeof Buttons>;
+export const TouchButtons = [
+  "Touch01",
+  "Touch02",
+  "Touch03",
+  "Touch04",
+  "Touch05",
+  "Touch06",
+  "Touch07",
+  "Touch08",
+  "Touch09",
+  "Touch10",
+  "Touch11",
+  "Touch12",
+] as const;
+
+export const StickDirections = ["Up", "Right", "Fire", "Down", "Left"] as const;
 
 export type FrameBufferHandler = (frameBuffer: Uint8Array) => void;
 

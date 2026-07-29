@@ -20,4 +20,11 @@ export default defineConfig({
   build: {
     target: "esnext",
   },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        silenceDeprecations: ["color-functions", "import", "if-function", "global-builtin"],
+      },
+    },
+  },
 });

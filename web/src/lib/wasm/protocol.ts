@@ -4,7 +4,11 @@ export type HostIpcMessage =
   | { HttpResponseBody: HttpResponseBody }
   | HttpResponseComplete;
 
-export type HexButton = "A" | "B" | "C" | "D" | "E" | "F";
+export type HexButton =
+  | "Up" | "Right" | "Fire" | "Down" | "Left"
+  | "HexA" | "HexB" | "HexC" | "HexD" | "HexE" | "HexF"
+  | "Touch01" | "Touch02" | "Touch03" | "Touch04" | "Touch05" | "Touch06"
+  | "Touch07" | "Touch08" | "Touch09" | "Touch10" | "Touch11" | "Touch12";
 
 export type WasmIpcMessage = { HttpRequest: HttpRequest };
 

@@ -42,7 +42,9 @@ export const WifiResultSchema = v.object({
 
 export type WifiResult = v.InferInput<typeof WifiResultSchema>;
 
-export type HexButtonMessage = HexButton;
+export interface HexButtonMessage {
+  HexButton: HexButton;
+}
 
 export interface SystemMessage {
   SystemMessage: "BootButton";

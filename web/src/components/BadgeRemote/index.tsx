@@ -1,4 +1,4 @@
-import { Buttons, CANVAS_HEIGHT, CANVAS_WIDTH, DeviceApi } from "@lib";
+import { CANVAS_HEIGHT, CANVAS_WIDTH, DeviceApi, HexButton, TouchButtons } from "@lib";
 import { createEffect } from "solid-js";
 import { Button } from "../Button/index.tsx";
 import { HexagonCanvasManager } from "../helper.ts";
@@ -15,8 +15,17 @@ export function BadgeRemote(props: Props) {
     if (canvas) {
       const hexagon = new HexagonCanvasManager(canvas);
 
-      hexagon.setPointHandler((i) => {
-        props.deviceApi.sendMessage({ HexButton: Buttons[i] });
+      hexagon.setHexHandler((i) => {
+        const hexButtons: HexButton[] = ["HexA", "HexB", "HexC", "HexD", "HexE", "HexF"];
+        props.deviceApi.sendMessage({ HexButton: hexButtons[i] });
+      });
+
+      hexagon.setTouchHandler((i) => {
+        props.deviceApi.sendMessage({ HexButton: TouchButtons[i] });
+      });
+
+      hexagon.setStickHandler((dir: HexButton) => {
+        props.deviceApi.sendMessage({ HexButton: dir });
       });
 
       props.deviceApi.onFrameBuffer((frameBuffer) => {

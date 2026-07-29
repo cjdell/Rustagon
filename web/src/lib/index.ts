@@ -8,7 +8,7 @@ import { WasmRuntime } from "./wasm/index.ts";
 import { getDeviceApi } from "./device/index.ts";
 
 export const CANVAS_WIDTH = 360;
-export const CANVAS_HEIGHT = 400;
+export const CANVAS_HEIGHT = 450;
 
 export const WasmRuntimeRemote = Comlink.wrap<typeof WasmRuntime>(new WasmWorker());
 

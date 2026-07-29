@@ -156,25 +156,25 @@ fn wasm_main() {
       if let Some((_, host_ipc_msg)) = subscriber.try_next_message_pure() {
         match host_ipc_msg {
           HostIpcMessage::HexButton(hex_button) => match hex_button {
-            HexButton::A => {
+            HexButton::Up => {
               manual_light_angle_v += 0.1;
               println!("Light height: {:.1}", manual_light_angle_v);
             }
-            HexButton::B => {
+            HexButton::Right => {
               manual_light_angle_h += 0.2;
             }
-            HexButton::C => {
+            HexButton::Fire => {
               auto_rotate = !auto_rotate;
               println!("Auto-rotate: {}", if auto_rotate { "ON" } else { "OFF" });
             }
-            HexButton::D => {
+            HexButton::Down => {
               manual_light_angle_v -= 0.1;
               println!("Light height: {:.1}", manual_light_angle_v);
             }
-            HexButton::E => break 'running,
-            HexButton::F => {
+            HexButton::Left => {
               manual_light_angle_h -= 0.2;
             }
+            _ => break 'running,
           },
           _ => {}
         }
