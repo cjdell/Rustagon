@@ -160,8 +160,9 @@ rustagon/
 │   └── src/
 │       ├── main.rs         #   Minifb window, menu_task on bg thread, DesktopFrameBuffer
 │       └── platform/       #   DesktopPlatform, DesktopDisplayManager, DesktopInputManager
-├── display_renderer/       # LcdState, FrameBuffer trait, icon drawing, menu/notification rendering
-├── display_types/          # LcdScreen, Icon20/40, MenuLine, Image types (no_std, serde)
+├── drivers/                # Hardware driver IC crates
+│   ├── bq25895/            #   BQ25895 charger IC driver
+│   └── cy8cmbr3116/        #   CY8CMBR3116 capacitive touch controller driver
 ├── firmware/               # ESP32-S3 specific implementation
 │   ├── src/
 │   │   ├── bin/rustagon.rs # Entry point, hardware init, task spawning
@@ -169,9 +170,15 @@ rustagon/
 │   │   ├── tasks/          # WASM runtime, HTTP server, wifi_monitor, menu (ESP32-specific)
 │   │   └── utils/          # ESP32-specific (LedService, MaskedI2cBus, etc.)
 │   └── Cargo.toml
-├── embedded_tools/         # LocalFsTrait, ConfigFileTrait (no_std, littlefs-backed)
-├── procmacros/             # include_rgb565_icon!, partition_offset!, partition_size! macros
-├── emulator/               # Legacy WASM emulator (separate from the new desktop crate)
+├── libs/                   # Support crates (no standalone binaries)
+│   ├── display_renderer/   #   LcdState, FrameBuffer trait, icon drawing, menu/notification rendering
+│   ├── display_types/      #   LcdScreen, Icon20/40, MenuLine, Image types (no_std, serde)
+│   ├── embedded_tools/     #   LocalFsTrait, ConfigFileTrait (no_std, littlefs-backed)
+│   ├── emulator/           #   Legacy WASM emulator
+│   ├── esp32s3_embedded_tools/  # ESP32-S3 flash driver
+│   └── procmacros/         #   include_rgb565_icon!, partition_offset!, partition_size! macros
+├── sdk/                    # WASM SDK for writing emulator programs
+├── uploader/               # Firmware upload tool
 └── Cargo.toml              # Workspace root
 
 ### Build
@@ -459,5 +466,5 @@ the proper 8‑bit→5/6/5 conversion with correct rounding. Or use the constant
 - **Menu system (to be extracted):** `firmware/src/tasks/menu/`
 - **Shared types:** `firmware/src/types.rs`
 - **Network infrastructure:** `firmware/src/tasks/net.rs`
-- **ESP32-S3 flash driver:** `esp32s3_embedded_tools/src/flash.rs`
-- **Generic LocalFs (littlefs):** `embedded_tools/src/local_fs.rs`
+- **ESP32-S3 flash driver:** `libs/esp32s3_embedded_tools/src/flash.rs`
+- **Generic LocalFs (littlefs):** `libs/embedded_tools/src/local_fs.rs`

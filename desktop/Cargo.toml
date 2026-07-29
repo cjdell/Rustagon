@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 app = { path = "../app" }
-display_types = { path = "../display_types" }
-display_renderer = { path = "../display_renderer" }
+display_types = { path = "../libs/display_types" }
+display_renderer = { path = "../libs/display_renderer" }
 
 embedded-graphics = "0.8.1"
 minifb = "0.26.0"

@@ -5,13 +5,13 @@ edition = "2024"
 publish = false
 
 [dependencies]
-cy8cmbr3116 = { path = "../cy8cmbr3116" }
-bq25895 = { path = "../bq25895" }
+cy8cmbr3116 = { path = "../drivers/cy8cmbr3116" }
+bq25895 = { path = "../drivers/bq25895" }
 app = { path = "../app", features = ["http-server", "embassy", "extern-alloc", "web-bundle"] }
-display_renderer = { path = "../display_renderer" }
-display_types = { path = "../display_types" }
-embedded-tools = { path = "../embedded_tools" }
-esp32s3-embedded-tools = { path = "../esp32s3_embedded_tools" }
+display_renderer = { path = "../libs/display_renderer" }
+display_types = { path = "../libs/display_types" }
+embedded-tools = { path = "../libs/embedded_tools" }
+esp32s3-embedded-tools = { path = "../libs/esp32s3_embedded_tools" }
 
 esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", package = "esp-backtrace", features = [
     "panic-handler",
@@ -74,7 +74,7 @@ reqwless = { version = "0.14.0", default-features = false, features = ["alloc"] 
 picoserve = { git = "https://github.com/sammhicks/picoserve.git", features = ["alloc", "embassy", "ws"] }
 fatfs = { version = "0.4.0", default-features = false, features = ["alloc"], git = "https://github.com/rafalh/rust-fatfs" }
 log = "0.4.29"
-procmacros = { path = "../procmacros" }
+procmacros = { path = "../libs/procmacros" }
 gc9a01-rs = "0.4.2"
 display-interface = "0.5.0"
 aw9523b = "0.1.0"

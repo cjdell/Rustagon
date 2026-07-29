@@ -2,15 +2,15 @@
 resolver = "2"
 members = [
     "app",
-    "bq25895",
-    "cy8cmbr3116",
     "desktop",
-    "display_renderer",
-    "display_types",
-    "embedded_tools",
-    "emulator",
+    "drivers/bq25895",
+    "drivers/cy8cmbr3116",
     "firmware",
-    "procmacros",
+    "libs/display_renderer",
+    "libs/display_types",
+    "libs/embedded_tools",
+    "libs/emulator",
+    "libs/procmacros",
     "sdk",
     "uploader",
 ]
