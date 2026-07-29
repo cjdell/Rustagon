@@ -1,4 +1,5 @@
 mod platform;
+mod embassy_time_driver;
 
 use app::menu::menu_task;
 use app::menu::types::MenuRunnerContext;

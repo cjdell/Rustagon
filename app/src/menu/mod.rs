@@ -10,22 +10,24 @@ use crate::{
   menu::state::*,
   menu::types::{MenuContext, MenuRunnerContext},
   platform::Platform,
-  protocol::HostIpcMessage,
   types::*,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use embassy_futures::join;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, rwlock::RwLock};
 use log::info;
 use menus::MenuProvider as _;
 
-pub async fn menu_task<P: Platform>(mut runner_ctx: MenuRunnerContext<P>) {
+pub async fn menu_task<P: Platform + 'static>(mut runner_ctx: MenuRunnerContext<P>) {
   let menu_app_input_channel = crate::apps::common::create_menu_app_channel();
+
+  let host_ipc_sender = runner_ctx.host_ipc_sender.clone();
 
   let ctx = MenuContext {
     storage: runner_ctx.storage.clone(),
     platform: runner_ctx.platform.clone(),
-    host_ipc_sender: runner_ctx.host_ipc_sender,
+    host_ipc_sender,
     display: runner_ctx.platform.display_manager(),
     menu_app_input_channel,
   };
@@ -43,55 +45,78 @@ pub async fn menu_task<P: Platform>(mut runner_ctx: MenuRunnerContext<P>) {
 
   state.menu_options = state.get_menu_provider().await.get_items().await;
 
-  loop {
-    state.refresh().await;
+  let menu_runner = async {
+    loop {
+      state.refresh().await;
 
-    let input = embassy_futures::select::select(
-      runner_ctx.platform.system_manager().next_button(),
-      runner_ctx.platform.input_manager().next_button(),
-    ).await;
+      let input = embassy_futures::select::select(
+        runner_ctx.platform.system_manager().next_button(),
+        runner_ctx.platform.input_manager().next_button(),
+      ).await;
 
-    match input {
-      embassy_futures::select::Either::First(system) => {
-        match system {
-          SystemMessage::BootButton => {
-            if let Ok(app) = state.app.try_read() {
-              match *app {
-                AppState::MenuApp => { menu_app_input_channel.send(MenuAppInput::Stop).await; }
-                AppState::HostedApp => { runner_ctx.host_ipc_sender.send((0, HostIpcMessage::Stop)).await; }
-                _ => {}
+      match input {
+        embassy_futures::select::Either::First(system) => {
+          match system {
+            SystemMessage::BootButton => {
+              if let Ok(app) = state.app.try_read() {
+                match *app {
+                  AppState::MenuApp => { menu_app_input_channel.send(MenuAppInput::Stop).await; }
+                  AppState::HostedApp => { runner_ctx.host_ipc_sender.send((0, crate::protocol::HostIpcMessage::Stop)).await; }
+                  _ => {}
+                }
               }
             }
           }
         }
-      }
-      embassy_futures::select::Either::Second(hex) => {
-        let app_running = app.try_read()
-          .map(|app| !matches!(*app, AppState::None))
-          .unwrap_or(true);
+        embassy_futures::select::Either::Second(hex) => {
+          let app_running = app.try_read()
+            .map(|app| !matches!(*app, AppState::None))
+            .unwrap_or(true);
 
-        if app_running {
-          match *app.write().await {
-            AppState::MenuApp => {
-              menu_app_input_channel.send(MenuAppInput::HexButton(hex)).await;
-              continue;
+          if app_running {
+            match *app.write().await {
+              AppState::MenuApp => {
+                menu_app_input_channel.send(MenuAppInput::HexButton(hex)).await;
+                continue;
+              }
+              AppState::HostedApp => {
+                runner_ctx.host_ipc_sender.send((0, crate::protocol::HostIpcMessage::HexButton(hex))).await;
+                continue;
+              }
+              _ => {}
             }
-            AppState::HostedApp => {
-              runner_ctx.host_ipc_sender.send((0, HostIpcMessage::HexButton(hex))).await;
-              continue;
-            }
+          }
+
+          match hex {
+            HexButton::Up => { if state.selected > 0 { state.selected -= 1; } }
+            HexButton::Right => { runner_ctx.platform.led_manager().request(LedRequest::Sparkle(LedState::new(255, 255, 255))); }
+            HexButton::Fire => { state.execute_option().await; }
+            HexButton::Down => { state.selected += 1; }
             _ => {}
           }
         }
-
-        match hex {
-          HexButton::Up => { if state.selected > 0 { state.selected -= 1; } }
-          HexButton::Right => { runner_ctx.platform.led_manager().request(LedRequest::Sparkle(LedState::new(255, 255, 255))); }
-          HexButton::Fire => { state.execute_option().await; }
-          HexButton::Down => { state.selected += 1; }
-          _ => {}
-        }
       }
     }
-  }
+  };
+
+  let menu_app_runner = async {
+    loop {
+      if let MenuAppInput::Start(app_name) = menu_app_input_channel.receive().await {
+        *app.write().await = AppState::MenuApp;
+
+        let ctx = MenuAppContext::new(
+          menu_app_input_channel.receiver(),
+          runner_ctx.platform.clone(),
+          runner_ctx.host_ipc_sender.clone(),
+        );
+
+        let mut menu_app = MenuAppType::<P>::load_app_async(app_name, ctx);
+        menu_app.work().await;
+
+        *app.write().await = AppState::None;
+      }
+    }
+  };
+
+  join::join(menu_runner, menu_app_runner).await;
 }
