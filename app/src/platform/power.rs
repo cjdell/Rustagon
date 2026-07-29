@@ -7,8 +7,30 @@ pub enum PowerError {
   I2cError,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PowerStatus {
+  pub vbat_mv: u16,
+  pub vsys_mv: u16,
+  pub vbus_mv: u16,
+  pub charge_current_ma: u16,
+  pub charge_voltage_mv: u16,
+  pub input_current_limit_ma: u16,
+  pub is_charging: bool,
+  pub is_power_present: bool,
+  pub battery_fault: bool,
+}
+
+impl PowerStatus {
+  pub fn battery_percent(&self) -> u8 {
+    // Li-ion nominal range ~3.0V–4.2V, map 0–100%
+    let mv = self.vbat_mv.max(3000).min(4200);
+    ((mv - 3000) * 100 / (4200 - 3000)) as u8
+  }
+}
+
 pub trait PowerManager: Send + Sync + fmt::Debug {
   fn power_off(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+  fn get_status(&self) -> Pin<Box<dyn Future<Output = PowerStatus> + Send + '_>>;
 }
 
 #[derive(Clone, Debug)]
@@ -23,5 +45,9 @@ impl PowerHandle {
 
   pub async fn power_off(&self) {
     self.inner.power_off().await
+  }
+
+  pub async fn get_status(&self) -> PowerStatus {
+    self.inner.get_status().await
   }
 }

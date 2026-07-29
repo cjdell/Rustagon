@@ -1,5 +1,5 @@
 use app::platform::led::{LedError, LedManager};
-use app::platform::power::PowerManager;
+use app::platform::power::{PowerManager, PowerStatus};
 use app::platform::system::SystemManager;
 use app::platform::wifi::{WiFiManager, WifiStatus};
 use app::platform::storage::ConfigFileTrait;
@@ -19,6 +19,19 @@ pub struct MockPowerManager;
 impl PowerManager for MockPowerManager {
     fn power_off(&self) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         Box::pin(async { std::process::exit(0); })
+    }
+    fn get_status(&self) -> Pin<Box<dyn std::future::Future<Output = PowerStatus> + Send + '_>> {
+        Box::pin(async { PowerStatus {
+            vbat_mv: 3700,
+            vsys_mv: 3700,
+            vbus_mv: 0,
+            charge_current_ma: 0,
+            charge_voltage_mv: 4200,
+            input_current_limit_ma: 500,
+            is_charging: false,
+            is_power_present: false,
+            battery_fault: false,
+        }})
     }
 }
 

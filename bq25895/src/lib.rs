@@ -295,8 +295,8 @@ impl BqState {
       _ => ChargeStatus::NotCharging,
     };
 
-    // Decode VBUS_STAT (bits 2-0 of REG0B)
-    let input_status = match status & 0x07 {
+    // Decode VBUS_STAT (bits 7:5 of REG0B)
+    let input_status = match (status >> 5) & 0x07 {
       0 => InputStatus::NoInput,
       1 => InputStatus::UsbSdp,
       2 => InputStatus::UsbCdp,
@@ -308,8 +308,8 @@ impl BqState {
       _ => InputStatus::NoInput,
     };
 
-    // Decode VSYS_STAT (bit 0 of REG0B)
-    let system_status = if status & 0x01 != 0 {
+    // Decode VSYS_STAT (bit 1 of REG0B)
+    let system_status = if status & 0x02 != 0 {
       SystemStatus::InVsysMinRegulation
     } else {
       SystemStatus::Normal
@@ -379,16 +379,20 @@ where
   }
 
   fn read_registers(&mut self, start_reg: u8, count: usize) -> Result<Vec<u8>, &'static str> {
+    use embedded_hal::i2c::Operation;
     let mut buf = vec![0u8; count];
-    self.i2c.write(BQ25895_ADDR, &[start_reg]).map_err(|_| "I2C write failed")?;
-    self.i2c.read(BQ25895_ADDR, &mut buf).map_err(|_| "I2C read failed")?;
+    self.i2c
+      .transaction(BQ25895_ADDR, &mut [Operation::Write(&[start_reg]), Operation::Read(&mut buf)])
+      .map_err(|_| "I2C transaction failed")?;
     Ok(buf)
   }
 
   fn read_register(&mut self, reg: u8) -> Result<u8, &'static str> {
+    use embedded_hal::i2c::Operation;
     let mut buf = [0u8; 1];
-    self.i2c.write(BQ25895_ADDR, &[reg]).map_err(|_| "I2C write failed")?;
-    self.i2c.read(BQ25895_ADDR, &mut buf).map_err(|_| "I2C read failed")?;
+    self.i2c
+      .transaction(BQ25895_ADDR, &mut [Operation::Write(&[reg]), Operation::Read(&mut buf)])
+      .map_err(|_| "I2C transaction failed")?;
     Ok(buf[0])
   }
 
@@ -515,47 +519,58 @@ where
   }
 
   pub fn update_state(&mut self) -> Result<BqState, &'static str> {
-    let regs = self.read_registers(0x0B, 12)?; // Read 0x0B onwards
+    log::info!("bq: update_state begin");
 
-    let status = regs[0]; // REG0B
-    let fault = regs[1]; // REG0C
+    let adc = match self.read_registers(0x0B, 8) {
+      Ok(v) => { log::info!("bq: burst read 0B..12 OK: {v:02x?}"); v }
+      Err(e) => { log::warn!("bq: burst read failed: {e}"); return Err(e) }
+    };
 
-    // Decode VBAT (REG0E)
-    let vbat = self.read_scaled(VBAT)? / 1000.0;
+    let status = adc[0];
+    let fault = adc[1];
 
-    // Decode VSYS (REG0F)
-    let vsys = self.read_scaled(VSYS)? / 1000.0;
+    let vbat = if (adc[3] & 0x7F) == 0 { 0.0 }
+               else { (adc[3] & 0x7F) as f32 * 0.020 + 2.304 };
+    log::info!("bq: adc[3]=0x{:02x} vbat={vbat}V", adc[3]);
 
-    // Decode VBUS (REG11)
-    let vbus = self.read_scaled(VBUS)? / 1000.0;
+    let vsys = if (adc[4] & 0x7F) == 0 { 0.0 }
+               else { (adc[4] & 0x7F) as f32 * 0.020 + 2.304 };
+    log::info!("bq: adc[4]=0x{:02x} vsys={vsys}V", adc[4]);
 
-    // Decode ICHRG (REG12)
-    let ichrg = self.read_scaled(ICHGR)?;
+    let vbus = if (adc[6] & 0x7F) == 0 { 0.0 }
+               else { (adc[6] & 0x7F) as f32 * 0.100 + 2.600 };
+    log::info!("bq: adc[6]=0x{:02x} vbus={vbus}V", adc[6]);
 
-    // Decode VREG
-    let vreg_val = self.read_scaled(VREG)? / 1000.0;
+    let ichrg = (adc[7] & 0x7F) as f32 * 50.0;
+    log::info!("bq: adc[7]=0x{:02x} ichrg={ichrg}mA", adc[7]);
 
-    // Decode BOOSTV (from REG0A)
-    let boostv_val = self.read_scaled(BOOSTV)? / 1000.0;
+    let vreg_val = match self.read_scaled(VREG) {
+      Ok(v) => { log::info!("bq: vreg raw={}", v); v / 1000.0 }
+      Err(e) => { log::warn!("bq: vreg read failed: {e}"); return Err(e) }
+    };
 
-    // Decode input current limit (from REG00)
-    let ilim = (regs[0] & 0x3F) as f32 * 50.0 + 100.0;
+    let boostv_val = match self.read_scaled(BOOSTV) {
+      Ok(v) => { log::info!("bq: boostv raw={v}"); v / 1000.0 }
+      Err(e) => { log::warn!("bq: boostv read failed: {e}"); return Err(e) }
+    };
 
-    // Decode ICO optimized status (REG14 bit 6)
-    let ico_opt = self.read_register(0x14)?;
+    let ilim = match self.read_scaled(INPUT_ILIM) {
+      Ok(v) => { log::info!("bq: ilim={v}mA"); v }
+      Err(e) => { log::warn!("bq: ilim read failed: {e}"); return Err(e) }
+    };
+
+    let ico_opt = match self.read_register(0x14) {
+      Ok(v) => { log::info!("bq: reg14=0x{v:02x}"); v }
+      Err(e) => { log::warn!("bq: reg14 read failed: {e}"); return Err(e) }
+    };
     let ico_optimized = (ico_opt & 0x40) != 0;
 
+    log::info!("bq: status=0x{status:02x} fault=0x{fault:02x} vbus_stat={} chrg_stat={} vsys_stat={}",
+      (status >> 5) & 7, (status >> 3) & 3, (status >> 2) & 1);
+
     Ok(BqState::from_raw(
-      status,
-      fault,
-      vbat,
-      vsys,
-      vbus,
-      ichrg,
-      vreg_val,
-      boostv_val,
-      ilim,
-      ico_optimized,
+      status, fault, vbat, vsys, vbus, ichrg,
+      vreg_val, boostv_val, ilim, ico_optimized,
     ))
   }
 }
