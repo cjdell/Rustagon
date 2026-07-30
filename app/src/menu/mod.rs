@@ -15,7 +15,7 @@ use crate::{
   types::*,
 };
 use alloc::{string::ToString, vec::Vec};
-use embassy_futures::select::{select3, select4, Either3, Either4};
+use embassy_futures::select::{select, select3, select4, Either, Either3, Either4};
 use log::info;
 
 pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) {
@@ -94,7 +94,10 @@ async fn handle_root_menu<P: Platform>(
     let input = select3(
       runner_ctx.platform.system_manager().next_button(),
       runner_ctx.platform.input_manager().next_button(),
-      runner_ctx.platform.hexpansion_manager().next_event(),
+      select(
+        runner_ctx.platform.hexpansion_manager().next_event(),
+        runner_ctx.platform.hexpansion_manager().next_device_event(),
+      ),
     ).await;
 
     // Handle root menu navigation
@@ -163,18 +166,21 @@ async fn handle_root_menu<P: Platform>(
           }
         }
       }
-      Either3::Third(hx_event) => {
-        info!("handle_root_menu: hexpansion event {hx_event:?} — notification already on screen, keep waiting");
-        // Non-blocking check for stack events before continuing
-        if let Some(event) = stack_signal.try_receive() {
-          info!("handle_root_menu: stack event {event:?}");
-          match event {
-            StackEvent::Pushed(StackEntryType::HostedApp) => stack.push(AppStackEntry::HostedApp),
-            StackEvent::Popped => { if stack.len() > 1 { let _ = stack.pop(); } }
-            _ => {}
+      Either3::Third(inner) => match inner {
+        Either::First(hx_event) => {
+          info!("handle_root_menu: hexpansion event {hx_event:?}");
+          if let Some(event) = stack_signal.try_receive() {
+            info!("handle_root_menu: stack event {event:?}");
+            match event {
+              StackEvent::Pushed(StackEntryType::HostedApp) => stack.push(AppStackEntry::HostedApp),
+              StackEvent::Popped => { if stack.len() > 1 { let _ = stack.pop(); } }
+              _ => {}
+            }
           }
         }
-        continue;
+        Either::Second(dev_event) => {
+          info!("handle_root_menu: device event {dev_event:?}");
+        }
       }
     }
 
@@ -216,7 +222,10 @@ async fn handle_menu_app<P: Platform>(
     runner_ctx.platform.system_manager().next_button(),
     runner_ctx.platform.input_manager().next_button(),
     stack_signal.receive(),
-    runner_ctx.platform.hexpansion_manager().next_event(),
+    select(
+      runner_ctx.platform.hexpansion_manager().next_event(),
+      runner_ctx.platform.hexpansion_manager().next_device_event(),
+    ),
   ).await;
 
   match event {
@@ -269,22 +278,27 @@ async fn handle_menu_app<P: Platform>(
         _ => {}
       }
     }
-    Either4::Fourth(hx_event) => {
-      info!("handle_menu_app: hexpansion event {hx_event:?}");
-      if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
-        app.handle_event(AppEvent::Hexpansion(hx_event)).await;
-        let _ = display.signal(app.render());
+    Either4::Fourth(inner) => match inner {
+      Either::First(hx_event) => {
+        info!("handle_menu_app: hexpansion event {hx_event:?}");
+        if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
+          app.handle_event(AppEvent::Hexpansion(hx_event)).await;
+        }
+      }
+      Either::Second(dev_event) => {
+        info!("handle_menu_app: device event {dev_event:?}");
+        if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
+          app.handle_event(AppEvent::Device(dev_event)).await;
+        }
       }
     }
   }
 
-  // Non-blocking drain of any pending device events (keyboard, etc.)
-  // so the app react to keys without waiting for a badge button press.
+  // Drain any remaining device events (non-blocking)
   while let Some(dev_event) = runner_ctx.platform.hexpansion_manager().try_next_device_event() {
-    info!("handle_menu_app: device event {dev_event:?}");
+    info!("handle_menu_app: drain device event {dev_event:?}");
     if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
       app.handle_event(AppEvent::Device(dev_event)).await;
-      let _ = display.signal(app.render());
     }
   }
 }
@@ -300,7 +314,10 @@ async fn handle_hosted_app<P: Platform>(
       runner_ctx.platform.system_manager().next_button(),
       runner_ctx.platform.input_manager().next_button(),
       stack_signal.receive(),
-      runner_ctx.platform.hexpansion_manager().next_event(),
+      select(
+        runner_ctx.platform.hexpansion_manager().next_event(),
+        runner_ctx.platform.hexpansion_manager().next_device_event(),
+      ),
     ).await;
 
     match input {
@@ -327,9 +344,36 @@ async fn handle_hosted_app<P: Platform>(
           }
         }
       }
-      Either4::Fourth(hx_event) => {
-        info!("hosted_app: hexpansion event {hx_event:?}");
+      Either4::Fourth(inner) => match inner {
+        Either::First(hx_event) => {
+          info!("hosted_app: hexpansion event {hx_event:?}");
+        }
+        Either::Second(dev_event) => {
+          info!("hosted_app: device event {dev_event:?}");
+          // Inject navigation keys as HexButton for hosted apps
+          if let DeviceEvent::Keyboard(ke) = &dev_event {
+            if ke.typ == KeyEventType::Pressed {
+              if let Some(nav) = device_key_to_nav(ke.code) {
+                runner_ctx.host_ipc_sender.try_send((0, HostIpcMessage::HexButton(nav))).ok();
+              }
+            }
+          }
+        }
       }
     }
+  }
+}
+
+/// Map a key event's KeyCode to a HexButton for navigation.
+fn device_key_to_nav(code: KeyCode) -> Option<HexButton> {
+  match code {
+    KeyCode::Up => Some(HexButton::Up),
+    KeyCode::Down => Some(HexButton::Down),
+    KeyCode::Left => Some(HexButton::Left),
+    KeyCode::Right => Some(HexButton::Right),
+    KeyCode::Enter => Some(HexButton::Fire),
+    KeyCode::Escape => Some(HexButton::HexF),
+    KeyCode::Tab => Some(HexButton::HexE),
+    _ => None,
   }
 }

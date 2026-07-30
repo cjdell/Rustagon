@@ -130,7 +130,12 @@ impl<P: Platform> MenuApp for EditorApp<P> {
     }
   }
 
-  async fn handle_event(&mut self, _event: AppEvent) {
+  async fn handle_event(&mut self, event: AppEvent) {
+    // Process the event that triggered this call first (it was already consumed
+    // from the queue by the menu loop), then drain any additional events.
+    if let AppEvent::Device(DeviceEvent::Keyboard(ke)) = event {
+      self.handle_key(ke.code, ke.typ);
+    }
     self.drain_device_events();
   }
 }
