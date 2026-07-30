@@ -155,11 +155,73 @@ matters (button presses, IRQ notifications), use `EventQueue<T, N>` from
 - Producer: `push().await` (backpressure) or `try_push()` (lossy, safe from sync code).
 - Cloneable, so it works naturally with `Arc<dyn Trait>` handles.
 
-Used by `HardwareSystemManager` (boot button) and `HardwareInputManager` (hex buttons).
+Used by `HardwareSystemManager` (boot button), `HardwareInputManager` (hex buttons),
+and `HardwareHexpansionManager` (device events from drivers).
 
 **Never write a `loop { check_shared_vec(); Timer::after(..).await }` in a manager** -
 that both adds latency and hogs locks. Use `EventQueue` (events) or `WatchedValue`
 (state) instead.
+
+#### 5. Hexpansion Detection (`app/src/platform/hexpansion.rs` + `firmware/src/platform/hexpansion.rs`)
+
+**Detection:** An Embassy polling task scans the 6 hexpansion I2C ports (TCA9548A
+channels 1–6) every 2 seconds for EEPROMs. On finding one, it reads the 32-byte
+`"THEX"` header (magic + VID + PID + unique_id + friendly_name + checksum) and
+emits `HexpansionEvent::Inserted`/`Removed`.
+
+**Shared state:** Slot state is stored in `Arc<Mutex<RefCell<[Option<HexpansionInfo>; 6]>>>`
+shared between the polling task and the manager.
+
+**I2C bus topology:** One physical I2C bus split into 8 virtual buses by a TCA9548A
+mux (0x77). Port 0 = top bus (frontboard), ports 1–6 = hexpansion, port 7 = system.
+
+```rust
+pub trait HexpansionManager: Send + Sync + fmt::Debug {
+  fn next_event(&self) -> Pin<Box<dyn Future<Output = HexpansionEvent> + Send + '_>>;
+  fn try_next_event(&self) -> Option<HexpansionEvent>;
+  fn current_state(&self) -> Vec<(u8, Option<HexpansionInfo>)>;
+  fn next_device_event(&self) -> Pin<Box<dyn Future<Output = DeviceEvent> + Send + '_>>;
+  fn try_next_device_event(&self) -> Option<DeviceEvent>;
+}
+```
+
+#### 6. Device Driver Framework (`firmware/src/platform/drivers/`)
+
+When a hexpansion is detected, its VID:PID is looked up in a static driver table.
+If a match is found, a driver task is spawned with a `DeviceIo` handle:
+
+```rust
+pub struct DeviceIo {
+  pub port: u8,
+  pub i2c: DeviceI2c,      // opaque I2C handle (wraps MaskedI2cBus)
+  pub vid: u16,
+  pub pid: u16,
+}
+```
+
+`DeviceI2c` implements `embedded_hal::i2c::I2c` so existing driver crates (like
+`tca8418`) can use it directly:
+
+```
+DeviceI2c → Arc<dyn DeviceI2cOps> → I2cBusWrapper → MaskedI2cBus → TCA9548A mux → ESP I2C
+```
+
+Drivers push events into a shared `EventQueue<DeviceEvent, 32>`:
+
+```rust
+pub type DriverFactory = fn(DeviceIo, DeviceEventQueue, Spawner);
+pub struct DriverEntry { pub vid: u16, pub pid: u16, pub factory: DriverFactory }
+```
+
+Registration in `firmware/src/bin/rustagon.rs`:
+```rust
+const DRIVER_TABLE: &[DriverEntry] = &[
+    DriverEntry { vid: 0xBAD3, pid: 0x4EEB, factory: tca8418_driver_factory },
+];
+```
+
+**Task lifecycle:** Drivers self-terminate after 3 consecutive I2C errors
+(hexpansion removed), preventing stale tasks on re-insertion to a different port.
 
 ## Current Crate Architecture
 
@@ -167,10 +229,12 @@ that both adds latency and hogs locks. Use `EventQueue` (events) or `WatchedValu
 rustagon/
 ├── app/                              # Platform-agnostic application library (no_std)
 │   ├── apps/                         # All menu apps (generic over P: Platform)
-│   │   ├── common.rs                 #   MenuApp trait (init/handle_input/render), MenuAppContext<P>, AppAction
+│   │   ├── common.rs                 #   MenuApp trait (init/handle_input/render, handle_event), MenuAppContext<P>, AppAction
 │   │   ├── app_store.rs              #   AppStoreApp<P>
 │   │   ├── config.rs                 #   ConfigApp<P>
+│   │   ├── editor.rs                 #   EditorApp<P> (text editor, consumes DeviceEvent::Keyboard)
 │   │   ├── files.rs                  #   FilesApp<P>
+│   │   ├── hexpansion_viewer.rs      #   HexpansionViewerApp<P> (shows slot state)
 │   │   ├── input_test.rs             #   InputTestApp<P>
 │   │   ├── mod.rs                    #   MenuAppType<P> enum + list/load functions
 │   │   ├── ota_updater.rs            #   OtaUpdaterApp<P>
@@ -183,9 +247,10 @@ rustagon/
 │   │   ├── types.rs                  #   MenuRunnerContext<P>, MenuContext<P>, AppLoader<P>
 │   │   └── menus.rs                  #   MenuProvider trait, StaticMenu
 │   ├── native/                       # Native app types (stub, empty in app crate)
-│   ├── platform/                     # Platform trait + 9 handle/manager pairs + HttpClient
-│   │   ├── traits.rs                 #   Platform trait (16 methods)
+│   ├── platform/                     # Platform trait + 10 handle/manager pairs + HttpClient
+│   │   ├── traits.rs                 #   Platform trait (17 methods incl. hexpansion_manager)
 │   │   ├── display.rs                #   DisplayManager trait + DisplayHandle
+│   │   ├── hexpansion.rs             #   HexpansionManager trait + HexpansionHandle + DeviceIo + DeviceI2c
 │   │   ├── http.rs                   #   HttpClient trait + HttpClientHandle + HttpEventChannel
 │   │   ├── input.rs                  #   InputManager trait + InputHandle
 │   │   ├── led.rs                    #   LedManager trait + LedHandle + LedError
@@ -194,7 +259,9 @@ rustagon/
 │   │   ├── system.rs                 #   SystemManager trait + SystemHandle
 │   │   └── wifi.rs                   #   WiFiManager trait + WiFiHandle + WifiStatus
 │   ├── protocol.rs                   # HttpRequest, WasmIpcMessage, HostIpcMessage, channels
-│   ├── types.rs                      # Domain types (HexButton, LedRequest, DeviceConfig, etc.)
+│   ├── types.rs                      # Domain types (HexButton, LedRequest, DeviceConfig,
+│   │                                  #   HexpansionInfo, HexpansionEvent, DeviceEvent,
+│   │                                  #   KeyboardEvent, KeyCode, etc.)
 │   └── utils.rs                      # Sleep helper only
 ├── desktop/                          # Desktop platform (std, minifb, ureq)
 │   └── src/
@@ -218,7 +285,11 @@ rustagon/
 │   │   ├── bin/rustagon.rs           # Entry point, hardware init, task spawning
 │   │   ├── platform/                 # HardwarePlatform + manager impls
 │   │   │   ├── hardware.rs           #   HardwarePlatform struct + Platform impl
+│   │   │   ├── hexpansion.rs         #   HardwareHexpansionManager + I2cBusWrapper
 │   │   │   ├── http.rs               #   HardwareHttpClient (wraps reqwless)
+│   │   │   ├── drivers/              #   Device driver implementations
+│   │   │   │   ├── mod.rs            #   DriverEntry, DriverFactory, DeviceEventQueue
+│   │   │   │   └── tca8418.rs        #   TCA8418 keyboard driver (uses tca8418 crate)
 │   │   │   └── ...                   #   display, input, led, power, storage, system, wifi
 │   │   ├── tasks/                    # ESP32-specific Embassy tasks
 │   │   │   ├── ipc_handler.rs        #   WASM IPC + HTTP event handling (separate from menu)
@@ -248,6 +319,8 @@ app/:
   ✗ esp-hal, esp-alloc, esp-storage
   ✗ ureq, reqwless, or any HTTP client library
   ✗ Hardware-specific types (I2C, GPIO, SPI, etc.)
+  ✓ MAY depend on embedded-hal for trait implementations (DeviceI2c implements
+    embedded_hal::i2c::I2c) — but only the trait, never a concrete HAL driver.
 
 firmware/:
   ✗ Menu logic (navigation, app listing, button handling)
@@ -309,6 +382,9 @@ pub trait MenuApp {
   fn render(&self) -> LcdScreen;
   async fn init(&mut self);
   async fn handle_input(&mut self, input: MenuAppInput) -> AppAction;
+  /// Called when external events occur (hexpansion plug/unplug, keyboard input)
+  /// while the app is foregrounded. Default no-op.
+  async fn handle_event(&mut self, event: AppEvent) {}
 }
 ```
 
@@ -316,6 +392,14 @@ The menu runner calls `handle_input()` for each button press and dispatches on t
 returned `AppAction` (`Continue`, `Stop`, `LaunchWasm(name)`, `LaunchNative(name)`).
 This eliminates the need for global flags (`WASM_LAUNCHING` was removed) and lets the
 stack naturally manage the multitasking flow.
+
+**External events via `handle_event`:** The menu loop now `select`s on four event
+sources: system button, hex button, stack signal, and a **nested select** of
+hexpansion events + device events. When a device event (keyboard key) or hexpansion
+event arrives, the foreground app's `handle_event()` is called. This lets apps react
+to keyboard input, hexpansion plug/unplug, and future device events without the user
+pressing a badge button. The event that triggered the select is passed to the app,
+followed by a non-blocking drain of any remaining queued events.
 
 ## Desktop WASM Runner
 
@@ -420,6 +504,25 @@ communication between the menu runner and the IPC handler task.
    `firmware/src/platform/`) is about I/O subsystems (display, input, storage, HTTP).
    WASM runtime concerns live in `tasks/`, not in the platform.
 
+## I2C Bus Topology
+
+One physical I2C bus (ESP32-S3 I2C0, SDA=GPIO45, SCL=GPIO46, 133kHz) split into 8
+virtual buses by a **TCA9548A** I2C multiplexer at address `0x77`:
+
+| Port | Mux Bit | Purpose |
+|------|---------|---------|
+| 0 | `0b00000001` | Top bus (frontboard: touch, IMU, USB-C power) |
+| 1 | `0b00000010` | Hexpansion port 1 |
+| 2 | `0b00000100` | Hexpansion port 2 |
+| 3 | `0b00001000` | Hexpansion port 3 |
+| 4 | `0b00010000` | Hexpansion port 4 |
+| 5 | `0b00100000` | Hexpansion port 5 |
+| 6 | `0b01000000` | Hexpansion port 6 |
+| 7 | `0b10000000` | System bus (BQ25895, AW9523B #0/#1/#2, FUSB302B in) |
+
+AW9523B #3 at `0x58` on the top bus (port 0) was added with the 2026 frontboard
+for hex buttons.
+
 ## Remaining Work
 
 ### High Priority
@@ -447,6 +550,9 @@ communication between the menu runner and the IPC handler task.
 3. **Remove `esp_hal::system::software_reset()` calls outside Platform** — `wifi_join.rs`
    still calls directly; should use `platform.software_reset()`.
 
+4. **Desktop hexpansion simulation** — The desktop `HexpansionManager` is a no-op stub.
+   Implement file-backed simulation for hexpansion EEPROMs and virtual keyboard events.
+
 ### Low Priority
 
 1. **Desktop improvements**
@@ -457,6 +563,41 @@ communication between the menu runner and the IPC handler task.
 
 3. **Add `#[serde(default)]` to new `DeviceConfig` fields** — Any field added after
    initial release needs this to avoid breaking deserialization of existing configs.
+
+4. **Interrupt-driven keyboard** — The TCA8418 driver currently polls every 20ms.
+   The HS_H pin on the hexpansion port could be used as an interrupt line for zero-latency
+   key event detection.
+
+### Driver Table in `rustagon.rs`
+
+Drivers are registered in a static table in the firmware entry point:
+
+```rust
+const DRIVER_TABLE: &[DriverEntry] = &[
+    DriverEntry { vid: 0xBAD3, pid: 0x4EEB, factory: tca8418_driver_factory },
+];
+```
+
+On hexpansion detection, the polling task iterates this table for a VID:PID match.
+If found, it constructs a `DeviceIo` with a `DeviceI2c` wrapping a `MaskedI2cBus`
+clone for that port, and calls the factory function. The factory spawns an Embassy
+task via the provided `Spawner`. Drivers self-terminate after 3 consecutive I2C
+errors (hexpansion removed).
+
+### `MaskedI2cBus` REPEATED START handling
+
+The `MaskedI2cBus` must properly handle combined write+read transactions with
+REPEATED START (needed for register-based I2C devices like the TCA8418). The
+implementation delegates to the underlying ESP HAL's `transaction()` after
+setting the mux channel:
+
+```rust
+i2c.write(Self::MUX_ADDR, &[self.mux_bits])?;
+embedded_hal::i2c::I2c::transaction(&mut *i2c, address, operations)
+```
+
+Never iterate operations with separate `write()`/`read()` calls — that produces
+STOP between operations instead of REPEATED START, breaking register reads.
 
 ## Common Pitfalls & Solutions
 
@@ -522,6 +663,39 @@ but this is fragile and couples app logic to hardware characteristics.
 the next detection. This suppresses contact bounce entirely at the platform level,
 keeping the app crate hardware-agnostic.
 
+### `DeviceEvent` channel — single-consumer for driver output
+
+Device drivers (keyboard, future sensors) push `DeviceEvent`s into a shared
+`EventQueue<DeviceEvent, 32>` created by the `HardwareHexpansionManager`. The
+menu loop's `select3`/`select4` includes a `select(hexpansion_event, device_event)`
+branch so that keyboard input is immediately delivered to the foreground app without
+needing a badge button press.
+
+**Why a single queue, not per-driver:** A single shared queue is simpler and
+sufficient — all device events flow to the same consumers (the menu loop and
+apps). Per-driver queues would require multiplexed consumption, adding complexity
+without benefit for the current use cases.
+
+`KeyboardEvent` navigation keys (arrows, Enter, Escape) are also injected as
+`HexButton` events into the input manager at the root menu and for hosted
+(WASM/native) apps, so the keyboard works for menu navigation without app changes.
+
+### `AppEvent` — external events for MenuApps
+
+Apps receive external events via `handle_event(&mut self, event: AppEvent)` where
+`AppEvent` is:
+
+```rust
+pub enum AppEvent {
+  Hexpansion(HexpansionEvent),  // plug/unplug
+  Device(DeviceEvent),          // keyboard key, future device events
+}
+```
+
+The default implementation is a no-op. Apps override it to react to keyboard input
+(the Editor app), hexpansion state changes (the HexpansionViewer app), or future
+event types without requiring a badge button press.
+
 ### `StackSignal` — single-consumer event delivery
 
 **Problem:** Using an embassy-sync `Channel<M, StackEvent, N>` with multiple `Receiver`
@@ -538,6 +712,7 @@ consumer operation. No channel, no multiple receivers, no race.
 ## Related Files
 
 - **Platform trait:** `app/src/platform/traits.rs`
+- **Hexpansion manager trait:** `app/src/platform/hexpansion.rs`
 - **HTTP client trait:** `app/src/platform/http.rs`
 - **Menu system:** `app/src/menu/mod.rs`
 - **Menu state/stack:** `app/src/menu/state.rs`
@@ -547,7 +722,10 @@ consumer operation. No channel, no multiple receivers, no race.
 - **Domain types:** `app/src/types.rs`
 - **Firmware entry point:** `firmware/src/bin/rustagon.rs`
 - **Firmware platform:** `firmware/src/platform/hardware.rs`
+- **Firmware hexpansion:** `firmware/src/platform/hexpansion.rs`
+- **Device drivers:** `firmware/src/platform/drivers/mod.rs` + `tca8418.rs`
 - **Firmware HTTP client:** `firmware/src/platform/http.rs`
+- **I2C infrastructure:** `firmware/src/utils/i2c.rs`
 - **IPC handler (firmware):** `firmware/src/tasks/ipc_handler.rs`
 - **Menu wrapper (firmware):** `firmware/src/tasks/menu/mod.rs`
 - **Desktop platform:** `desktop/src/platform/mod.rs`
