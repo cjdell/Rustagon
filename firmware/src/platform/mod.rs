@@ -1,6 +1,7 @@
 pub mod display;
 pub mod effects;
 pub mod hardware;
+pub mod http;
 pub mod input;
 pub mod led;
 pub mod power;

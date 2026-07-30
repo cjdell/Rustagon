@@ -17,7 +17,6 @@ extern crate core;
 
 pub mod d_i2c;
 mod device;
-mod firmware_apps;
 pub mod apps;
 pub mod platform;
 mod protocol;

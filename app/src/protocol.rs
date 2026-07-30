@@ -7,8 +7,24 @@ use serde::{Deserialize, Serialize};
 
 // ================================ HTTP types ================================
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum HttpMethod {
+  Get,
+  Post,
+  Put,
+  Delete,
+}
+
+impl Default for HttpMethod {
+  fn default() -> Self {
+    Self::Get
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpRequest {
+  #[serde(default)]
+  pub method: HttpMethod,
   pub url: String,
   pub headers: Vec<(String, String)>,
   pub body: Vec<u8>,
@@ -16,7 +32,12 @@ pub struct HttpRequest {
 
 impl HttpRequest {
   pub fn new(url: String) -> Self {
-    Self { url, headers: Vec::new(), body: Vec::new() }
+    Self { method: HttpMethod::Get, url, headers: Vec::new(), body: Vec::new() }
+  }
+
+  pub fn with_method(mut self, method: HttpMethod) -> Self {
+    self.method = method;
+    self
   }
 }
 
@@ -37,6 +58,7 @@ pub enum HttpEvent {
   Meta(HttpResponseMeta),
   Chunk(Vec<u8>),
   Done,
+  Error,
 }
 
 // ================================ WASM IPC ================================

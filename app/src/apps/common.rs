@@ -41,7 +41,7 @@ pub struct MenuAppContext<P: Platform> {
   pub input_receiver: MenuAppInputReceiver,
   pub platform: P,
   pub host_ipc_sender: HostIpcSender,
-  pub network_stack: Option<embassy_net::Stack<'static>>,
+  pub network_stack: Option<Stack<'static>>,
 }
 
 impl<P: Platform> MenuAppContext<P> {
@@ -49,7 +49,7 @@ impl<P: Platform> MenuAppContext<P> {
     Self { input_receiver, platform, host_ipc_sender, network_stack: None }
   }
 
-  pub fn with_stack(mut self, stack: embassy_net::Stack<'static>) -> Self {
+  pub fn with_stack(mut self, stack: Stack<'static>) -> Self {
     self.network_stack = Some(stack);
     self
   }

@@ -5,7 +5,8 @@ use super::power::PowerHandle;
 use super::storage::{ConfigHandle, FsError, HardwareStorageManager, StorageHandle};
 use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
-use app::platform::Platform;
+use esp_hal::system::{Cpu, CpuControl};
+use app::platform::{HttpClientHandle, Platform};
 use app::types::OtaError;
 use crate::utils::ota::Ota;
 use alloc::sync::Arc;
@@ -26,6 +27,7 @@ pub struct HardwarePlatform {
   storage: StorageHandle,
   config: ConfigHandle,
   storage_formatter: HardwareStorageManager,
+  http_client: Option<HttpClientHandle>,
 }
 
 impl HardwarePlatform {
@@ -40,7 +42,12 @@ impl HardwarePlatform {
     config: ConfigHandle,
     storage_formatter: HardwareStorageManager,
   ) -> Self {
-    Self { display, led, power, wifi, input, system, storage, config, storage_formatter }
+    Self { display, led, power, wifi, input, system, storage, config, storage_formatter, http_client: None }
+  }
+
+  pub fn with_http_client(mut self, client: HttpClientHandle) -> Self {
+    self.http_client = Some(client);
+    self
   }
 }
 
@@ -55,6 +62,7 @@ impl Platform for HardwarePlatform {
   fn wifi_manager(&self) -> WiFiHandle { self.wifi.clone() }
   fn input_manager(&self) -> InputHandle { self.input.clone() }
   fn system_manager(&self) -> SystemHandle { self.system.clone() }
+  fn http_client(&self) -> Option<HttpClientHandle> { self.http_client.clone() }
   fn storage_manager(&self) -> StorageHandle { self.storage.clone() }
   fn config_manager(&self) -> ConfigHandle { self.config.clone() }
 
@@ -67,6 +75,10 @@ impl Platform for HardwarePlatform {
   }
 
   async fn ota_begin(&self) -> Result<u32, OtaError> {
+    // Park the second core so it doesn't contend with flash writes
+    let mut cpu_ctrl = CpuControl::new(unsafe { esp_hal::peripherals::CPU_CTRL::steal() });
+    unsafe { cpu_ctrl.park_core(Cpu::AppCpu); }
+
     let raw = self.storage_formatter.raw_flash();
     let mut flash = raw.write().await;
 

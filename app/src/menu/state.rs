@@ -6,11 +6,11 @@ use crate::{
   types::*,
 };
 use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc, vec, vec::Vec};
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, rwlock::RwLock};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
 
 pub struct MenuState<P: Platform> {
   pub ctx: MenuContext<P>,
-  pub app: Arc<RwLock<NoopRawMutex, AppState>>,
+  pub app: Arc<RwLock<CriticalSectionRawMutex, AppState>>,
   pub current_menu: Menu,
   pub menu_options: Vec<MenuOption>,
   pub selected: u32,
@@ -45,6 +45,9 @@ impl<P: Platform> MenuState<P> {
           .collect(),
         NativeAppType::list_apps().iter()
           .map(|name| MenuOption::App { name, app_type: AppType::NativeApp })
+          .collect(),
+        self.ctx.additional_apps.iter()
+          .map(|name| MenuOption::App { name, app_type: AppType::MenuApp })
           .collect(),
         vec![MenuOption::PowerOff],
       ].concat(),

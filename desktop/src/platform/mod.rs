@@ -58,6 +58,7 @@ impl Platform for DesktopPlatform {
     fn wifi_manager(&self) -> WiFiHandle { self.wifi.clone() }
     fn input_manager(&self) -> InputHandle { self.input.clone() }
     fn system_manager(&self) -> SystemHandle { self.system.clone() }
+    fn http_client(&self) -> Option<app::platform::HttpClientHandle> { None }
     fn storage_manager(&self) -> StorageHandle { self.storage.clone() }
     fn config_manager(&self) -> ConfigHandle<DeviceConfig> { self.config.clone() }
     async fn format_storage(&self) -> Result<(), FsError> { Ok(()) }

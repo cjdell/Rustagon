@@ -1,4 +1,5 @@
 pub mod display;
+pub mod http;
 pub mod input;
 pub mod led;
 pub mod power;
@@ -8,6 +9,7 @@ pub mod traits;
 pub mod wifi;
 
 pub use display::{DisplayError, DisplayHandle, DisplayManager};
+pub use http::{HttpClient, HttpClientHandle, HttpEventChannel};
 pub use input::{InputHandle, InputManager};
 pub use led::{LedHandle, LedManager};
 pub use power::{PowerError, PowerHandle, PowerManager};

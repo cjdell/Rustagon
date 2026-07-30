@@ -16,7 +16,9 @@
 use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc};
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::rwlock::RwLock;
+use app::menu::state::AppState;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
 use esp_hal::{
@@ -259,19 +261,32 @@ async fn main(spawner: Spawner) {
 
   print_memory_info();
 
+  let http_client = firmware::platform::http::HardwareHttpClient::new(stack);
+  let platform = platform.with_http_client(app::platform::HttpClientHandle::new(Arc::new(http_client)));
+
+  let app_state = Arc::new(RwLock::<CriticalSectionRawMutex, AppState>::new(AppState::None));
+
   let runner_ctx = MenuRunnerContext {
     stack,
     storage: storage.clone(),
-    http_event_receiver: http_channel.receiver(),
     host_ipc_sender: host_ipc_channel.sender(),
-    wasm_ipc_channel,
     platform: platform.clone(),
+    app_state: app_state.clone(),
   };
 
   let platform_for_ws = platform.clone();
 
   // Spawn WiFi monitor task to handle status changes
   spawner.spawn(wifi_monitor_task(platform)).ok();
+
+  // Spawn IPC handler for WASM IPC and HTTP events
+  spawner.spawn(ipc_handler_task(
+    wasm_ipc_channel,
+    http_channel.receiver(),
+    host_ipc_channel.sender(),
+    platform_for_ws.clone(),
+    app_state,
+  )).ok();
 
   spawner.spawn(menu_task(runner_ctx)).ok();
 
