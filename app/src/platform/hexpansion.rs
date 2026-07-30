@@ -3,6 +3,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{fmt, future::Future, pin::Pin};
+use embedded_hal::i2c::{ErrorType, I2c, Operation};
 
 pub trait HexpansionManager: Send + Sync + fmt::Debug {
   fn next_event(&self) -> Pin<Box<dyn Future<Output = HexpansionEvent> + Send + '_>>;
@@ -83,4 +84,42 @@ pub struct DeviceIo {
   pub i2c: DeviceI2c,
   pub vid: u16,
   pub pid: u16,
+}
+
+// ============================== embedded-hal I2c for DeviceI2c ==============================
+
+/// Error type for DeviceI2c embedded-hal implementation.
+#[derive(Debug)]
+pub struct DeviceI2cError;
+
+impl embedded_hal::i2c::Error for DeviceI2cError {
+  fn kind(&self) -> embedded_hal::i2c::ErrorKind {
+    embedded_hal::i2c::ErrorKind::Other
+  }
+}
+
+impl ErrorType for DeviceI2c {
+  type Error = DeviceI2cError;
+}
+
+impl I2c for DeviceI2c {
+  fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
+    // Combined write+read with REPEATED START (the common pattern for register reads)
+    if operations.len() == 2 {
+      let (first, rest) = operations.split_at_mut(1);
+      let w = &first[0];
+      let r = &mut rest[0];
+      if let (Operation::Write(w_data), Operation::Read(r_data)) = (w, r) {
+        return self.inner.transaction(address, w_data, r_data).map_err(|_| DeviceI2cError);
+      }
+    }
+    // Single operation or fallback fallthrough
+    for op in operations {
+      match op {
+        Operation::Read(buffer) => self.inner.read(address, buffer).map_err(|_| DeviceI2cError)?,
+        Operation::Write(buffer) => self.inner.write(address, buffer).map_err(|_| DeviceI2cError)?,
+      }
+    }
+    Ok(())
+  }
 }

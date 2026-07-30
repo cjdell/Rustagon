@@ -222,6 +222,7 @@ dependencies = [
  "embassy-sync 0.7.2",
  "embassy-time",
  "embedded-graphics",
+ "embedded-hal 1.0.0",
  "embedded-tools",
  "esp-alloc",
  "log",
@@ -2802,6 +2803,7 @@ dependencies = [
  "serde_json",
  "smoltcp",
  "static_cell",
+ "tca8418",
  "wasmi 1.0.7",
  "wasmi_core 1.0.7",
  "zerocopy",
@@ -6300,6 +6302,15 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "tca8418"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc5decd215bd300b27fab182f7ef2b742bc914ba138f39b900d77a4bd1e5cce8"
+dependencies = [
+ "embedded-hal 1.0.0",
+]
 
 [[package]]
 name = "tempfile"
