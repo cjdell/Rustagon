@@ -2,3 +2,4 @@
 target/
 *.map
 *.bin
+desktop/data/
