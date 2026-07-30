@@ -84,11 +84,25 @@ async fn tca8418_task(io: DeviceIo, queue: DeviceEventQueue) {
 
   info!("tca8418[{port}]: started");
 
+  let mut i2c_failures: u32 = 0;
+
   loop {
     Timer::after(Duration::from_millis(20)).await;
 
-    // Drain all pending events
-    let Ok(events) = kp.events() else { continue };
+    // Drain all pending events. If I2C fails repeatedly, the hexpansion
+    // was likely removed — stop the task.
+    let events = match kp.events() {
+      Ok(e) => { i2c_failures = 0; e }
+      Err(_) => {
+        i2c_failures += 1;
+        if i2c_failures >= 3 {
+          info!("tca8418[{port}]: I2C errors — hexpansion removed, stopping");
+          return;
+        }
+        continue;
+      }
+    };
+
     for event in events {
       let typ = if event.pressed { KeyEventType::Pressed } else { KeyEventType::Released };
 
