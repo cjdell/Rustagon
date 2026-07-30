@@ -46,11 +46,15 @@ impl SystemManager for HardwareSystemManager {
 
 #[embassy_executor::task]
 async fn button_monitoring_task(pin: GPIO0<'static>, events: SystemEventQueue) {
+  use embassy_time::{Duration, Timer};
   let mut input = Input::new(pin, InputConfig::default().with_pull(Pull::Up));
 
   loop {
     input.wait_for_falling_edge().await;
-    info!("Boot pin pressed!");
     events.try_push(SystemMessage::BootButton);
+    // Debounce: ignore further edges for 50 ms after a press.
+    // Mechanical buttons can produce multiple edges from a single
+    // physical press; the delay suppresses all but the first.
+    Timer::after(Duration::from_millis(50)).await;
   }
 }

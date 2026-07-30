@@ -7,15 +7,13 @@ pub mod ota_updater;
 pub mod power_info;
 pub mod wifi_scanner;
 
-pub use common::{AppName, MenuAppAsync, MenuAppContext, MenuAppInput, MenuAppInputChannel, MenuAppInputReceiver};
+pub use common::{AppAction, AppName, MenuApp, MenuAppContext, MenuAppInput};
 
 use crate::platform::Platform;
 use crate::apps::{
-  app_store::AppStoreApp, common::AppName as _, config::ConfigApp, files::FilesApp, input_test::InputTestApp,
+  app_store::AppStoreApp, config::ConfigApp, files::FilesApp, input_test::InputTestApp,
   ota_updater::OtaUpdaterApp, power_info::PowerInfoApp, wifi_scanner::WifiScannerApp,
 };
-use alloc::string::String;
-
 pub enum MenuAppType<P: Platform> {
   ConfigApp(ConfigApp<P>),
   FilesApp(FilesApp<P>),
@@ -26,16 +24,40 @@ pub enum MenuAppType<P: Platform> {
   OtaUpdaterApp(OtaUpdaterApp<P>),
 }
 
-impl<P: Platform> MenuAppAsync for MenuAppType<P> {
-  async fn work(&mut self) -> bool {
+impl<P: Platform> MenuApp for MenuAppType<P> {
+  async fn init(&mut self) {
     match self {
-      MenuAppType::ConfigApp(app) => app.work().await,
-      MenuAppType::FilesApp(app) => app.work().await,
-      MenuAppType::InputTestApp(app) => app.work().await,
-      MenuAppType::PowerInfoApp(app) => app.work().await,
-      MenuAppType::WifiScannerApp(app) => app.work().await,
-      MenuAppType::AppStoreApp(app) => app.work().await,
-      MenuAppType::OtaUpdaterApp(app) => app.work().await,
+      MenuAppType::ConfigApp(app) => app.init().await,
+      MenuAppType::FilesApp(app) => app.init().await,
+      MenuAppType::InputTestApp(app) => app.init().await,
+      MenuAppType::PowerInfoApp(app) => app.init().await,
+      MenuAppType::WifiScannerApp(app) => app.init().await,
+      MenuAppType::AppStoreApp(app) => app.init().await,
+      MenuAppType::OtaUpdaterApp(app) => app.init().await,
+    }
+  }
+
+  fn render(&self) -> display_types::LcdScreen {
+    match self {
+      MenuAppType::ConfigApp(app) => app.render(),
+      MenuAppType::FilesApp(app) => app.render(),
+      MenuAppType::InputTestApp(app) => app.render(),
+      MenuAppType::PowerInfoApp(app) => app.render(),
+      MenuAppType::WifiScannerApp(app) => app.render(),
+      MenuAppType::AppStoreApp(app) => app.render(),
+      MenuAppType::OtaUpdaterApp(app) => app.render(),
+    }
+  }
+
+  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
+    match self {
+      MenuAppType::ConfigApp(app) => app.handle_input(input).await,
+      MenuAppType::FilesApp(app) => app.handle_input(input).await,
+      MenuAppType::InputTestApp(app) => app.handle_input(input).await,
+      MenuAppType::PowerInfoApp(app) => app.handle_input(input).await,
+      MenuAppType::WifiScannerApp(app) => app.handle_input(input).await,
+      MenuAppType::AppStoreApp(app) => app.handle_input(input).await,
+      MenuAppType::OtaUpdaterApp(app) => app.handle_input(input).await,
     }
   }
 }

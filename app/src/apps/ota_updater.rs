@@ -1,6 +1,5 @@
 use crate::{
-  apps::common::AppName,
-  apps::{MenuAppAsync, MenuAppInput, MenuAppContext},
+  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
@@ -46,16 +45,6 @@ struct VersionInfo {
 impl<P: Platform> OtaUpdaterApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
     Self { ctx, state: AppState::new() }
-  }
-
-  fn render(&self) {
-    let screen = match &self.state.screen {
-      Screen::Welcome => LcdScreen::Headline(Icon40::Info, "Press C to check update".to_string()),
-      Screen::UpdatePrompt(version_info) => {
-        LcdScreen::Headline(Icon40::Info, format!("Update to v{}?", version_info.version))
-      }
-    };
-    self.ctx.update_lcd(screen);
   }
 
   async fn download_manifest(&mut self) -> Result<VersionInfo, ()> {
@@ -138,43 +127,47 @@ impl<P: Platform> OtaUpdaterApp<P> {
     join(http_client.request(req, &channel), listen).await;
     Ok(())
   }
+}
 
-  async fn handle_welcome_input(&mut self, input: HexButton) {
-    if let HexButton::Fire = input {
-      let version = match self.download_manifest().await {
-        Ok(version) => version,
-        Err(()) => {
-          self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Connection Error!".to_string()));
-          sleep(1_000).await;
-          return;
-        }
-      };
-      self.state.screen = Screen::UpdatePrompt(version);
-    }
-  }
-
-  async fn handle_update_status_input(&mut self, input: HexButton, version_info: VersionInfo) {
-    if let HexButton::Fire = input {
-      if self.do_update(version_info).await.is_err() {
-        self.state.screen = Screen::Welcome;
+impl<P: Platform> MenuApp for OtaUpdaterApp<P> {
+  fn render(&self) -> LcdScreen {
+    match &self.state.screen {
+      Screen::Welcome => LcdScreen::Headline(Icon40::Info, "Press C to check update".to_string()),
+      Screen::UpdatePrompt(version_info) => {
+        LcdScreen::Headline(Icon40::Info, format!("Update to v{}?", version_info.version))
       }
     }
   }
-}
 
-impl<P: Platform> MenuAppAsync for OtaUpdaterApp<P> {
-  async fn work(&mut self) -> bool {
-    loop {
-      self.render();
-      match self.ctx.input_receiver.receive().await {
-        MenuAppInput::HexButton(input) => match &self.state.screen {
-          Screen::Welcome => self.handle_welcome_input(input).await,
-          Screen::UpdatePrompt(version_info) => {
-            self.handle_update_status_input(input, version_info.clone()).await
+  async fn init(&mut self) {}
+
+  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
+    match input {
+      MenuAppInput::Stop => AppAction::Stop,
+      MenuAppInput::Button(hex) => {
+        match &self.state.screen {
+          Screen::Welcome => {
+            if let HexButton::Fire = hex {
+              let version = match self.download_manifest().await {
+                Ok(version) => version,
+                Err(()) => {
+                  self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Connection Error!".to_string()));
+                  sleep(1_000).await;
+                  return AppAction::Continue;
+                }
+              };
+              self.state.screen = Screen::UpdatePrompt(version);
+            }
           }
-        },
-        MenuAppInput::Stop => return false,
-        _ => {}
+          Screen::UpdatePrompt(version_info) => {
+            if let HexButton::Fire = hex {
+              if self.do_update(version_info.clone()).await.is_err() {
+                self.state.screen = Screen::Welcome;
+              }
+            }
+          }
+        }
+        AppAction::Continue
       }
     }
   }

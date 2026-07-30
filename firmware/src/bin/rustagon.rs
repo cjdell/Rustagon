@@ -18,7 +18,6 @@ use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::rwlock::RwLock;
-use app::menu::state::AppState;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
 use esp_hal::{
@@ -264,14 +263,16 @@ async fn main(spawner: Spawner) {
   let http_client = firmware::platform::http::HardwareHttpClient::new(stack);
   let platform = platform.with_http_client(app::platform::HttpClientHandle::new(Arc::new(http_client)));
 
-  let app_state = Arc::new(RwLock::<CriticalSectionRawMutex, AppState>::new(AppState::None));
+  // Stack signal — IPC handler sends events, menu runner consumes
+  let stack_event_handle = app::menu::state::create_stack_event_handle();
+  let stack_event_for_menu = stack_event_handle.clone();
 
   let runner_ctx = MenuRunnerContext {
     stack,
     storage: storage.clone(),
     host_ipc_sender: host_ipc_channel.sender(),
     platform: platform.clone(),
-    app_state: app_state.clone(),
+    stack_event_handle: stack_event_for_menu,
   };
 
   let platform_for_ws = platform.clone();
@@ -284,8 +285,8 @@ async fn main(spawner: Spawner) {
     wasm_ipc_channel,
     http_channel.receiver(),
     host_ipc_channel.sender(),
+    stack_event_handle,
     platform_for_ws.clone(),
-    app_state,
   )).ok();
 
   spawner.spawn(menu_task(runner_ctx)).ok();

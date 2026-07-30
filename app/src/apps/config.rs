@@ -1,10 +1,10 @@
 use crate::{
-  apps::{MenuAppAsync, MenuAppInput, common::{AppName, MenuAppContext}},
+  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
   platform::{Platform, WifiStatus},
   types::*,
   utils::sleep,
 };
-use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+use alloc::{format, string::String, string::ToString, vec};
 use log::warn;
 
 pub struct ConfigApp<P: Platform> {
@@ -47,31 +47,6 @@ impl AppState {
 impl<P: Platform> ConfigApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
     Self { ctx, state: AppState::new() }
-  }
-
-  fn render(&self) -> LcdScreen {
-    if let Some(ref msg) = self.state.message {
-      return LcdScreen::Headline(Icon40::Info, msg.clone());
-    }
-
-    let ip_str: String = match self.state.wifi_status {
-      WifiStatus::Connected(ip) => format!("IP: {ip}"),
-      WifiStatus::AccessPoint => "AP Mode".to_string(),
-      WifiStatus::Offline => "Offline".to_string(),
-      _ => "Disconnected".to_string(),
-    };
-
-    LcdScreen::Menu {
-      menu: vec![
-        MenuLine(Icon20::Info, ip_str),
-        MenuLine(Icon20::Info, format!("Free: {}KB", self.state.free_space)),
-        MenuLine(Icon20::Config, CONFIG_OPTIONS[0].label().to_string()),
-        MenuLine(Icon20::Config, CONFIG_OPTIONS[1].label().to_string()),
-        MenuLine(Icon20::Config, CONFIG_OPTIONS[2].label().to_string()),
-        MenuLine(Icon20::Info, "<= Back".to_string()),
-      ],
-      selected: self.state.cursor as u32,
-    }
   }
 
   async fn refresh_status(&mut self) {
@@ -142,37 +117,59 @@ impl<P: Platform> ConfigApp<P> {
   }
 }
 
-impl<P: Platform> MenuAppAsync for ConfigApp<P> {
-  async fn work(&mut self) -> bool {
+impl<P: Platform> MenuApp for ConfigApp<P> {
+  fn render(&self) -> LcdScreen {
+    if let Some(ref msg) = self.state.message {
+      return LcdScreen::Headline(Icon40::Info, msg.clone());
+    }
+
+    let ip_str: String = match self.state.wifi_status {
+      WifiStatus::Connected(ip) => format!("IP: {ip}"),
+      WifiStatus::AccessPoint => "AP Mode".to_string(),
+      WifiStatus::Offline => "Offline".to_string(),
+      _ => "Disconnected".to_string(),
+    };
+
+    LcdScreen::Menu {
+      menu: vec![
+        MenuLine(Icon20::Info, ip_str),
+        MenuLine(Icon20::Info, format!("Free: {}KB", self.state.free_space)),
+        MenuLine(Icon20::Config, CONFIG_OPTIONS[0].label().to_string()),
+        MenuLine(Icon20::Config, CONFIG_OPTIONS[1].label().to_string()),
+        MenuLine(Icon20::Config, CONFIG_OPTIONS[2].label().to_string()),
+        MenuLine(Icon20::Info, "<= Back".to_string()),
+      ],
+      selected: self.state.cursor as u32,
+    }
+  }
+
+  async fn init(&mut self) {
     self.refresh_status().await;
+  }
 
-    loop {
-      self.ctx.update_lcd(self.render());
-
-      match self.ctx.input_receiver.receive().await {
-        MenuAppInput::HexButton(input) => {
-          let max = CONFIG_OPTIONS.len() + 1;
-          match input {
-            HexButton::Up => { if self.state.cursor > 2 { self.state.cursor -= 1; } }
-            HexButton::Down => { if self.state.cursor + 1 < max + 2 { self.state.cursor += 1; } }
-            HexButton::Fire => {
-              let action_idx = self.state.cursor.checked_sub(2);
-              match action_idx {
-                Some(n) if n < CONFIG_OPTIONS.len() => match CONFIG_OPTIONS[n] {
-                  ConfigOption::WifiToggle => self.toggle_wifi().await,
-                  ConfigOption::WifiMode => self.toggle_mode().await,
-                  ConfigOption::Format => self.format_fs().await,
-                },
-                Some(n) if n == CONFIG_OPTIONS.len() => return false,
-                _ => {}
-              }
+  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
+    match input {
+      MenuAppInput::Stop => AppAction::Stop,
+      MenuAppInput::Button(hex) => {
+        let max = CONFIG_OPTIONS.len() + 1;
+        match hex {
+          HexButton::Up => { if self.state.cursor > 2 { self.state.cursor -= 1; } }
+          HexButton::Down => { if self.state.cursor + 1 < max + 2 { self.state.cursor += 1; } }
+          HexButton::Fire => {
+            let action_idx = self.state.cursor.checked_sub(2);
+            match action_idx {
+              Some(n) if n < CONFIG_OPTIONS.len() => match CONFIG_OPTIONS[n] {
+                ConfigOption::WifiToggle => self.toggle_wifi().await,
+                ConfigOption::WifiMode => self.toggle_mode().await,
+                ConfigOption::Format => self.format_fs().await,
+              },
+              Some(n) if n == CONFIG_OPTIONS.len() => return AppAction::Stop,
+              _ => {}
             }
-            _ => {}
           }
+          _ => {}
         }
-        MenuAppInput::Refresh => self.refresh_status().await,
-        MenuAppInput::Stop => return false,
-        _ => {}
+        AppAction::Continue
       }
     }
   }

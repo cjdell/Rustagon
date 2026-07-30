@@ -15,7 +15,7 @@ pub async fn menu_task(runner_ctx: crate::tasks::menu::types::MenuRunnerContext)
     storage: runner_ctx.storage,
     platform: runner_ctx.platform,
     host_ipc_sender: runner_ctx.host_ipc_sender,
-    app_state: Some(runner_ctx.app_state),
+    stack_event_handle: runner_ctx.stack_event_handle,
     app_loader: None,
     additional_apps: &[],
   };

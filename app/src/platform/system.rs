@@ -1,4 +1,4 @@
-use crate::types::{HexButton, SystemMessage};
+use crate::types::SystemMessage;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::{fmt, future::Future, pin::Pin};

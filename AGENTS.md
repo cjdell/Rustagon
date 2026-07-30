@@ -167,7 +167,7 @@ that both adds latency and hogs locks. Use `EventQueue` (events) or `WatchedValu
 rustagon/
 ├── app/                              # Platform-agnostic application library (no_std)
 │   ├── apps/                         # All menu apps (generic over P: Platform)
-│   │   ├── common.rs                 #   MenuAppAsync trait, MenuAppContext<P>, WASM_LAUNCHING
+│   │   ├── common.rs                 #   MenuApp trait (init/handle_input/render), MenuAppContext<P>, AppAction
 │   │   ├── app_store.rs              #   AppStoreApp<P>
 │   │   ├── config.rs                 #   ConfigApp<P>
 │   │   ├── files.rs                  #   FilesApp<P>
@@ -178,7 +178,7 @@ rustagon/
 │   │   └── wifi_scanner.rs           #   WifiScannerApp<P>
 │   ├── menu/                         # Full menu system (async fn, not Embassy task)
 │   │   ├── mod.rs                    #   menu_task<P: Platform>() — the main loop
-│   │   ├── state.rs                  #   MenuState<P>, AppState enum
+│   │   ├── state.rs                  #   AppStackEntry<P>, StackEntryType, StackEvent, AppStack types
 │   │   ├── execute.rs                #   MenuState::execute_option
 │   │   ├── types.rs                  #   MenuRunnerContext<P>, MenuContext<P>, AppLoader<P>
 │   │   └── menus.rs                  #   MenuProvider trait, StaticMenu
@@ -269,15 +269,53 @@ cd desktop && cargo build                       # macOS/linux (minifb window)
 
 ## How the Menu Moves Through Crates
 
-1. `app::menu::menu_task<P: Platform>()` — the full menu system. Handles button input,
-   app launching, WASM_LAUNCHING flag, AppState transitions. Generic over any platform.
+1. `app::menu::menu_task<P: Platform>()` — the full menu system. Uses an **AppStack** to
+   support multitasking: apps can launch sub-apps (WASM, native, or other menu apps), and
+   the parent stays on the stack with its state preserved. Generic over any platform.
 2. `firmware::tasks::menu::menu_task` — thin Embassy wrapper (~20 lines). Constructs
    `app::menu::types::MenuRunnerContext<HardwarePlatform>` and calls `app::menu::menu_task()`.
 3. `desktop/src/main.rs` — calls `app::menu::menu_task()` directly via `thread::spawn`.
 
-The IPC handler (`firmware::tasks::ipc_handler`) runs as a separate Embassy task. It
-shares `Arc<RwLock<CriticalSectionRawMutex, AppState>>` with the menu task for coordinating
-WASM app lifecycle (Started/Stopped transitions, WASM_LAUNCHING flag).
+### AppStack Architecture
+
+The menu maintains a `Vec<AppStackEntry<P>>` where each entry is one of:
+- **RootMenu** — the main navigation list (always at the bottom)
+- **MenuApp(app)** — a built-in app (Files, Config, etc.) with its mutable state
+- **HostedApp** — a WASM or native app running externally on the second core
+
+The IPC handler (`firmware::tasks::ipc_handler`) communicates stack changes to the menu
+via an `Arc<StackSignal>` (`Pushed(HostedApp)` / `Popped`), rather than through shared
+state or global flags. This enables arbitrary nesting: a menu app can launch a WASM app
+(which stays on the stack behind it), and that WASM app could trigger another native app,
+and so on — each layer preserves its state on the stack.
+
+**`StackSignal` vs channel:** The original implementation used an embassy-sync `Channel`
+with multiple `Receiver` handles. On the firmware's cooperative single-threaded executor,
+separate `Receiver` instances (created by each handler via `channel.receiver()`) could
+both consume the same event — `handle_hosted_app`'s `select3` would consume a `Popped`,
+then `handle_menu_app`'s `select3` on the next iteration would independently consume the
+same event from the same channel, causing a double-pop. The fix replaces the channel with
+`Arc<StackSignal>`, which wraps an `AtomicU8` (for the event value, consumed via
+`swap(NONE)`) paired with an embassy-sync `Signal<CriticalSectionRawMutex, ()>` (for
+async wake-up). The atomic `swap` is a single-consumer operation — only one reader sees
+each event.
+
+### App State Machines (not event loops)
+
+Apps no longer own the event loop. Instead they implement the `MenuApp` trait:
+
+```rust
+pub trait MenuApp {
+  fn render(&self) -> LcdScreen;
+  async fn init(&mut self);
+  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction;
+}
+```
+
+The menu runner calls `handle_input()` for each button press and dispatches on the
+returned `AppAction` (`Continue`, `Stop`, `LaunchWasm(name)`, `LaunchNative(name)`).
+This eliminates the need for global flags (`WASM_LAUNCHING` was removed) and lets the
+stack naturally manage the multitasking flow.
 
 ## Desktop WASM Runner
 
@@ -302,11 +340,31 @@ each frame. If `Some`, it renders the raw RGB565 buffer directly. If `None`, it 
 to rendering the `LcdState` (menu screen). The buffer is cleared when the WASM session
 ends via `run_program`'s cleanup.
 
-**Button forwarding during WASM execution:** When `AppState::HostedApp`, the menu task
-forwards button presses as `HostIpcMessage::HexButton` using `try_send` (non-blocking).
+**Button forwarding during WASM execution:** When the stack top is `HostedApp`, the menu
+task forwards button presses as `HostIpcMessage::HexButton` using `try_send` (non-blocking).
 The WASM tick loop peeks this channel via `try_peek()` and passes the message length to
 the WASM's `tick()` function, which calls `extern_read_host_ipc_message` to consume it.
 This avoids the menu thread blocking if the WASM is busy.
+
+**Stack events for WASM lifecycle:** Instead of a shared `AppState` RwLock, the WASM
+runner signals completion by sending `StackEvent::Popped` through the `StackSignal`.
+The menu runner's `handle_hosted_app` loop waits on `select3(system_button, hex_button, stack_signal.receive())`.
+When the boot button is pressed, `HostIpcMessage::Stop` is sent and the menu waits for the
+resulting `StackEvent::Popped` before resuming the previous app.
+
+**`wasmi_runner` sends `Stopped` — callers must NOT send it again:** The WASM interpreter
+in `app/src/wasm/mod.rs` sends `WasmIpcMessage::Stopped` on natural completion (line 99)
+and on abort via Stop message (line 73). The firmware's `wasm_host_loop` was duplicating
+this by sending a second `Stopped` after `wasmi_runner` returned, causing two `Popped`
+events per WASM session → double-pop of the stack. The fix: firmware `wasm_host_loop`
+must NOT send `Stopped` — `wasmi_runner` already handles it.
+
+**`select3` for live handlers, `select2` + post-check for others:** Handlers that need to
+react to stack events immediately (`handle_hosted_app`, `handle_menu_app`) use `select3`
+that includes `stack_signal.receive()` as a third future. The root menu handler uses
+`select2` and checks `stack_signal.try_receive()` after each input — it does not need
+immediate WASM-exit response. This avoids the complexity of three-way select in the
+simple root-menu case.
 
 ## Key Design Decisions & Crate Boundaries
 
@@ -346,8 +404,8 @@ Use `CriticalSectionRawMutex` instead of `NoopRawMutex` for any shared state tha
 thread or task boundaries. `NoopRawMutex` is `!Sync` and prevents structs from being `Sync`,
 which breaks `Arc<dyn Trait>` and `thread::spawn`.
 
-Both `app_state` in `MenuRunnerContext` and the `app` field in `MenuState` use
-`RwLock<CriticalSectionRawMutex, AppState>`.
+The `StackEventChannel` uses `CriticalSectionRawMutex` for thread-safe
+communication between the menu runner and the IPC handler task.
 
 ### What Makes a Good Platform Manager
 
@@ -453,11 +511,37 @@ Applied to: `littlefs_rust::Filesystem` (raw C pointers), `embassy_net::Stack` (
 **Problem:** `Rgb565::new(r, g, b)` expects r in 0–31, g in 0–63, b in 0–31.
 **Solution:** Construct via `Rgb565::from(Rgb888::new(r, g, b))` for proper conversion.
 
+### Button Debouncing Belongs in the Platform
+
+**Problem:** Mechanical boot button bounce generated multiple `BootButton` events per
+physical press. The app level tried to compensate with `try_next_button()` drain loops,
+but this is fragile and couples app logic to hardware characteristics.
+
+**Solution:** Debounce at the source — the firmware's `button_monitoring_task` in
+`firmware/src/platform/system.rs` waits 50ms after each falling edge before allowing
+the next detection. This suppresses contact bounce entirely at the platform level,
+keeping the app crate hardware-agnostic.
+
+### `StackSignal` — single-consumer event delivery
+
+**Problem:** Using an embassy-sync `Channel<M, StackEvent, N>` with multiple `Receiver`
+handles for IPC handler → menu runner communication allowed the same `StackEvent` to
+be consumed by two different receivers on the cooperative single-threaded executor,
+causing double-pops of the stack.
+
+**Solution:** `app::menu::state::StackSignal` pairs an `AtomicU8` with an embassy-sync
+`Signal<CriticalSectionRawMutex, ()>`. The `send()` method stores the event value via
+atomic `store` and wakes the waiter via `signal()`. The `receive()` (async) and
+`try_receive()` (sync) methods consume the event via atomic `swap(NONE)` — a single-
+consumer operation. No channel, no multiple receivers, no race.
+
 ## Related Files
 
 - **Platform trait:** `app/src/platform/traits.rs`
 - **HTTP client trait:** `app/src/platform/http.rs`
 - **Menu system:** `app/src/menu/mod.rs`
+- **Menu state/stack:** `app/src/menu/state.rs`
+- **Menu types:** `app/src/menu/types.rs`
 - **Menu apps:** `app/src/apps/mod.rs` (enum + list/load), `app/src/apps/*.rs`
 - **Protocol types:** `app/src/protocol.rs`
 - **Domain types:** `app/src/types.rs`

@@ -1,4 +1,3 @@
-pub mod execute;
 pub mod menus;
 pub mod state;
 pub mod types;
@@ -6,142 +5,287 @@ pub mod types;
 pub use types::*;
 
 use crate::{
-  apps::common::{WASM_LAUNCHING, create_menu_app_channel},
   apps::*,
-  menu::state::*,
-  menu::types::{MenuContext, MenuRunnerContext},
+  menu::{
+    menus::get_root_menu_options,
+    state::*,
+  },
   platform::Platform,
+  protocol::HostIpcMessage,
   types::*,
 };
-use alloc::{sync::Arc, vec::Vec};
-use core::sync::atomic::Ordering;
-use embassy_futures::join;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
+use alloc::{string::ToString, vec::Vec};
+use embassy_futures::select::{select, Either};
 use log::info;
-use menus::MenuProvider as _;
 
 pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) {
-  let menu_app_input_channel = create_menu_app_channel();
+  let mut stack: Vec<AppStackEntry<P>> = Vec::new();
+  let display = runner_ctx.platform.display_manager();
 
-  let ctx = MenuContext {
-    storage: runner_ctx.storage.clone(),
-    platform: runner_ctx.platform.clone(),
-    host_ipc_sender: runner_ctx.host_ipc_sender.clone(),
-    display: runner_ctx.platform.display_manager(),
-    menu_app_input_channel,
-    additional_apps: runner_ctx.additional_apps,
-  };
-
-  let app: Arc<RwLock<CriticalSectionRawMutex, AppState>> = match runner_ctx.app_state {
-    Some(ref shared) => shared.clone(),
-    None => Arc::new(RwLock::new(AppState::None)),
-  };
-
-  let mut state = MenuState {
-    ctx: ctx.clone(),
-    app: app.clone(),
-    current_menu: Menu::Root,
-    menu_options: Vec::new(),
+  stack.push(AppStackEntry::RootMenu {
+    menu_options: get_root_menu_options::<P>(runner_ctx.additional_apps),
     selected: 0,
-    http_message: HttpStatusMessage::Idle,
+  });
+
+  let stack_signal = runner_ctx.stack_event_handle.clone();
+
+  loop {
+    let top_type = stack.last().map(|e| e.entry_type());
+    info!("menu_task: top_type={top_type:?} stack.len={}", stack.len());
+
+    match top_type {
+      Some(StackEntryType::RootMenu) => {
+        info!("menu_task: calling handle_root_menu");
+        handle_root_menu(&mut stack, &runner_ctx, &display, &stack_signal).await;
+        info!("menu_task: handle_root_menu returned, stack.len={}", stack.len());
+      }
+      Some(StackEntryType::MenuApp) => {
+        info!("menu_task: calling handle_menu_app");
+        handle_menu_app(&mut stack, &runner_ctx, &display, &stack_signal).await;
+        info!("menu_task: handle_menu_app returned, stack.len={}", stack.len());
+      }
+      Some(StackEntryType::HostedApp) => {
+        info!("menu_task: calling handle_hosted_app");
+        handle_hosted_app(&mut stack, &runner_ctx, &display, &stack_signal).await;
+        info!("menu_task: handle_hosted_app returned, stack.len={}", stack.len());
+      }
+      None => {
+        info!("menu_task: stack empty, pushing root");
+        stack.push(AppStackEntry::RootMenu {
+          menu_options: get_root_menu_options::<P>(runner_ctx.additional_apps),
+          selected: 0,
+        });
+      }
+    }
+  }
+}
+
+async fn handle_root_menu<P: Platform>(
+  stack: &mut Vec<AppStackEntry<P>>,
+  runner_ctx: &MenuRunnerContext<P>,
+  display: &crate::platform::DisplayHandle,
+  stack_signal: &StackSignal,
+) {
+  let idx = stack.len() - 1;
+
+  // Refresh display
+  let screen = match &stack[idx] {
+    AppStackEntry::RootMenu { menu_options, selected } => {
+      LcdScreen::Menu {
+        menu: menu_options.iter().map(|option| match option {
+          MenuOption::App { name, .. } => MenuLine(Icon20::Info, name.to_string()),
+          MenuOption::Back => MenuLine(Icon20::Info, "<= Back".to_string()),
+          MenuOption::PowerOff => MenuLine(Icon20::Info, "Power Off".to_string()),
+        }).collect(),
+        selected: *selected,
+      }
+    }
+    _ => unreachable!(),
   };
+  let _ = display.signal(screen);
 
-  state.menu_options = state.get_menu_provider().await.get_items().await;
+  let input = select(
+    runner_ctx.platform.system_manager().next_button(),
+    runner_ctx.platform.input_manager().next_button(),
+  ).await;
 
-  let menu_runner = async {
-    loop {
-      state.refresh().await;
+  // Handle root menu navigation. Extract what we need before mutating the stack.
+  let mut power_off = false;
+  let mut new_entry: Option<AppStackEntry<P>> = None;
 
-      let input = embassy_futures::select::select(
-        runner_ctx.platform.system_manager().next_button(),
-        runner_ctx.platform.input_manager().next_button(),
-      ).await;
-
-      match input {
-        embassy_futures::select::Either::First(system) => {
-          match system {
-            SystemMessage::BootButton => {
-              if let Ok(app) = state.app.try_read() {
-                match *app {
-                  AppState::MenuApp => { menu_app_input_channel.send(MenuAppInput::Stop).await; }
-                  AppState::HostedApp => { runner_ctx.host_ipc_sender.try_send((0, crate::protocol::HostIpcMessage::Stop)).ok(); }
-                  _ => {}
+  if let Either::Second(hex) = input {
+    if let AppStackEntry::RootMenu { menu_options, selected } = &mut stack[idx] {
+      match hex {
+        HexButton::Up => {
+          if *selected > 0 { *selected -= 1; }
+        }
+        HexButton::Down => {
+          if (*selected as usize) < menu_options.len().saturating_sub(1) {
+            *selected += 1;
+          }
+        }
+        HexButton::Fire => {
+          if *selected as usize >= menu_options.len() { return; }
+          match &menu_options[*selected as usize] {
+            MenuOption::App { name, app_type } => {
+              match app_type {
+                AppType::MenuApp => {
+                  let ctx = MenuAppContext::new(runner_ctx.platform.clone(), runner_ctx.host_ipc_sender);
+                  match MenuAppType::<P>::load_app_async(name, ctx) {
+                    Ok(mut app) => {
+                      app.init().await;
+                      let _ = display.signal(app.render());
+                      new_entry = Some(AppStackEntry::MenuApp { app });
+                    }
+                    Err(ctx) => {
+                      if let Some(loader) = runner_ctx.app_loader {
+                        loader(name.to_string(), ctx).await;
+                        new_entry = Some(AppStackEntry::HostedApp);
+                      }
+                    }
+                  }
+                }
+                AppType::NativeApp => {
+                  runner_ctx.host_ipc_sender.send((
+                    0,
+                    HostIpcMessage::StartNative(name.to_string()),
+                  )).await;
+                  new_entry = Some(AppStackEntry::HostedApp);
                 }
               }
             }
+            MenuOption::PowerOff => {
+              power_off = true;
+            }
+            MenuOption::Back => {}
           }
         }
-        embassy_futures::select::Either::Second(hex) => {
-          let app_running = app.try_read()
-            .map(|app| !matches!(*app, AppState::None))
-            .unwrap_or(true);
+        _ => {}
+      }
 
-          if app_running {
-            match *app.write().await {
-              AppState::MenuApp => {
-                menu_app_input_channel.send(MenuAppInput::HexButton(hex)).await;
-                continue;
-              }
-              AppState::HostedApp => {
-                runner_ctx.host_ipc_sender.try_send((0, crate::protocol::HostIpcMessage::HexButton(hex))).ok();
-                continue;
-              }
+      // Clamp selected
+      if *selected as usize >= menu_options.len() {
+        *selected = menu_options.len().saturating_sub(1) as u32;
+      }
+    }
+  }
+
+  // Now apply stack mutations (borrow on stack is released)
+  if let Some(entry) = new_entry {
+    stack.push(entry);
+    return; // stack changed, main loop re-evaluates
+  }
+
+  // Non-blocking check for stack events (e.g. Pushed from HTTP download)
+  if let Some(event) = stack_signal.try_receive() {
+    info!("handle_root_menu: stack event {event:?}");
+    match event {
+      StackEvent::Pushed(StackEntryType::HostedApp) => stack.push(AppStackEntry::HostedApp),
+      StackEvent::Popped => {
+        if stack.len() > 1 { let _ = stack.pop(); }
+      }
+      _ => {}
+    }
+  }
+
+  if power_off {
+    runner_ctx.platform.power_manager().power_off().await;
+  }
+}
+
+async fn handle_menu_app<P: Platform>(
+  stack: &mut Vec<AppStackEntry<P>>,
+  runner_ctx: &MenuRunnerContext<P>,
+  display: &crate::platform::DisplayHandle,
+  stack_signal: &StackSignal,
+) {
+  let idx = stack.len() - 1;
+
+  if let AppStackEntry::MenuApp { app } = &stack[idx] {
+    let _ = display.signal(app.render());
+  }
+
+  let input = select(
+    runner_ctx.platform.system_manager().next_button(),
+    runner_ctx.platform.input_manager().next_button(),
+  ).await;
+
+  match input {
+    Either::First(_system) => {
+      info!("handle_menu_app: boot button — popping app");
+      let _ = stack.pop();
+    }
+    Either::Second(hex) => {
+      info!("handle_menu_app: hex button {hex:?}");
+      let action = if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
+        app.handle_input(MenuAppInput::Button(hex)).await
+      } else {
+        AppAction::Continue
+      };
+      info!("handle_menu_app: action={action:?}");
+
+      // If the app launched a sub-app, push it immediately and return.
+      // Don't check for stale stack events — they'll be consumed by the
+      // next handler. This prevents a stale Popped from a prior WASM
+      // session from popping the entry we just pushed.
+      match action {
+        AppAction::Continue => {}
+        AppAction::Stop => {
+          let _ = stack.pop();
+          info!("handle_menu_app: popped app (stop)");
+        }
+        AppAction::LaunchWasm(name) => {
+          info!("handle_menu_app: launching wasm {name}");
+          runner_ctx.host_ipc_sender.send((
+            0,
+            HostIpcMessage::StartWasm(name),
+          )).await;
+          stack.push(AppStackEntry::HostedApp);
+          return;
+        }
+        AppAction::LaunchNative(name) => {
+          info!("handle_menu_app: launching native {name}");
+          runner_ctx.host_ipc_sender.send((
+            0,
+            HostIpcMessage::StartNative(name),
+          )).await;
+          stack.push(AppStackEntry::HostedApp);
+          return;
+        }
+      }
+
+      // Check for pending stack events after processing non-launch input.
+      // A Popped (WASM finished) may have arrived during the select await.
+      while let Some(event) = stack_signal.try_receive() {
+        info!("handle_menu_app: pending stack event {event:?}");
+        if let StackEvent::Popped = event {
+          if stack.len() > 1 { let _ = stack.pop(); }
+        }
+      }
+    }
+  }
+}
+
+async fn handle_hosted_app<P: Platform>(
+  stack: &mut Vec<AppStackEntry<P>>,
+  runner_ctx: &MenuRunnerContext<P>,
+  _display: &crate::platform::DisplayHandle,
+  stack_signal: &StackSignal,
+) {
+  loop {
+    let input = embassy_futures::select::select3(
+      runner_ctx.platform.system_manager().next_button(),
+      runner_ctx.platform.input_manager().next_button(),
+    stack_signal.receive(),
+  ).await;
+
+    match input {
+      embassy_futures::select::Either3::First(_system) => {
+        runner_ctx.host_ipc_sender.try_send((0, HostIpcMessage::Stop)).ok();
+        // Don't pop — wait for StackEvent::Popped from IPC handler.
+        // Popped events are consumed via select3 (not the main loop), so
+        // the guard below prevents popping below the root entry.
+      }
+      embassy_futures::select::Either3::Second(hex) => {
+        runner_ctx.host_ipc_sender.try_send((0, HostIpcMessage::HexButton(hex))).ok();
+      }
+      embassy_futures::select::Either3::Third(event) => {
+        info!("hosted_app: stack event {event:?}");
+        match event {
+          StackEvent::Popped => {
+            if stack.len() > 1 {
+              let _ = stack.pop();
+            }
+            return;
+          }
+          StackEvent::Pushed(typ) => {
+            match typ {
+              StackEntryType::HostedApp => stack.push(AppStackEntry::HostedApp),
               _ => {}
             }
           }
-
-          match hex {
-            HexButton::Up => { if state.selected > 0 { state.selected -= 1; } }
-            HexButton::Right => { runner_ctx.platform.led_manager().request(LedRequest::Sparkle(LedState::new(255, 255, 255))); }
-            HexButton::Fire => { state.execute_option().await; }
-            HexButton::Down => { state.selected += 1; }
-            _ => {}
-          }
         }
       }
     }
-  };
-
-  let menu_app_runner = async {
-    loop {
-      if let MenuAppInput::Start(app_name) = menu_app_input_channel.receive().await {
-        info!("menu_app_runner: Start app={app_name}");
-        *app.write().await = AppState::MenuApp;
-
-        let ctx = MenuAppContext::new(
-          menu_app_input_channel.receiver(),
-          runner_ctx.platform.clone(),
-          runner_ctx.host_ipc_sender.clone(),
-        );
-
-        // Try generic loader first, then custom firmware loader
-        match MenuAppType::<P>::load_app_async(&app_name, ctx) {
-          Ok(mut menu_app) => {
-            info!("menu_app_runner: built-in app started");
-            menu_app.work().await;
-            info!("menu_app_runner: built-in app finished");
-          }
-          Err(ctx) => {
-            info!("menu_app_runner: not a built-in app, trying app_loader");
-            if let Some(loader) = runner_ctx.app_loader {
-              loader(app_name, ctx).await;
-              info!("menu_app_runner: app_loader returned");
-            } else {
-              info!("menu_app_runner: no app_loader available");
-            }
-          }
-        }
-
-        let wasm_launching = WASM_LAUNCHING.swap(false, Ordering::Acquire);
-        info!("menu_app_runner: WASM_LAUNCHING={wasm_launching}");
-        if wasm_launching {
-          *app.write().await = AppState::HostedApp;
-        } else {
-          *app.write().await = AppState::None;
-        }
-      }
-    }
-  };
-
-  join::join(menu_runner, menu_app_runner).await;
+  }
 }

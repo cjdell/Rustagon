@@ -1,80 +1,94 @@
-use crate::{
-  apps::{MenuAppInput, MenuAppType},
-  menu::{menus::*, types::*},
-  native::NativeAppType,
-  platform::Platform,
-  types::*,
-};
-use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc, vec, vec::Vec};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
+use crate::{apps::MenuAppType, menu::types::*, platform::Platform};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU8, Ordering};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 
-pub struct MenuState<P: Platform> {
-  pub ctx: MenuContext<P>,
-  pub app: Arc<RwLock<CriticalSectionRawMutex, AppState>>,
-  pub current_menu: Menu,
-  pub menu_options: Vec<MenuOption>,
-  pub selected: u32,
-  pub http_message: HttpStatusMessage,
-}
-
-#[derive(Debug)]
-pub enum AppState {
-  None,
+#[derive(Debug, Clone, PartialEq)]
+pub enum StackEntryType {
+  RootMenu,
   MenuApp,
   HostedApp,
 }
 
-impl<P: Platform> MenuState<P> {
-  pub async fn refresh(&mut self) {
-    let app = &self.app.clone();
-    if let Ok(app) = app.try_read() {
-      log::info!("refresh: app_state={:?}", *app);
-      match *app {
-        AppState::None => self.draw_menu().await,
-        AppState::MenuApp => {
-          self.ctx.menu_app_input_channel.send(MenuAppInput::Refresh).await;
-        }
-        AppState::HostedApp => {}
-      };
+pub enum AppStackEntry<P: Platform> {
+  RootMenu {
+    menu_options: Vec<MenuOption>,
+    selected: u32,
+  },
+  MenuApp {
+    app: MenuAppType<P>,
+  },
+  HostedApp,
+}
+
+impl<P: Platform> AppStackEntry<P> {
+  pub fn entry_type(&self) -> StackEntryType {
+    match self {
+      Self::RootMenu { .. } => StackEntryType::RootMenu,
+      Self::MenuApp { .. } => StackEntryType::MenuApp,
+      Self::HostedApp => StackEntryType::HostedApp,
+    }
+  }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StackEvent {
+  Pushed(StackEntryType),
+  Popped,
+}
+
+const SIGNAL_NONE: u8 = 0;
+const SIGNAL_POPPED: u8 = 1;
+const SIGNAL_PUSHED: u8 = 2;
+
+pub struct StackSignal {
+  state: AtomicU8,
+  waker: Signal<CriticalSectionRawMutex, ()>,
+}
+
+impl StackSignal {
+  pub fn new() -> Self {
+    Self { state: AtomicU8::new(SIGNAL_NONE), waker: Signal::new() }
+  }
+
+  pub fn send(&self, event: StackEvent) {
+    let val = match event {
+      StackEvent::Popped => SIGNAL_POPPED,
+      StackEvent::Pushed(_) => SIGNAL_PUSHED,
+    };
+    self.state.store(val, Ordering::Release);
+    self.waker.signal(());
+  }
+
+  /// Non-blocking check. Returns `Some(event)` if one was sent since the last
+  /// `try_receive` or `receive` call.
+  pub fn try_receive(&self) -> Option<StackEvent> {
+    match self.state.swap(SIGNAL_NONE, Ordering::Acquire) {
+      SIGNAL_POPPED => Some(StackEvent::Popped),
+      SIGNAL_PUSHED => Some(StackEvent::Pushed(StackEntryType::HostedApp)),
+      _ => None,
     }
   }
 
-  pub async fn get_menu_provider(&mut self) -> StaticMenu {
-    StaticMenu {
-      items: vec![
-        MenuAppType::<P>::list_apps().iter()
-          .map(|name| MenuOption::App { name, app_type: AppType::MenuApp })
-          .collect(),
-        NativeAppType::list_apps().iter()
-          .map(|name| MenuOption::App { name, app_type: AppType::NativeApp })
-          .collect(),
-        self.ctx.additional_apps.iter()
-          .map(|name| MenuOption::App { name, app_type: AppType::MenuApp })
-          .collect(),
-        vec![MenuOption::PowerOff],
-      ].concat(),
+  /// Block until an event is available, then return it.
+  pub async fn receive(&self) -> StackEvent {
+    loop {
+      if let Some(event) = self.try_receive() {
+        return event;
+      }
+      self.waker.wait().await;
     }
   }
 
-  pub fn get_menu_screen(&self, menu: &[MenuOption]) -> LcdScreen {
-    match self.http_message {
-      HttpStatusMessage::Progress(transferred, total) => return LcdScreen::BoundedProgress(transferred, total),
-      _ => (),
-    }
-    LcdScreen::Menu {
-      menu: menu.iter().map(|option| match option {
-        MenuOption::App { name, .. } => MenuLine(Icon20::Info, name.to_string()),
-        MenuOption::Back => MenuLine(Icon20::Info, "<= Back".to_owned()),
-        MenuOption::PowerOff => MenuLine(Icon20::Info, "Power Off".to_owned()),
-      }).collect(),
-      selected: self.selected,
-    }
+  pub fn reset(&self) {
+    self.state.store(SIGNAL_NONE, Ordering::Release);
   }
+}
 
-  pub async fn draw_menu(&mut self) {
-    if self.selected >= self.menu_options.len() as u32 {
-      self.selected = if self.menu_options.is_empty() { 0 } else { self.menu_options.len() as u32 - 1 };
-    }
-    let _ = self.ctx.display.signal(self.get_menu_screen(&self.menu_options));
-  }
+pub type StackEventHandle = Arc<StackSignal>;
+
+pub fn create_stack_event_handle() -> StackEventHandle {
+  Arc::new(StackSignal::new())
 }

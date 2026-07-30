@@ -2,20 +2,15 @@ mod platform;
 mod tasks;
 mod embassy_time_driver;
 
-use app::apps::common::WASM_LAUNCHING;
 use app::menu::menu_task;
-use app::menu::state::AppState;
 use app::menu::types::MenuRunnerContext;
 use app::platform::Platform;
 use app::protocol::HostIpcChannel;
 use app::types::{HexButton, SystemMessage};
-use core::sync::atomic::Ordering;
 use display_renderer::{FrameBuffer, LcdState};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
 use embedded_graphics::prelude::RawData as _;
 use minifb::{Key, Window, WindowOptions};
 use platform::{DesktopPlatform, DesktopInputManager, DesktopSystemManager};
-use std::pin::Pin;
 use std::sync::Arc;
 
 const WIDTH: usize = 240;
@@ -34,15 +29,16 @@ fn main() {
     let host_sender = host_channel.sender();
     let host_receiver = host_channel.receiver();
 
-    let app_state = Arc::new(RwLock::<CriticalSectionRawMutex, AppState>::new(AppState::None));
+    // Stack signal — IPC handler sends events, menu runner consumes
+    let stack_event_handle = app::menu::state::create_stack_event_handle();
+    let stack_event_for_wasm = stack_event_handle.clone();
 
     // App loader: sends StartWasm over IPC when user picks a WASM app.
     let app_loader: Option<
-        fn(String, app::apps::MenuAppContext<platform::DesktopPlatform>) -> Pin<Box<dyn std::future::Future<Output = ()>>>,
+        fn(String, app::apps::MenuAppContext<platform::DesktopPlatform>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>,
     > = Some(|name: String, ctx: app::apps::MenuAppContext<platform::DesktopPlatform>| {
         Box::pin(async move {
-            log::info!("app_loader: WASM_LAUNCHING=true, sending StartWasm({name})");
-            WASM_LAUNCHING.store(true, Ordering::Release);
+            log::info!("app_loader: sending StartWasm({name})");
             let result = ctx.host_ipc_sender.try_send((0, app::protocol::HostIpcMessage::StartWasm(name)));
             log::info!("app_loader: try_send result={result:?}");
         })
@@ -52,7 +48,7 @@ fn main() {
         storage: platform.storage_manager(),
         platform: (*platform).clone(),
         host_ipc_sender: host_sender.clone(),
-        app_state: Some(app_state.clone()),
+        stack_event_handle,
         app_loader,
         additional_apps: &[],
     };
@@ -61,10 +57,10 @@ fn main() {
     tasks::wasm::spawn_wasm_runner(
         host_receiver.clone(),
         host_sender.clone(),
+        stack_event_for_wasm,
         platform.http_client().unwrap(),
         platform.display_manager(),
         platform.storage_manager(),
-        app_state.clone(),
     );
 
     // Spawn the menu task on a background thread
@@ -196,5 +192,3 @@ impl FrameBuffer for DesktopFrameBuffer<'_> {
     fn buffer_width(&self) -> u32 { WIDTH as u32 }
     fn buffer_height(&self) -> u32 { HEIGHT as u32 }
 }
-
-

@@ -1,6 +1,5 @@
 use crate::{
-  apps::common::AppName,
-  apps::{MenuAppAsync, MenuAppInput, MenuAppContext},
+  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
@@ -95,110 +94,6 @@ impl<P: Platform> AppStoreApp<P> {
     serde_json::from_slice::<AppList>(&body).map_err(|_| ())
   }
 
-  fn render(&self) {
-    let screen = match &self.state.screen {
-      Screen::Welcome => LcdScreen::Headline(Icon40::Info, "Press B to refresh".to_string()),
-      Screen::Loading => LcdScreen::Progress("Loading apps...".to_string()),
-      Screen::AppList => LcdScreen::Menu {
-        menu: self
-          .state
-          .app_list
-          .as_ref()
-          .map(|apps| apps.iter().map(|app| MenuLine(Icon20::File, app.name.clone())).collect())
-          .unwrap_or_default(),
-        selected: self.state.cursor as u32,
-      },
-      Screen::AppInfo => {
-        if let Some(app) = self.state.current_app() {
-          LcdScreen::Menu {
-            menu: vec![
-              MenuLine(Icon20::Info, format!("Name: {}", app.name)),
-              MenuLine(Icon20::Info, format!("Size: {}", app.size)),
-              MenuLine(Icon20::Info, "Download".to_string()),
-              MenuLine(Icon20::Info, "Back".to_string()),
-            ],
-            selected: self.state.cursor as u32 + 2,
-          }
-        } else {
-          LcdScreen::Headline(Icon40::Error, "App not found".to_string())
-        }
-      }
-    };
-    self.ctx.update_lcd(screen);
-  }
-
-  async fn handle_welcome_input(&mut self, input: HexButton) {
-    if let HexButton::Right = input {
-      self.state.screen = Screen::Loading;
-      self.render();
-
-      let app_list = match self.download_manifest().await {
-        Ok(app_list) => app_list,
-        Err(()) => {
-          self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
-          sleep(1_000).await;
-          return;
-        }
-      };
-
-      self.state.screen = Screen::AppList;
-      self.state.app_list = Some(app_list);
-      self.state.reset_cursor();
-    }
-  }
-
-  async fn handle_app_list_input(&mut self, input: HexButton) {
-    match input {
-      HexButton::Up => self.state.move_cursor_up(),
-      HexButton::Down => self.state.move_cursor_down(self.state.app_count()),
-      HexButton::Right => {
-        self.state.screen = Screen::Loading;
-        self.render();
-
-        let app_list = match self.download_manifest().await {
-          Ok(app_list) => app_list,
-          Err(()) => {
-            self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
-            sleep(1_000).await;
-            return;
-          }
-        };
-
-        self.state.screen = Screen::AppList;
-        self.state.app_list = Some(app_list);
-        self.state.reset_cursor();
-      }
-      HexButton::Fire => {
-        self.state.selected_app_index = self.state.cursor;
-        self.state.screen = Screen::AppInfo;
-        self.state.cursor = 0;
-      }
-      _ => {}
-    }
-  }
-
-  async fn handle_app_info_input(&mut self, input: HexButton) {
-    match input {
-      HexButton::Up => self.state.move_cursor_up(),
-      HexButton::Down => self.state.move_cursor_down(2),
-      HexButton::Fire => {
-        let current_app = self.state.current_app().unwrap().clone();
-        if self.state.cursor == 0 {
-          // Download selected
-          if let Err(()) = self.download(&current_app).await {
-            self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Download Error!".to_string()));
-            sleep(1_000).await;
-          }
-        } else {
-          // Back
-          self.state.screen = Screen::AppList;
-          self.state.cursor = self.state.selected_app_index;
-        }
-      }
-      _ => {}
-    }
-  }
-
   async fn download(&self, app: &AppEntry) -> Result<(), ()> {
     let http_client = self.ctx.platform.http_client().ok_or(())?;
 
@@ -241,19 +136,113 @@ impl<P: Platform> AppStoreApp<P> {
   }
 }
 
-impl<P: Platform> MenuAppAsync for AppStoreApp<P> {
-  async fn work(&mut self) -> bool {
-    loop {
-      self.render();
-      match self.ctx.input_receiver.receive().await {
-        MenuAppInput::HexButton(input) => match &self.state.screen {
-          Screen::Welcome => self.handle_welcome_input(input).await,
+impl<P: Platform> MenuApp for AppStoreApp<P> {
+  fn render(&self) -> LcdScreen {
+    match &self.state.screen {
+      Screen::Welcome => LcdScreen::Headline(Icon40::Info, "Press B to refresh".to_string()),
+      Screen::Loading => LcdScreen::Progress("Loading apps...".to_string()),
+      Screen::AppList => LcdScreen::Menu {
+        menu: self
+          .state
+          .app_list
+          .as_ref()
+          .map(|apps| apps.iter().map(|app| MenuLine(Icon20::File, app.name.clone())).collect())
+          .unwrap_or_default(),
+        selected: self.state.cursor as u32,
+      },
+      Screen::AppInfo => {
+        if let Some(app) = self.state.current_app() {
+          LcdScreen::Menu {
+            menu: vec![
+              MenuLine(Icon20::Info, format!("Name: {}", app.name)),
+              MenuLine(Icon20::Info, format!("Size: {}", app.size)),
+              MenuLine(Icon20::Info, "Download".to_string()),
+              MenuLine(Icon20::Info, "Back".to_string()),
+            ],
+            selected: self.state.cursor as u32 + 2,
+          }
+        } else {
+          LcdScreen::Headline(Icon40::Error, "App not found".to_string())
+        }
+      }
+    }
+  }
+
+  async fn init(&mut self) {}
+
+  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
+    match input {
+      MenuAppInput::Stop => AppAction::Stop,
+      MenuAppInput::Button(hex) => {
+        match &self.state.screen {
+          Screen::Welcome => {
+            if let HexButton::Right = hex {
+              self.state.screen = Screen::Loading;
+              self.ctx.update_lcd(self.render());
+              match self.download_manifest().await {
+                Ok(app_list) => {
+                  self.state.screen = Screen::AppList;
+                  self.state.app_list = Some(app_list);
+                  self.state.reset_cursor();
+                }
+                Err(()) => {
+                  self.state.screen = Screen::Welcome;
+                  self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
+                  sleep(1_000).await;
+                }
+              }
+            }
+          }
           Screen::Loading => {}
-          Screen::AppList => self.handle_app_list_input(input).await,
-          Screen::AppInfo => self.handle_app_info_input(input).await,
-        },
-        MenuAppInput::Stop => return false,
-        _ => {}
+          Screen::AppList => {
+            match hex {
+              HexButton::Up => self.state.move_cursor_up(),
+              HexButton::Down => self.state.move_cursor_down(self.state.app_count()),
+              HexButton::Right => {
+                self.state.screen = Screen::Loading;
+                self.ctx.update_lcd(self.render());
+                match self.download_manifest().await {
+                  Ok(app_list) => {
+                    self.state.screen = Screen::AppList;
+                    self.state.app_list = Some(app_list);
+                    self.state.reset_cursor();
+                  }
+                  Err(()) => {
+                    self.state.screen = Screen::AppList;
+                    self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
+                    sleep(1_000).await;
+                  }
+                }
+              }
+              HexButton::Fire => {
+                self.state.selected_app_index = self.state.cursor;
+                self.state.screen = Screen::AppInfo;
+                self.state.cursor = 0;
+              }
+              _ => {}
+            }
+          }
+          Screen::AppInfo => {
+            match hex {
+              HexButton::Up => self.state.move_cursor_up(),
+              HexButton::Down => self.state.move_cursor_down(2),
+              HexButton::Fire => {
+                let current_app = self.state.current_app().unwrap().clone();
+                if self.state.cursor == 0 {
+                  if let Err(()) = self.download(&current_app).await {
+                    self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Download Error!".to_string()));
+                    sleep(1_000).await;
+                  }
+                } else {
+                  self.state.screen = Screen::AppList;
+                  self.state.cursor = self.state.selected_app_index;
+                }
+              }
+              _ => {}
+            }
+          }
+        }
+        AppAction::Continue
       }
     }
   }

@@ -1,11 +1,9 @@
 use crate::{
-  apps::{common::{AppName, WASM_LAUNCHING}, MenuAppAsync, MenuAppInput, MenuAppContext},
+  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
   platform::Platform,
-  protocol::HostIpcMessage,
   types::*,
   utils::sleep,
 };
-use core::sync::atomic::Ordering;
 use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use embedded_tools::local_fs::DirEntry;
 use log::{info, warn};
@@ -42,8 +40,8 @@ impl AppState {
   fn detail_action_count(file: &DirEntry) -> usize {
     let mut count = 0usize;
     if Self::is_wasm(&file.name) { count += 1; }
-    count += 1; // Delete
-    count += 1; // Back
+    count += 1;
+    count += 1;
     count
   }
 }
@@ -63,7 +61,9 @@ impl<P: Platform> FilesApp<P> {
     sleep(2_000).await;
     self.state.message = None;
   }
+}
 
+impl<P: Platform> MenuApp for FilesApp<P> {
   fn render(&self) -> LcdScreen {
     if let Some(ref msg) = self.state.message {
       return LcdScreen::Headline(Icon40::Info, msg.clone());
@@ -93,7 +93,25 @@ impl<P: Platform> FilesApp<P> {
     }
   }
 
-  async fn handle_file_list_input(&mut self, input: HexButton) -> bool {
+  async fn init(&mut self) {
+    self.refresh_files().await;
+  }
+
+  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
+    match input {
+      MenuAppInput::Stop => AppAction::Stop,
+      MenuAppInput::Button(hex) => {
+        match &self.state.screen {
+          Screen::FileList => self.handle_file_list_input(hex).await,
+          Screen::FileDetail => self.handle_file_detail_input(hex).await,
+        }
+      }
+    }
+  }
+}
+
+impl<P: Platform> FilesApp<P> {
+  async fn handle_file_list_input(&mut self, input: HexButton) -> AppAction {
     let max = self.state.files.len() + 1;
     match input {
       HexButton::Up => self.state.move_cursor_up(),
@@ -103,29 +121,27 @@ impl<P: Platform> FilesApp<P> {
           self.state.selected_file = Some(self.state.files[self.state.cursor].clone());
           self.state.cursor = 0;
           self.state.screen = Screen::FileDetail;
-        } else { return true; }
+        } else { return AppAction::Stop; }
       }
       _ => {}
     }
-    false
+    AppAction::Continue
   }
 
-  async fn handle_file_detail_input(&mut self, input: HexButton) -> bool {
-    let file = match &self.state.selected_file { Some(f) => f.clone(), None => return false };
+  async fn handle_file_detail_input(&mut self, input: HexButton) -> AppAction {
+    let file = match &self.state.selected_file { Some(f) => f.clone(), None => return AppAction::Stop };
     let info_lines = 2;
     let max = AppState::detail_action_count(&file);
     match input {
       HexButton::Up => self.state.move_cursor_up(),
       HexButton::Down => self.state.move_cursor_down(max + info_lines),
       HexButton::Fire => {
-        if self.state.cursor < info_lines { return false; }
+        if self.state.cursor < info_lines { return AppAction::Continue; }
         let action_idx = self.state.cursor - info_lines;
         let has_execute = AppState::is_wasm(&file.name);
         if has_execute && action_idx == 0 {
           info!("Executing WASM: {}", file.name);
-          WASM_LAUNCHING.store(true, Ordering::Release);
-          self.ctx.host_ipc_sender.send((0, HostIpcMessage::StartWasm(file.name))).await;
-          return true;
+          return AppAction::LaunchWasm(file.name);
         }
         let delete_idx = if has_execute { 1 } else { 0 };
         if action_idx == delete_idx {
@@ -133,34 +149,13 @@ impl<P: Platform> FilesApp<P> {
             Ok(()) => { self.state.screen = Screen::FileList; self.state.cursor = 0; self.refresh_files().await; }
             Err(err) => { warn!("Delete error: {err:?}"); self.set_message("Delete failed!").await; }
           }
-          return false;
+          return AppAction::Continue;
         }
         self.state.screen = Screen::FileList; self.state.cursor = 0;
       }
       HexButton::Right | HexButton::Left => { self.state.screen = Screen::FileList; self.state.cursor = 0; }
       _ => {}
     }
-    false
-  }
-}
-
-impl<P: Platform> MenuAppAsync for FilesApp<P> {
-  async fn work(&mut self) -> bool {
-    self.refresh_files().await;
-    loop {
-      self.ctx.update_lcd(self.render());
-      match self.ctx.input_receiver.receive().await {
-        MenuAppInput::HexButton(input) => {
-          let should_stop = match &self.state.screen {
-            Screen::FileList => self.handle_file_list_input(input).await,
-            Screen::FileDetail => self.handle_file_detail_input(input).await,
-          };
-          if should_stop { return false; }
-        }
-        MenuAppInput::Refresh => self.refresh_files().await,
-        MenuAppInput::Stop => return false,
-        _ => {}
-      }
-    }
+    AppAction::Continue
   }
 }

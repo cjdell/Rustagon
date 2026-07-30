@@ -2,19 +2,12 @@ use crate::{
   platform::{HardwarePlatform, Platform},
   protocol::*,
   types::*,
-  utils::sleep,
 };
-use app::menu::state::AppState;
-use alloc::{string::ToString, sync::Arc};
+use app::menu::state::{StackEvent, StackEntryType, StackEventHandle};
 use app::platform::HttpEventChannel;
 use app::protocol::HttpEvent;
-use core::sync::atomic::Ordering;
 use core::future::join;
 use embassy_futures::select::{Either, select};
-use embassy_sync::{
-  blocking_mutex::raw::CriticalSectionRawMutex,
-  rwlock::RwLock,
-};
 use log::info;
 
 #[embassy_executor::task]
@@ -22,8 +15,8 @@ pub async fn ipc_handler_task(
   wasm_ipc_channel: &'static WasmIpcChannel,
   http_event_receiver: HttpReceiver,
   host_ipc_sender: HostIpcSender,
+  stack_event_handle: StackEventHandle,
   platform: HardwarePlatform,
-  app_state: Arc<RwLock<CriticalSectionRawMutex, AppState>>,
 ) {
   info!("Starting IPC Handler Task...");
 
@@ -35,10 +28,10 @@ pub async fn ipc_handler_task(
     .await
     {
       Either::First((wasm_req_id, wasm_ipc_message)) => {
-        handle_wasm_message(wasm_req_id, wasm_ipc_message, &host_ipc_sender, &platform, &app_state).await;
+        handle_wasm_message(wasm_req_id, wasm_ipc_message, &host_ipc_sender, &platform, &stack_event_handle).await;
       }
       Either::Second(http_message) => {
-        handle_http_event(http_message, &host_ipc_sender).await;
+        handle_http_event(http_message, &host_ipc_sender, &stack_event_handle).await;
       }
     }
   }
@@ -49,23 +42,13 @@ async fn handle_wasm_message(
   wasm_ipc_message: WasmIpcMessage,
   host_ipc_sender: &HostIpcSender,
   platform: &HardwarePlatform,
-  app_state: &Arc<RwLock<CriticalSectionRawMutex, AppState>>,
+  stack_event_handle: &StackEventHandle,
 ) {
   match wasm_ipc_message {
-    WasmIpcMessage::Started => {
-      *app_state.write().await = AppState::HostedApp;
-    }
-    WasmIpcMessage::MenuAppStarted => {
-      *app_state.write().await = AppState::MenuApp;
-    }
+    WasmIpcMessage::Started => {}
+    WasmIpcMessage::MenuAppStarted => {}
     WasmIpcMessage::Stopped => {
-      if app::apps::common::WASM_LAUNCHING.swap(false, Ordering::Acquire) {
-        *app_state.write().await = AppState::HostedApp;
-      } else {
-        *app_state.write().await = AppState::None;
-        let _ = platform.display_manager().signal(LcdScreen::Headline(Icon40::Info, "App Terminated".to_string()));
-        sleep(1_000).await;
-      }
+      stack_event_handle.send(StackEvent::Popped);
     }
     WasmIpcMessage::LcdScreen(lcd_screen) => {
       let _ = platform.display_manager().signal(lcd_screen);
@@ -110,9 +93,10 @@ async fn handle_wasm_message(
 async fn handle_http_event(
   http_message: HttpStatusMessage,
   host_ipc_sender: &HostIpcSender,
+  stack_event_handle: &StackEventHandle,
 ) {
   if let HttpStatusMessage::ReceivedFile(buffer) = http_message {
-    app::apps::common::WASM_LAUNCHING.store(true, Ordering::Release);
+    stack_event_handle.send(StackEvent::Pushed(StackEntryType::HostedApp));
     host_ipc_sender.send((0, HostIpcMessage::StartWasmWithBuffer(buffer))).await;
   }
 }

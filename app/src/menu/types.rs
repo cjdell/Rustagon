@@ -1,10 +1,9 @@
 use crate::apps::MenuAppContext;
-use crate::menu::state::AppState;
-use crate::platform::{display::DisplayHandle, Platform, StorageHandle};
+use crate::menu::state::StackEventHandle;
+use crate::platform::Platform;
 use crate::protocol::HostIpcSender;
-use alloc::{boxed::Box, string::String, sync::Arc};
+use alloc::{boxed::Box, string::String};
 use core::{fmt, future::Future, pin::Pin};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
 
 #[derive(Clone)]
 pub enum Menu { Root }
@@ -23,15 +22,14 @@ pub enum MenuOption {
 #[derive(Clone, Debug)]
 pub enum AppType { MenuApp, NativeApp }
 
-/// Custom loader for firmware-specific apps not found in `MenuAppType`.
 pub type AppLoader<P> =
   fn(String, MenuAppContext<P>) -> Pin<Box<dyn Future<Output = ()>>>;
 
 pub struct MenuRunnerContext<P: Platform> {
-  pub storage: StorageHandle,
+  pub storage: crate::platform::StorageHandle,
   pub platform: P,
   pub host_ipc_sender: HostIpcSender,
-  pub app_state: Option<Arc<RwLock<CriticalSectionRawMutex, AppState>>>,
+  pub stack_event_handle: StackEventHandle,
   pub app_loader: Option<AppLoader<P>>,
   pub additional_apps: &'static [&'static str],
 }
@@ -42,30 +40,8 @@ impl<P: Platform> Clone for MenuRunnerContext<P> {
       storage: self.storage.clone(),
       platform: self.platform.clone(),
       host_ipc_sender: self.host_ipc_sender,
-      app_state: self.app_state.clone(),
+      stack_event_handle: self.stack_event_handle.clone(),
       app_loader: self.app_loader,
-      additional_apps: self.additional_apps,
-    }
-  }
-}
-
-pub struct MenuContext<P: Platform> {
-  pub storage: StorageHandle,
-  pub platform: P,
-  pub host_ipc_sender: HostIpcSender,
-  pub display: DisplayHandle,
-  pub menu_app_input_channel: &'static crate::apps::MenuAppInputChannel,
-  pub additional_apps: &'static [&'static str],
-}
-
-impl<P: Platform> Clone for MenuContext<P> {
-  fn clone(&self) -> Self {
-    Self {
-      storage: self.storage.clone(),
-      platform: self.platform.clone(),
-      host_ipc_sender: self.host_ipc_sender,
-      display: self.display.clone(),
-      menu_app_input_channel: self.menu_app_input_channel,
       additional_apps: self.additional_apps,
     }
   }

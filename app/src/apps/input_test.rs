@@ -1,9 +1,9 @@
 use crate::{
-  apps::{MenuAppAsync, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
   platform::Platform,
   types::*,
 };
-use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec};
 
 pub struct InputTestApp<P: Platform> {
   ctx: MenuAppContext<P>,
@@ -80,8 +80,8 @@ fn bit(btn: &HexButton) -> u32 {
   0
 }
 
-fn render(pressed: u32) -> LcdScreen {
-  let mut lines: Vec<MenuLine> = ALL_BUTTONS
+fn render_state(pressed: u32) -> LcdScreen {
+  let lines: Vec<MenuLine> = ALL_BUTTONS
     .iter()
     .filter(|btn| pressed & bit(btn) == 0)
     .map(|btn| MenuLine(Icon20::Info, button_label(btn).to_string()))
@@ -89,7 +89,7 @@ fn render(pressed: u32) -> LcdScreen {
 
   let remaining = lines.len();
 
-  let msg = if remaining == 0 {
+  let _msg = if remaining == 0 {
     "All buttons work!".to_string()
   } else {
     format!("{remaining} buttons remaining")
@@ -107,21 +107,24 @@ impl<P: Platform> InputTestApp<P> {
   }
 }
 
-impl<P: Platform> MenuAppAsync for InputTestApp<P> {
-  async fn work(&mut self) -> bool {
-    let total = ALL_BUTTONS.len();
-    loop {
-      self.ctx.update_lcd(render(self.pressed));
-      match self.ctx.input_receiver.receive().await {
-        MenuAppInput::HexButton(input) => {
-          self.pressed |= bit(&input);
-          // Exit when every button has been pressed at least once
-          if self.pressed.count_ones() as usize >= total {
-            return false;
-          }
+impl<P: Platform> MenuApp for InputTestApp<P> {
+  fn render(&self) -> LcdScreen {
+    render_state(self.pressed)
+  }
+
+  async fn init(&mut self) {}
+
+  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
+    match input {
+      MenuAppInput::Stop => AppAction::Stop,
+      MenuAppInput::Button(btn) => {
+        self.pressed |= bit(&btn);
+        let total = ALL_BUTTONS.len();
+        if self.pressed.count_ones() as usize >= total {
+          AppAction::Stop
+        } else {
+          AppAction::Continue
         }
-        MenuAppInput::Stop => return false,
-        _ => {}
       }
     }
   }

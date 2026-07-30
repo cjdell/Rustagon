@@ -2,47 +2,43 @@ pub mod context;
 
 pub use context::*;
 
-use app::apps::common::WASM_LAUNCHING;
-use app::menu::state::AppState;
+use app::menu::state::{StackEvent, StackEntryType, StackEventHandle};
 use app::platform::{HttpClientHandle, display::DisplayHandle};
 use app::protocol::*;
 use app::wasm::wasmi_runner;
-use core::sync::atomic::Ordering;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Receiver;
 use futures::future::join;
 use log::{info, warn};
 use std::sync::Arc;
 
-/// Spawns the desktop WASM runner on a background thread.
-/// Mirrors firmware's `second_core_task` (Embassy task on core 1).
 pub fn spawn_wasm_runner(
-    host_receiver: HostIpcReceiver,
+    host_receiver: Receiver<'static, CriticalSectionRawMutex, (u32, HostIpcMessage), 1>,
     host_sender: HostIpcSender,
+    stack_event_handle: StackEventHandle,
     http_client: HttpClientHandle,
     display: DisplayHandle,
     storage: app::platform::StorageHandle,
-    app_state: Arc<RwLock<CriticalSectionRawMutex, AppState>>,
 ) {
     std::thread::spawn(move || {
         futures::executor::block_on(wasm_host_loop(
             host_receiver,
             host_sender,
+            stack_event_handle,
             http_client,
             display,
             storage,
-            app_state,
         ));
     });
 }
 
-/// Message dispatch loop. Mirrors firmware's `wasm_host_loop`.
 async fn wasm_host_loop(
-    host_receiver: HostIpcReceiver,
+    host_receiver: Receiver<'static, CriticalSectionRawMutex, (u32, HostIpcMessage), 1>,
     host_sender: HostIpcSender,
+    stack_event_handle: StackEventHandle,
     http_client: HttpClientHandle,
     display: DisplayHandle,
     storage: app::platform::StorageHandle,
-    app_state: Arc<RwLock<CriticalSectionRawMutex, AppState>>,
 ) {
     info!("Desktop WASM runner loop started");
 
@@ -66,9 +62,9 @@ async fn wasm_host_loop(
                     buf,
                     host_sender.clone(),
                     host_receiver.clone(),
+                    stack_event_handle.clone(),
                     http_client.clone(),
                     display.clone(),
-                    app_state.clone(),
                 )
                 .await;
                 info!("wasm_host_loop: run_program returned");
@@ -79,9 +75,9 @@ async fn wasm_host_loop(
                     buffer,
                     host_sender.clone(),
                     host_receiver.clone(),
+                    stack_event_handle.clone(),
                     http_client.clone(),
                     display.clone(),
-                    app_state.clone(),
                 )
                 .await;
                 info!("wasm_host_loop: run_program returned");
@@ -93,15 +89,13 @@ async fn wasm_host_loop(
     }
 }
 
-/// Runs one WASM program: interpreter + IPC handler concurrently.
-/// Mirrors firmware's `run_program` (without the linker/setup — that's in `app::wasm`).
 async fn run_program(
     wasm_buffer: Vec<u8>,
     host_sender: HostIpcSender,
-    host_receiver: HostIpcReceiver,
+    host_receiver: Receiver<'static, CriticalSectionRawMutex, (u32, HostIpcMessage), 1>,
+    stack_event_handle: StackEventHandle,
     http_client: HttpClientHandle,
     display: DisplayHandle,
-    app_state: Arc<RwLock<CriticalSectionRawMutex, AppState>>,
 ) {
     let wasm_channel = Box::leak(Box::new(WasmIpcChannel::new()));
     let wasm_receiver = wasm_channel.receiver();
@@ -159,13 +153,10 @@ async fn run_program(
                     let _ = display.signal(screen);
                 }
                 WasmIpcMessage::Stopped => {
-                    *app_state.write().await = AppState::None;
                     info!("run_program/ipc: Received Stopped");
                     break;
                 }
-                WasmIpcMessage::Started | WasmIpcMessage::MenuAppStarted => {
-                    *app_state.write().await = AppState::HostedApp;
-                }
+                WasmIpcMessage::Started | WasmIpcMessage::MenuAppStarted => {}
             }
         }
     };
@@ -175,8 +166,6 @@ async fn run_program(
     info!("run_program: join completed, cleaning up");
 
     *LCD_BUFFER.lock().unwrap() = None;
-
-    WASM_LAUNCHING.store(false, Ordering::Release);
-    *app_state.write().await = AppState::None;
+    stack_event_handle.send(StackEvent::Popped);
     info!("run_program: session complete");
 }

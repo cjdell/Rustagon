@@ -85,8 +85,8 @@ async fn wasm_host_loop(
                     error!("A error occurred whilst running the program: {err}");
                 }
 
-                wasm_ipc_sender.send((0, WasmIpcMessage::Stopped)).await;
-
+                // wasmi_runner already sends WasmIpcMessage::Stopped on
+                // completion or abort — do not send a second one here.
                 info!("Wasm: Stopped");
                 print_memory_info();
             }
@@ -115,8 +115,8 @@ async fn wasm_host_loop(
                     error!("A error occurred whilst running the program: {err}");
                 }
 
-                wasm_ipc_sender.send((0, WasmIpcMessage::Stopped)).await;
-
+                // wasmi_runner already sends WasmIpcMessage::Stopped on
+                // completion or abort — do not send a second one here.
                 info!("Wasm: Stopped");
                 print_memory_info();
             }

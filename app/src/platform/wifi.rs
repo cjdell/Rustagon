@@ -1,6 +1,5 @@
 use crate::types::{WifiDesiredState, WifiResult};
 use alloc::boxed::Box;
-use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{fmt, future::Future, net::Ipv4Addr, pin::Pin};
