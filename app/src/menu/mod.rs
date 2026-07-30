@@ -180,6 +180,14 @@ async fn handle_root_menu<P: Platform>(
         }
         Either::Second(dev_event) => {
           info!("handle_root_menu: device event {dev_event:?}");
+          // Inject navigation keys as HexButton for menu navigation
+          if let DeviceEvent::Keyboard(ke) = &dev_event {
+            if ke.typ == KeyEventType::Pressed {
+              if let Some(nav) = device_key_to_nav(ke.code) {
+                runner_ctx.platform.input_manager().inject_button(nav).await;
+              }
+            }
+          }
         }
       }
     }
