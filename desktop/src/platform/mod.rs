@@ -10,6 +10,7 @@ pub use display::DesktopDisplayManager;
 pub use fs::DesktopLocalFs;
 pub use input::DesktopInputManager;
 
+use app::platform::hexpansion::HexpansionHandle;
 use app::platform::storage::ConfigFileTrait;
 use app::platform::*;
 use app::types::{DeviceConfig, OtaError};
@@ -80,6 +81,7 @@ impl app::platform::HttpClient for DesktopHttpClient {
 pub struct DesktopPlatform {
     pub display_raw: Arc<DesktopDisplayManager>,
     display: DisplayHandle,
+    hexpansion: HexpansionHandle,
     led: LedHandle,
     power: PowerHandle,
     wifi: WiFiHandle,
@@ -100,6 +102,7 @@ impl DesktopPlatform {
     pub fn new() -> Self {
         let display_raw = Arc::new(DesktopDisplayManager::new());
         let display = DisplayHandle::new(display_raw.clone() as Arc<dyn DisplayManager>);
+        let hexpansion = HexpansionHandle::new(Arc::new(DesktopHexpansionManager) as Arc<dyn HexpansionManager>);
         let led = LedHandle::new(Arc::new(DesktopLedManager) as Arc<dyn LedManager>);
         let power = PowerHandle::new(Arc::new(DesktopPowerManager) as Arc<dyn PowerManager>);
         let wifi = WiFiHandle::new(Arc::new(DesktopWifiManager) as Arc<dyn WiFiManager>);
@@ -110,7 +113,7 @@ impl DesktopPlatform {
         let config = ConfigHandle::new(Arc::new(DesktopConfigManager::new()) as Arc<dyn ConfigFileTrait<DeviceConfig>>);
         let http_client = HttpClientHandle::new(Arc::new(DesktopHttpClient) as Arc<dyn app::platform::HttpClient>);
 
-        Self { display_raw, display, led, power, wifi, input, system, storage, config, http_client }
+        Self { display_raw, display, hexpansion, led, power, wifi, input, system, storage, config, http_client }
     }
 
     pub fn get_screen(&self) -> (display_types::LcdScreen, i64) {
@@ -120,6 +123,7 @@ impl DesktopPlatform {
 
 impl Platform for DesktopPlatform {
     fn display_manager(&self) -> DisplayHandle { self.display.clone() }
+    fn hexpansion_manager(&self) -> HexpansionHandle { self.hexpansion.clone() }
     fn led_manager(&self) -> LedHandle { self.led.clone() }
     fn power_manager(&self) -> PowerHandle { self.power.clone() }
     fn wifi_manager(&self) -> WiFiHandle { self.wifi.clone() }

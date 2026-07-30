@@ -12,6 +12,12 @@ pub struct MultiplexedI2cBus {
 
 impl MultiplexedI2cBus {
   pub const TOP_BUS: u8 = 0b00000001;
+  pub const HX1_BUS: u8 = 0b00000010;
+  pub const HX2_BUS: u8 = 0b00000100;
+  pub const HX3_BUS: u8 = 0b00001000;
+  pub const HX4_BUS: u8 = 0b00010000;
+  pub const HX5_BUS: u8 = 0b00100000;
+  pub const HX6_BUS: u8 = 0b01000000;
   pub const SYS_BUS: u8 = 0b10000000;
 
   pub fn new(i2c: esp_hal::i2c::master::I2c<'static, Blocking>) -> Self {
@@ -55,17 +61,13 @@ impl embedded_hal::i2c::I2c for MaskedI2cBus {
     self.i2c.lock(|i2c| -> Result<(), Self::Error> {
       let mut i2c = i2c.borrow_mut();
 
-      // Set the multiplexer bits to enable channels we want for this instance
+      // Set the multiplexer bits to enable the desired channel
       i2c.write(Self::MUX_ADDR, &[self.mux_bits])?;
 
-      for operation in operations {
-        match operation {
-          Operation::Read(buffer) => i2c.read(address, buffer)?,
-          Operation::Write(buffer) => i2c.write(address, buffer)?,
-        }
-      }
-
-      Ok(())
+      // Delegate to the underlying I2C driver's transaction implementation,
+      // which properly handles REPEATED START between write and read operations
+      // (needed for EEPROM combined read: write mem-addr then read data).
+      embedded_hal::i2c::I2c::transaction(&mut *i2c, address, operations)
     })
   }
 }

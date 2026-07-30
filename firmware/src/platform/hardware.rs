@@ -6,7 +6,7 @@ use super::storage::{ConfigHandle, FsError, HardwareStorageManager, StorageHandl
 use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
 use esp_hal::system::{Cpu, CpuControl};
-use app::platform::{HttpClientHandle, Platform};
+use app::platform::{HexpansionHandle, HttpClientHandle, Platform};
 use app::types::OtaError;
 use crate::utils::ota::Ota;
 use alloc::sync::Arc;
@@ -19,6 +19,7 @@ use procmacros::partition_offset;
 #[derive(Clone, Debug)]
 pub struct HardwarePlatform {
   display: DisplayHandle,
+  hexpansion: HexpansionHandle,
   led: LedHandle,
   power: PowerHandle,
   wifi: WiFiHandle,
@@ -33,6 +34,7 @@ pub struct HardwarePlatform {
 impl HardwarePlatform {
   pub fn new_with_managers(
     display: DisplayHandle,
+    hexpansion: HexpansionHandle,
     led: LedHandle,
     power: PowerHandle,
     wifi: WiFiHandle,
@@ -42,7 +44,7 @@ impl HardwarePlatform {
     config: ConfigHandle,
     storage_formatter: HardwareStorageManager,
   ) -> Self {
-    Self { display, led, power, wifi, input, system, storage, config, storage_formatter, http_client: None }
+    Self { display, hexpansion, led, power, wifi, input, system, storage, config, storage_formatter, http_client: None }
   }
 
   pub fn with_http_client(mut self, client: HttpClientHandle) -> Self {
@@ -57,6 +59,7 @@ const OTA_OFFSETS: [u32; 2] = [OTA_0_OFFSET, OTA_1_OFFSET];
 
 impl Platform for HardwarePlatform {
   fn display_manager(&self) -> DisplayHandle { self.display.clone() }
+  fn hexpansion_manager(&self) -> HexpansionHandle { self.hexpansion.clone() }
   fn led_manager(&self) -> LedHandle { self.led.clone() }
   fn power_manager(&self) -> PowerHandle { self.power.clone() }
   fn wifi_manager(&self) -> WiFiHandle { self.wifi.clone() }

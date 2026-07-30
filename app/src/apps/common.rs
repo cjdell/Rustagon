@@ -1,6 +1,6 @@
 use crate::platform::{display::DisplayHandle, Platform};
 use crate::protocol::HostIpcSender;
-use crate::types::HexButton;
+use crate::types::{HexpansionEvent, HexButton};
 use alloc::string::String;
 use display_types::LcdScreen;
 
@@ -47,6 +47,16 @@ pub trait MenuApp {
   fn render(&self) -> LcdScreen;
   async fn init(&mut self);
   async fn handle_input(&mut self, input: MenuAppInput) -> AppAction;
+
+  /// Called when external events occur (hexpansion plug/unplug, etc.) while
+  /// the app is in the foreground. Default does nothing — override to react
+  /// to state changes without requiring a button press.
+  async fn handle_event(&mut self, _event: AppEvent) {}
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppEvent {
+  Hexpansion(HexpansionEvent),
 }
 
 pub enum MenuAppInput {

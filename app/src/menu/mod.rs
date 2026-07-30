@@ -15,7 +15,7 @@ use crate::{
   types::*,
 };
 use alloc::{string::ToString, vec::Vec};
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{select3, select4, Either3, Either4};
 use log::info;
 
 pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) {
@@ -66,110 +66,137 @@ async fn handle_root_menu<P: Platform>(
   display: &crate::platform::DisplayHandle,
   stack_signal: &StackSignal,
 ) {
-  let idx = stack.len() - 1;
+  let mut should_render = true;
 
-  // Refresh display
-  let screen = match &stack[idx] {
-    AppStackEntry::RootMenu { menu_options, selected } => {
-      LcdScreen::Menu {
-        menu: menu_options.iter().map(|option| match option {
-          MenuOption::App { name, .. } => MenuLine(Icon20::Info, name.to_string()),
-          MenuOption::Back => MenuLine(Icon20::Info, "<= Back".to_string()),
-          MenuOption::PowerOff => MenuLine(Icon20::Info, "Power Off".to_string()),
-        }).collect(),
-        selected: *selected,
-      }
-    }
-    _ => unreachable!(),
-  };
-  let _ = display.signal(screen);
+  loop {
+    let idx = stack.len() - 1;
 
-  let input = select(
-    runner_ctx.platform.system_manager().next_button(),
-    runner_ctx.platform.input_manager().next_button(),
-  ).await;
-
-  // Handle root menu navigation. Extract what we need before mutating the stack.
-  let mut power_off = false;
-  let mut new_entry: Option<AppStackEntry<P>> = None;
-
-  if let Either::Second(hex) = input {
-    if let AppStackEntry::RootMenu { menu_options, selected } = &mut stack[idx] {
-      match hex {
-        HexButton::Up => {
-          if *selected > 0 { *selected -= 1; }
-        }
-        HexButton::Down => {
-          if (*selected as usize) < menu_options.len().saturating_sub(1) {
-            *selected += 1;
+    // Only re-render the menu when the selection changed (skip on hexpansion events
+    // so notification overlays from the polling task stay visible)
+    if should_render {
+      let screen = match &stack[idx] {
+        AppStackEntry::RootMenu { menu_options, selected } => {
+          LcdScreen::Menu {
+            menu: menu_options.iter().map(|option| match option {
+              MenuOption::App { name, .. } => MenuLine(Icon20::Info, name.to_string()),
+              MenuOption::Back => MenuLine(Icon20::Info, "<= Back".to_string()),
+              MenuOption::PowerOff => MenuLine(Icon20::Info, "Power Off".to_string()),
+            }).collect(),
+            selected: *selected,
           }
         }
-        HexButton::Fire => {
-          if *selected as usize >= menu_options.len() { return; }
-          match &menu_options[*selected as usize] {
-            MenuOption::App { name, app_type } => {
-              match app_type {
-                AppType::MenuApp => {
-                  let ctx = MenuAppContext::new(runner_ctx.platform.clone(), runner_ctx.host_ipc_sender);
-                  match MenuAppType::<P>::load_app_async(name, ctx) {
-                    Ok(mut app) => {
-                      app.init().await;
-                      let _ = display.signal(app.render());
-                      new_entry = Some(AppStackEntry::MenuApp { app });
-                    }
-                    Err(ctx) => {
-                      if let Some(loader) = runner_ctx.app_loader {
-                        loader(name.to_string(), ctx).await;
-                        new_entry = Some(AppStackEntry::HostedApp);
+        _ => unreachable!(),
+      };
+      let _ = display.signal(screen);
+      should_render = false;
+    }
+
+    let input = select3(
+      runner_ctx.platform.system_manager().next_button(),
+      runner_ctx.platform.input_manager().next_button(),
+      runner_ctx.platform.hexpansion_manager().next_event(),
+    ).await;
+
+    // Handle root menu navigation
+    let mut power_off = false;
+    let mut new_entry: Option<AppStackEntry<P>> = None;
+
+    match input {
+      Either3::First(_system) => {
+        info!("handle_root_menu: boot button — return to main loop");
+        return;
+      }
+      Either3::Second(hex) => {
+        should_render = true;
+        if let AppStackEntry::RootMenu { menu_options, selected } = &mut stack[idx] {
+          match hex {
+            HexButton::Up => {
+              if *selected > 0 { *selected -= 1; }
+            }
+            HexButton::Down => {
+              if (*selected as usize) < menu_options.len().saturating_sub(1) {
+                *selected += 1;
+              }
+            }
+            HexButton::Fire => {
+              if *selected as usize >= menu_options.len() { return; }
+              match &menu_options[*selected as usize] {
+                MenuOption::App { name, app_type } => {
+                  match app_type {
+                    AppType::MenuApp => {
+                      let ctx = MenuAppContext::new(runner_ctx.platform.clone(), runner_ctx.host_ipc_sender);
+                      match MenuAppType::<P>::load_app_async(name, ctx) {
+                        Ok(mut app) => {
+                          app.init().await;
+                          let _ = display.signal(app.render());
+                          new_entry = Some(AppStackEntry::MenuApp { app });
+                        }
+                        Err(ctx) => {
+                          if let Some(loader) = runner_ctx.app_loader {
+                            loader(name.to_string(), ctx).await;
+                            new_entry = Some(AppStackEntry::HostedApp);
+                          }
+                        }
                       }
+                    }
+                    AppType::NativeApp => {
+                      runner_ctx.host_ipc_sender.send((
+                        0,
+                        HostIpcMessage::StartNative(name.to_string()),
+                      )).await;
+                      new_entry = Some(AppStackEntry::HostedApp);
                     }
                   }
                 }
-                AppType::NativeApp => {
-                  runner_ctx.host_ipc_sender.send((
-                    0,
-                    HostIpcMessage::StartNative(name.to_string()),
-                  )).await;
-                  new_entry = Some(AppStackEntry::HostedApp);
+                MenuOption::PowerOff => {
+                  power_off = true;
                 }
+                MenuOption::Back => {}
               }
             }
-            MenuOption::PowerOff => {
-              power_off = true;
-            }
-            MenuOption::Back => {}
+            _ => {}
+          }
+
+          // Clamp selected
+          if *selected as usize >= menu_options.len() {
+            *selected = menu_options.len().saturating_sub(1) as u32;
           }
         }
+      }
+      Either3::Third(hx_event) => {
+        info!("handle_root_menu: hexpansion event {hx_event:?} — notification already on screen, keep waiting");
+        // Non-blocking check for stack events before continuing
+        if let Some(event) = stack_signal.try_receive() {
+          info!("handle_root_menu: stack event {event:?}");
+          match event {
+            StackEvent::Pushed(StackEntryType::HostedApp) => stack.push(AppStackEntry::HostedApp),
+            StackEvent::Popped => { if stack.len() > 1 { let _ = stack.pop(); } }
+            _ => {}
+          }
+        }
+        continue;
+      }
+    }
+
+    // Apply stack mutations (borrow on stack is released)
+    if let Some(entry) = new_entry {
+      stack.push(entry);
+      return;
+    }
+
+    // Non-blocking check for stack events
+    if let Some(event) = stack_signal.try_receive() {
+      info!("handle_root_menu: stack event {event:?}");
+      match event {
+        StackEvent::Pushed(StackEntryType::HostedApp) => stack.push(AppStackEntry::HostedApp),
+        StackEvent::Popped => { if stack.len() > 1 { let _ = stack.pop(); } }
         _ => {}
       }
-
-      // Clamp selected
-      if *selected as usize >= menu_options.len() {
-        *selected = menu_options.len().saturating_sub(1) as u32;
-      }
     }
-  }
 
-  // Now apply stack mutations (borrow on stack is released)
-  if let Some(entry) = new_entry {
-    stack.push(entry);
-    return; // stack changed, main loop re-evaluates
-  }
-
-  // Non-blocking check for stack events (e.g. Pushed from HTTP download)
-  if let Some(event) = stack_signal.try_receive() {
-    info!("handle_root_menu: stack event {event:?}");
-    match event {
-      StackEvent::Pushed(StackEntryType::HostedApp) => stack.push(AppStackEntry::HostedApp),
-      StackEvent::Popped => {
-        if stack.len() > 1 { let _ = stack.pop(); }
-      }
-      _ => {}
+    if power_off {
+      runner_ctx.platform.power_manager().power_off().await;
     }
-  }
-
-  if power_off {
-    runner_ctx.platform.power_manager().power_off().await;
   }
 }
 
@@ -185,18 +212,19 @@ async fn handle_menu_app<P: Platform>(
     let _ = display.signal(app.render());
   }
 
-  let event = embassy_futures::select::select3(
+  let event = select4(
     runner_ctx.platform.system_manager().next_button(),
     runner_ctx.platform.input_manager().next_button(),
     stack_signal.receive(),
+    runner_ctx.platform.hexpansion_manager().next_event(),
   ).await;
 
   match event {
-    embassy_futures::select::Either3::First(_system) => {
+    Either4::First(_system) => {
       info!("handle_menu_app: boot button — popping app");
       let _ = stack.pop();
     }
-    embassy_futures::select::Either3::Second(hex) => {
+    Either4::Second(hex) => {
       info!("handle_menu_app: hex button {hex:?}");
       let action = if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
         app.handle_input(MenuAppInput::Button(hex)).await
@@ -229,7 +257,7 @@ async fn handle_menu_app<P: Platform>(
         }
       }
     }
-    embassy_futures::select::Either3::Third(event) => {
+    Either4::Third(event) => {
       info!("handle_menu_app: stack event {event:?}");
       match event {
         StackEvent::Popped => {
@@ -241,33 +269,38 @@ async fn handle_menu_app<P: Platform>(
         _ => {}
       }
     }
+    Either4::Fourth(hx_event) => {
+      info!("handle_menu_app: hexpansion event {hx_event:?}");
+      if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
+        app.handle_event(AppEvent::Hexpansion(hx_event)).await;
+        let _ = display.signal(app.render());
+      }
+    }
   }
 }
 
 async fn handle_hosted_app<P: Platform>(
   stack: &mut Vec<AppStackEntry<P>>,
   runner_ctx: &MenuRunnerContext<P>,
-  _display: &crate::platform::DisplayHandle,
+  display: &crate::platform::DisplayHandle,
   stack_signal: &StackSignal,
 ) {
   loop {
-    let input = embassy_futures::select::select3(
+    let input = embassy_futures::select::select4(
       runner_ctx.platform.system_manager().next_button(),
       runner_ctx.platform.input_manager().next_button(),
-    stack_signal.receive(),
-  ).await;
+      stack_signal.receive(),
+      runner_ctx.platform.hexpansion_manager().next_event(),
+    ).await;
 
     match input {
-      embassy_futures::select::Either3::First(_system) => {
+      Either4::First(_system) => {
         runner_ctx.host_ipc_sender.try_send((0, HostIpcMessage::Stop)).ok();
-        // Don't pop — wait for StackEvent::Popped from IPC handler.
-        // Popped events are consumed via select3 (not the main loop), so
-        // the guard below prevents popping below the root entry.
       }
-      embassy_futures::select::Either3::Second(hex) => {
+      Either4::Second(hex) => {
         runner_ctx.host_ipc_sender.try_send((0, HostIpcMessage::HexButton(hex))).ok();
       }
-      embassy_futures::select::Either3::Third(event) => {
+      Either4::Third(event) => {
         info!("hosted_app: stack event {event:?}");
         match event {
           StackEvent::Popped => {
@@ -283,6 +316,9 @@ async fn handle_hosted_app<P: Platform>(
             }
           }
         }
+      }
+      Either4::Fourth(hx_event) => {
+        info!("hosted_app: hexpansion event {hx_event:?}");
       }
     }
   }

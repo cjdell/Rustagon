@@ -1,8 +1,9 @@
+use app::platform::hexpansion::HexpansionManager;
 use app::platform::led::{LedError, LedManager};
 use app::platform::power::{PowerManager, PowerStatus};
 use app::platform::system::SystemManager;
 use app::platform::wifi::{WiFiManager, WifiStatus};
-use app::types::{LedRequest, SystemMessage, WifiDesiredState, WifiResult};
+use app::types::{HexpansionEvent, HexpansionInfo, LedRequest, SystemMessage, WifiDesiredState, WifiResult};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use std::pin::Pin;
 
@@ -83,5 +84,24 @@ impl SystemManager for DesktopSystemManager {
         msg: SystemMessage,
     ) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         Box::pin(async move { SYSTEM_SIGNAL.signal(msg); })
+    }
+}
+
+#[derive(Debug)]
+pub struct DesktopHexpansionManager;
+
+impl HexpansionManager for DesktopHexpansionManager {
+    fn next_event(
+        &self,
+    ) -> Pin<Box<dyn std::future::Future<Output = HexpansionEvent> + Send + '_>> {
+        Box::pin(async { std::future::pending::<HexpansionEvent>().await })
+    }
+
+    fn try_next_event(&self) -> Option<HexpansionEvent> {
+        None
+    }
+
+    fn current_state(&self) -> Vec<(u8, Option<HexpansionInfo>)> {
+        Vec::new()
     }
 }

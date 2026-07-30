@@ -1,6 +1,7 @@
 pub mod display;
 pub mod effects;
 pub mod hardware;
+pub mod hexpansion;
 pub mod http;
 pub mod input;
 pub mod led;
@@ -12,6 +13,7 @@ pub mod wifi;
 
 pub use display::{DisplayError, DisplayHandle, DisplayManager, HardwareDisplayManager, LcdSignal, lcd_task};
 pub use hardware::HardwarePlatform;
+pub use hexpansion::HardwareHexpansionManager;
 pub use input::{HardwareInputManager, InputHandle, InputManager};
 pub use led::{
   BreatheEffect, ChaseEffect, FireEffect, HardwareLedManager, LedEffect, LedHandle, LedManager, OffEffect, RainbowEffect, SolidEffect,

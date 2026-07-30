@@ -32,9 +32,10 @@ use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
 use firmware::d_i2c::*;
 use embedded_tools::config::ConfigFile;
 use embedded_tools::config::storage::LocalFsConfigFileStorage;
+use app::platform::HexpansionHandle;
 use firmware::platform::{
-  ConfigHandle, HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager, HardwareStorageManager,
-  HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle, WiFiHandle,
+  ConfigHandle, HardwareHexpansionManager, HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager,
+  HardwareStorageManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle, WiFiHandle,
 };
 use firmware::platform::{
   display::{HardwareDisplayManager, LcdSignal, lcd_task},
@@ -226,7 +227,22 @@ async fn main(spawner: Spawner) {
 
   let system = SystemHandle::new(Arc::new(HardwareSystemManager::new(spawner, peripherals.GPIO0)));
 
-  let platform = HardwarePlatform::new_with_managers(display, led, power, wifi, input, system, storage.clone(), config_handle.clone(), storage_formatter.clone());
+  // Hexpansion manager — scan ports 1-6 for EEPROMs
+  let hx_buses = [
+    multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::HX1_BUS),
+    multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::HX2_BUS),
+    multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::HX3_BUS),
+    multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::HX4_BUS),
+    multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::HX5_BUS),
+    multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::HX6_BUS),
+  ];
+  let display_for_hx = display.clone();
+  let hexpansion = HexpansionHandle::new(Arc::new(HardwareHexpansionManager::new(spawner, hx_buses, display_for_hx)));
+
+  let platform = HardwarePlatform::new_with_managers(
+    display, hexpansion, led, power, wifi, input, system, storage.clone(),
+    config_handle.clone(), storage_formatter.clone(),
+  );
 
   let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
 

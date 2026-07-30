@@ -167,3 +167,20 @@ pub enum OtaError {
   InvalidSlot,
   NotSupported,
 }
+
+// ================================ Hexpansion ================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HexpansionInfo {
+  pub port: u8,
+  pub vid: u16,
+  pub pid: u16,
+  pub unique_id: u32,
+  pub friendly_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum HexpansionEvent {
+  Inserted(HexpansionInfo),
+  Removed { port: u8 },
+}
