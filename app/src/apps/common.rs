@@ -4,7 +4,6 @@ use crate::types::HexButton;
 use alloc::string::String;
 use core::sync::atomic::{AtomicBool, Ordering};
 use display_types::LcdScreen;
-use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::{Channel, Receiver, Sender}};
 
 /// Set to true just before sending StartWasm/StartWasmWithBuffer.
@@ -41,17 +40,11 @@ pub struct MenuAppContext<P: Platform> {
   pub input_receiver: MenuAppInputReceiver,
   pub platform: P,
   pub host_ipc_sender: HostIpcSender,
-  pub network_stack: Option<Stack<'static>>,
 }
 
 impl<P: Platform> MenuAppContext<P> {
   pub fn new(input_receiver: MenuAppInputReceiver, platform: P, host_ipc_sender: HostIpcSender) -> Self {
-    Self { input_receiver, platform, host_ipc_sender, network_stack: None }
-  }
-
-  pub fn with_stack(mut self, stack: Stack<'static>) -> Self {
-    self.network_stack = Some(stack);
-    self
+    Self { input_receiver, platform, host_ipc_sender }
   }
 
   pub fn update_lcd(&self, screen: LcdScreen) {

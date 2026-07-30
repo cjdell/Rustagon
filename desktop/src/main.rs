@@ -38,7 +38,6 @@ fn main() {
         app_state: None,
         app_loader: None,
         additional_apps: &[],
-        network_stack: None,
     };
 
     // Run the menu task on a background thread

@@ -107,16 +107,11 @@ pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) 
       if let MenuAppInput::Start(app_name) = menu_app_input_channel.receive().await {
         *app.write().await = AppState::MenuApp;
 
-        let mut ctx = MenuAppContext::new(
+        let ctx = MenuAppContext::new(
           menu_app_input_channel.receiver(),
           runner_ctx.platform.clone(),
           runner_ctx.host_ipc_sender.clone(),
         );
-
-        // Apply network stack for streaming HTTP if available
-        if let Some(ref send_stack) = runner_ctx.network_stack {
-          ctx = ctx.with_stack(send_stack.0);
-        }
 
         // Try generic loader first, then custom firmware loader
         match MenuAppType::<P>::load_app_async(&app_name, ctx) {

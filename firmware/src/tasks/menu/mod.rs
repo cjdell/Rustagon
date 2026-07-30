@@ -18,7 +18,6 @@ pub async fn menu_task(runner_ctx: crate::tasks::menu::types::MenuRunnerContext)
     app_state: Some(runner_ctx.app_state),
     app_loader: None,
     additional_apps: &[],
-    network_stack: None,
   };
 
   app::menu::menu_task::<HardwarePlatform>(app_ctx).await;
