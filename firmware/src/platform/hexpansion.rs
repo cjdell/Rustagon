@@ -18,7 +18,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use embedded_hal::i2c::{I2c, Operation};
-use log::info;
+use log::{debug, info};
 
 use crate::utils::{EventQueue, MaskedI2cBus};
 
@@ -149,7 +149,7 @@ async fn hexpansion_poll_task(
   for port in 0..6 {
     let port_state = scan_port(&mut hx_buses[port]).await;
     if port_state != PortState::Empty {
-      info!("hexpansion_poll_task: port {} initial state {:?}", port + 1, port_state);
+      debug!("hexpansion_poll_task: port {} initial state {:?}", port + 1, port_state);
       if let PortState::Occupied { vid, pid, name, unique_id } = &port_state {
         let name_str = name_to_string(name);
         let info = HexpansionInfo {
@@ -252,7 +252,7 @@ async fn scan_port(bus: &mut MaskedI2cBus) -> PortState {
     Some(result) => result,
     None => return PortState::Empty,
   };
-  info!("hexpansion_scan: EEPROM found at 0x{eeprom_addr:02x} (addr_len={addr_len})");
+  debug!("hexpansion_scan: EEPROM found at 0x{eeprom_addr:02x} (addr_len={addr_len})");
 
   let mut header_buf = [0u8; 32];
   let mem_addr: &[u8] = if addr_len == 2 { &[0x00, 0x00] } else { &[0x00] };
@@ -282,7 +282,7 @@ async fn scan_port(bus: &mut MaskedI2cBus) -> PortState {
   let unique_id = u16::from_le_bytes([header_buf[20], header_buf[21]]) as u32;
   let mut name = [0u8; 9];
   name.copy_from_slice(&header_buf[22..31]);
-  info!("hexpansion_scan: valid header vid=0x{vid:04x} pid=0x{pid:04x} uid={unique_id}");
+  debug!("hexpansion_scan: valid header vid=0x{vid:04x} pid=0x{pid:04x} uid={unique_id}");
 
   PortState::Occupied { vid, pid, name, unique_id }
 }

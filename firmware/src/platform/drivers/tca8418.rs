@@ -10,7 +10,7 @@ use app::platform::hexpansion::DeviceIo;
 use app::types::{DeviceEvent, KeyCode, KeyEventType, KeyboardEvent};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
-use log::info;
+use log::{debug, info};
 use tca8418::{PinMask, Tca8418};
 
 use super::DeviceEventQueue;
@@ -109,9 +109,10 @@ async fn tca8418_task(io: DeviceIo, queue: DeviceEventQueue) {
       // pressed_keypad() returns Some for press events, released_keypad() for release
       if let Some(key) = if event.pressed { event.pressed_keypad() } else { event.released_keypad() } {
         let key_num = key.get_key_number();
-        info!("tca8418[{port}]: key {key_num} {typ:?}");
+        debug!("tca8418[{port}]: key {key_num} {typ:?}");
 
         if let Some(kc) = key_number_to_keycode(key_num) {
+          debug!("tca8418[{port}]: -> {kc:?}");
           queue.try_push(DeviceEvent::Keyboard(KeyboardEvent { port, typ, code: kc }));
         }
       }
