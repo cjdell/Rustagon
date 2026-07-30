@@ -58,8 +58,8 @@ edge-dhcp = "0.7.0"
 edge-nal = "0.6.0"
 edge-nal-embassy = { version = "0.8.1", default-features = false, features = ["dhcpv4", "dhcpv4-hostname", "dns", "proto-ipv4", "tcp", "udp", "medium-ethernet", "medium-ip"] }
 
-wasmi = { git = "https://github.com/cjdell/wasmi.git", branch = "psram", package = "wasmi", default-features = false }
-wasmi_core = { git = "https://github.com/cjdell/wasmi.git", branch = "psram", package = "wasmi_core", default-features = false }
+wasmi = { path = "../libs/wasmi/crates/wasmi", default-features = false }
+wasmi_core = { path = "../libs/wasmi/crates/core", default-features = false }
 
 serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }

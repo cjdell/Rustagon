@@ -1,0 +1,4 @@
+[submodule "libs/wasmi"]
+	path = libs/wasmi
+	url = git@github.com:cjdell/wasmi.git
+	branch = psram
