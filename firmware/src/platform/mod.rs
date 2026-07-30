@@ -1,4 +1,5 @@
 pub mod display;
+pub mod drivers;
 pub mod effects;
 pub mod hardware;
 pub mod hexpansion;

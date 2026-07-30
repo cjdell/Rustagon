@@ -33,6 +33,7 @@ use firmware::d_i2c::*;
 use embedded_tools::config::ConfigFile;
 use embedded_tools::config::storage::LocalFsConfigFileStorage;
 use app::platform::HexpansionHandle;
+use firmware::platform::drivers::{DriverEntry, tca8418::tca8418_driver_factory};
 use firmware::platform::{
   ConfigHandle, HardwareHexpansionManager, HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager,
   HardwareStorageManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle, WiFiHandle,
@@ -236,8 +237,16 @@ async fn main(spawner: Spawner) {
     multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::HX5_BUS),
     multiplexed_i2c_bus.new_masked_i2c_bus(MultiplexedI2cBus::HX6_BUS),
   ];
+  // Driver registry — matched against hexpansion VID:PID
+  const DRIVER_TABLE: &[DriverEntry] = &[
+    // keebdex keyboard
+    DriverEntry { vid: 0xBAD3, pid: 0x4EEB, factory: tca8418_driver_factory },
+  ];
+
   let display_for_hx = display.clone();
-  let hexpansion = HexpansionHandle::new(Arc::new(HardwareHexpansionManager::new(spawner, hx_buses, display_for_hx)));
+  let hexpansion = HexpansionHandle::new(Arc::new(HardwareHexpansionManager::new(
+    spawner, hx_buses, display_for_hx, DRIVER_TABLE,
+  )));
 
   let platform = HardwarePlatform::new_with_managers(
     display, hexpansion, led, power, wifi, input, system, storage.clone(),

@@ -277,6 +277,16 @@ async fn handle_menu_app<P: Platform>(
       }
     }
   }
+
+  // Non-blocking drain of any pending device events (keyboard, etc.)
+  // so the app react to keys without waiting for a badge button press.
+  while let Some(dev_event) = runner_ctx.platform.hexpansion_manager().try_next_device_event() {
+    info!("handle_menu_app: device event {dev_event:?}");
+    if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
+      app.handle_event(AppEvent::Device(dev_event)).await;
+      let _ = display.signal(app.render());
+    }
+  }
 }
 
 async fn handle_hosted_app<P: Platform>(

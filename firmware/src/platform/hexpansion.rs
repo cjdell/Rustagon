@@ -1,6 +1,9 @@
+use crate::platform::drivers::{DeviceEventQueue, DriverEntry, DEVICE_EVENT_QUEUE_DEPTH};
 use crate::platform::DisplayHandle;
-use app::platform::hexpansion::HexpansionManager;
-use app::types::{HexpansionEvent, HexpansionInfo};
+use app::platform::hexpansion::{
+  DeviceI2c, DeviceI2cOps, DeviceIo, HexpansionManager,
+};
+use app::types::{DeviceEvent, HexpansionEvent, HexpansionInfo};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
@@ -23,14 +26,54 @@ const EVENT_QUEUE_DEPTH: usize = 16;
 type HexpansionEventQueue = EventQueue<HexpansionEvent, EVENT_QUEUE_DEPTH>;
 type SharedState = Arc<Mutex<CriticalSectionRawMutex, RefCell<[Option<HexpansionInfo>; 6]>>>;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum PortState {
-  Empty,
-  Occupied { vid: u16, pid: u16, name: [u8; 9], unique_id: u32 },
+// ============================== DeviceI2cOps for MaskedI2cBus ==============================
+
+/// Wraps `MaskedI2cBus` so it can be type-erased through `DeviceI2c`.
+#[derive(Clone)]
+struct I2cBusWrapper {
+  bus: MaskedI2cBus,
 }
+
+impl fmt::Debug for I2cBusWrapper {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("I2cBusWrapper").finish()
+  }
+}
+
+impl DeviceI2cOps for I2cBusWrapper {
+  fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), ()> {
+    use embedded_hal::i2c::I2c;
+    let mut bus = self.bus.clone();
+    if read_data.is_empty() {
+      // Write-only — no read phase
+      bus.transaction(addr, &mut [Operation::Write(write_data)]).map_err(|_| ())
+    } else {
+      // Combined write-then-read with REPEATED START
+      bus.transaction(addr, &mut [
+        Operation::Write(write_data),
+        Operation::Read(read_data),
+      ]).map_err(|_| ())
+    }
+  }
+
+  fn write(&self, addr: u8, data: &[u8]) -> Result<(), ()> {
+    use embedded_hal::i2c::I2c;
+    let mut bus = self.bus.clone();
+    bus.transaction(addr, &mut [Operation::Write(data)]).map_err(|_| ())
+  }
+
+  fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), ()> {
+    use embedded_hal::i2c::I2c;
+    let mut bus = self.bus.clone();
+    bus.transaction(addr, &mut [Operation::Read(data)]).map_err(|_| ())
+  }
+}
+
+// ============================== HardwareHexpansionManager ==============================
 
 pub struct HardwareHexpansionManager {
   events: HexpansionEventQueue,
+  device_events: DeviceEventQueue,
   state: SharedState,
 }
 
@@ -41,11 +84,20 @@ impl fmt::Debug for HardwareHexpansionManager {
 }
 
 impl HardwareHexpansionManager {
-  pub fn new(spawner: Spawner, hx_buses: [MaskedI2cBus; 6], display: DisplayHandle) -> Self {
+  pub fn new(
+    spawner: Spawner,
+    hx_buses: [MaskedI2cBus; 6],
+    display: DisplayHandle,
+    driver_table: &'static [DriverEntry],
+  ) -> Self {
     let events = HexpansionEventQueue::new();
+    let device_events = DeviceEventQueue::new();
     let state: SharedState = Arc::new(Mutex::new(RefCell::new(Default::default())));
-    spawner.spawn(hexpansion_poll_task(hx_buses, events.clone(), state.clone(), display)).ok();
-    Self { events, state }
+    spawner.spawn(hexpansion_poll_task(
+      hx_buses, events.clone(), state.clone(), display,
+      device_events.clone(), driver_table, spawner,
+    )).ok();
+    Self { events, device_events, state }
   }
 }
 
@@ -68,15 +120,17 @@ impl HexpansionManager for HardwareHexpansionManager {
       result
     })
   }
+
+  fn next_device_event(&self) -> Pin<Box<dyn Future<Output = DeviceEvent> + Send + '_>> {
+    Box::pin(self.device_events.next())
+  }
+
+  fn try_next_device_event(&self) -> Option<DeviceEvent> {
+    self.device_events.try_next()
+  }
 }
 
-fn info_to_port_state(info: &HexpansionInfo) -> PortState {
-  let mut name = [0u8; 9];
-  let name_bytes = info.friendly_name.as_bytes();
-  let len = name_bytes.len().min(9);
-  name[..len].copy_from_slice(&name_bytes[..len]);
-  PortState::Occupied { vid: info.vid, pid: info.pid, name, unique_id: info.unique_id }
-}
+// ============================== Polling task ==============================
 
 #[embassy_executor::task]
 async fn hexpansion_poll_task(
@@ -84,8 +138,12 @@ async fn hexpansion_poll_task(
   events: HexpansionEventQueue,
   state: SharedState,
   display: DisplayHandle,
+  device_events: DeviceEventQueue,
+  driver_table: &'static [DriverEntry],
+  spawner: Spawner,
 ) {
   let mut states = [PortState::Empty; 6];
+  let mut driver_spawned = [false; 6];
 
   // Initial scan
   for port in 0..6 {
@@ -99,7 +157,9 @@ async fn hexpansion_poll_task(
           unique_id: *unique_id, friendly_name: name_str,
         };
         state.lock(|s| s.borrow_mut()[port] = Some(info.clone()));
-        events.try_push(HexpansionEvent::Inserted(info));
+        events.try_push(HexpansionEvent::Inserted(info.clone()));
+        spawn_driver((port + 1) as u8, *vid, *pid, &hx_buses, &device_events, driver_table, spawner);
+        driver_spawned[port] = true;
       }
       states[port] = port_state;
     }
@@ -129,6 +189,8 @@ async fn hexpansion_poll_task(
           let _ = display.signal(display_types::LcdScreen::Notification(
             display_types::Icon40::Info, notif_text,
           ));
+          spawn_driver((port + 1) as u8, *vid, *pid, &hx_buses, &device_events, driver_table, spawner);
+          driver_spawned[port] = true;
         }
         states[port] = new_state;
       } else if states[port] != PortState::Empty && new_state == PortState::Empty {
@@ -140,9 +202,43 @@ async fn hexpansion_poll_task(
           alloc::format!("Hxp {} removed", port + 1),
         ));
         states[port] = PortState::Empty;
+        driver_spawned[port] = false;
       }
     }
   }
+}
+
+fn spawn_driver(
+  port: u8,
+  vid: u16,
+  pid: u16,
+  hx_buses: &[MaskedI2cBus; 6],
+  device_events: &DeviceEventQueue,
+  driver_table: &'static [DriverEntry],
+  spawner: Spawner,
+) {
+  let idx = (port as usize).wrapping_sub(1);
+  if idx >= 6 { return; }
+
+  for entry in driver_table {
+    if entry.vid == vid && entry.pid == pid {
+      info!("hexpansion: spawning driver for {vid:04x}:{pid:04x} on port {port}");
+      let i2c = DeviceI2c::new(Arc::new(I2cBusWrapper { bus: hx_buses[idx].clone() }));
+      let io = DeviceIo { port, i2c, vid, pid };
+      (entry.factory)(io, device_events.clone(), spawner);
+      return;
+    }
+  }
+
+  info!("hexpansion: no driver for {vid:04x}:{pid:04x} on port {port}");
+}
+
+// ============================== Port scanning ==============================
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PortState {
+  Empty,
+  Occupied { vid: u16, pid: u16, name: [u8; 9], unique_id: u32 },
 }
 
 fn name_to_string(name: &[u8; 9]) -> String {

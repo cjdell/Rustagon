@@ -1,4 +1,4 @@
-use crate::types::{HexpansionEvent, HexpansionInfo};
+use crate::types::{DeviceEvent, HexpansionEvent, HexpansionInfo};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -8,6 +8,8 @@ pub trait HexpansionManager: Send + Sync + fmt::Debug {
   fn next_event(&self) -> Pin<Box<dyn Future<Output = HexpansionEvent> + Send + '_>>;
   fn try_next_event(&self) -> Option<HexpansionEvent>;
   fn current_state(&self) -> Vec<(u8, Option<HexpansionInfo>)>;
+  fn next_device_event(&self) -> Pin<Box<dyn Future<Output = DeviceEvent> + Send + '_>>;
+  fn try_next_device_event(&self) -> Option<DeviceEvent>;
 }
 
 #[derive(Clone, Debug)]
@@ -31,4 +33,54 @@ impl HexpansionHandle {
   pub fn current_state(&self) -> Vec<(u8, Option<HexpansionInfo>)> {
     self.inner.current_state()
   }
+
+  pub async fn next_device_event(&self) -> DeviceEvent {
+    self.inner.next_device_event().await
+  }
+
+  pub fn try_next_device_event(&self) -> Option<DeviceEvent> {
+    self.inner.try_next_device_event()
+  }
+}
+
+/// Opaque I2C bus handle given to device drivers for their port's I2C bus.
+#[derive(Clone, Debug)]
+pub struct DeviceI2c {
+  inner: Arc<dyn DeviceI2cOps>,
+}
+
+impl DeviceI2c {
+  pub fn new(inner: Arc<dyn DeviceI2cOps>) -> Self {
+    Self { inner }
+  }
+
+  /// Combined write-then-read transaction (REPEATED START between).
+  pub fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), ()> {
+    self.inner.transaction(addr, write_data, read_data)
+  }
+
+  /// Write-only transaction.
+  pub fn write(&self, addr: u8, data: &[u8]) -> Result<(), ()> {
+    self.inner.write(addr, data)
+  }
+
+  /// Read-only transaction.
+  pub fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), ()> {
+    self.inner.read(addr, data)
+  }
+}
+
+pub trait DeviceI2cOps: Send + Sync + fmt::Debug {
+  fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), ()>;
+  fn write(&self, addr: u8, data: &[u8]) -> Result<(), ()>;
+  fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), ()>;
+}
+
+/// Resources given to a device driver when it is spawned.
+#[derive(Clone, Debug)]
+pub struct DeviceIo {
+  pub port: u8,
+  pub i2c: DeviceI2c,
+  pub vid: u16,
+  pub pid: u16,
 }

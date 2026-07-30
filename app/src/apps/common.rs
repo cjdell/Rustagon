@@ -1,6 +1,6 @@
 use crate::platform::{display::DisplayHandle, Platform};
 use crate::protocol::HostIpcSender;
-use crate::types::{HexpansionEvent, HexButton};
+use crate::types::{DeviceEvent, HexpansionEvent, HexButton};
 use alloc::string::String;
 use display_types::LcdScreen;
 
@@ -57,6 +57,7 @@ pub trait MenuApp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppEvent {
   Hexpansion(HexpansionEvent),
+  Device(DeviceEvent),
 }
 
 pub enum MenuAppInput {

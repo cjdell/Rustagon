@@ -3,7 +3,7 @@ use app::platform::led::{LedError, LedManager};
 use app::platform::power::{PowerManager, PowerStatus};
 use app::platform::system::SystemManager;
 use app::platform::wifi::{WiFiManager, WifiStatus};
-use app::types::{HexpansionEvent, HexpansionInfo, LedRequest, SystemMessage, WifiDesiredState, WifiResult};
+use app::types::{DeviceEvent, HexpansionEvent, HexpansionInfo, LedRequest, SystemMessage, WifiDesiredState, WifiResult};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use std::pin::Pin;
 
@@ -103,5 +103,15 @@ impl HexpansionManager for DesktopHexpansionManager {
 
     fn current_state(&self) -> Vec<(u8, Option<HexpansionInfo>)> {
         Vec::new()
+    }
+
+    fn next_device_event(
+        &self,
+    ) -> Pin<Box<dyn std::future::Future<Output = DeviceEvent> + Send + '_>> {
+        Box::pin(async { std::future::pending::<DeviceEvent>().await })
+    }
+
+    fn try_next_device_event(&self) -> Option<DeviceEvent> {
+        None
     }
 }
