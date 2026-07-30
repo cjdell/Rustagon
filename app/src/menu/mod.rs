@@ -185,17 +185,18 @@ async fn handle_menu_app<P: Platform>(
     let _ = display.signal(app.render());
   }
 
-  let input = select(
+  let event = embassy_futures::select::select3(
     runner_ctx.platform.system_manager().next_button(),
     runner_ctx.platform.input_manager().next_button(),
+    stack_signal.receive(),
   ).await;
 
-  match input {
-    Either::First(_system) => {
+  match event {
+    embassy_futures::select::Either3::First(_system) => {
       info!("handle_menu_app: boot button — popping app");
       let _ = stack.pop();
     }
-    Either::Second(hex) => {
+    embassy_futures::select::Either3::Second(hex) => {
       info!("handle_menu_app: hex button {hex:?}");
       let action = if let AppStackEntry::MenuApp { app } = &mut stack[idx] {
         app.handle_input(MenuAppInput::Button(hex)).await
@@ -204,10 +205,6 @@ async fn handle_menu_app<P: Platform>(
       };
       info!("handle_menu_app: action={action:?}");
 
-      // If the app launched a sub-app, push it immediately and return.
-      // Don't check for stale stack events — they'll be consumed by the
-      // next handler. This prevents a stale Popped from a prior WASM
-      // session from popping the entry we just pushed.
       match action {
         AppAction::Continue => {}
         AppAction::Stop => {
@@ -221,7 +218,6 @@ async fn handle_menu_app<P: Platform>(
             HostIpcMessage::StartWasm(name),
           )).await;
           stack.push(AppStackEntry::HostedApp);
-          return;
         }
         AppAction::LaunchNative(name) => {
           info!("handle_menu_app: launching native {name}");
@@ -230,17 +226,19 @@ async fn handle_menu_app<P: Platform>(
             HostIpcMessage::StartNative(name),
           )).await;
           stack.push(AppStackEntry::HostedApp);
-          return;
         }
       }
-
-      // Check for pending stack events after processing non-launch input.
-      // A Popped (WASM finished) may have arrived during the select await.
-      while let Some(event) = stack_signal.try_receive() {
-        info!("handle_menu_app: pending stack event {event:?}");
-        if let StackEvent::Popped = event {
+    }
+    embassy_futures::select::Either3::Third(event) => {
+      info!("handle_menu_app: stack event {event:?}");
+      match event {
+        StackEvent::Popped => {
           if stack.len() > 1 { let _ = stack.pop(); }
         }
+        StackEvent::Pushed(StackEntryType::HostedApp) => {
+          stack.push(AppStackEntry::HostedApp);
+        }
+        _ => {}
       }
     }
   }
