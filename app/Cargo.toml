@@ -12,6 +12,7 @@ std = []
 tokio = ["http-server", "picoserve/tokio", "std", "embassy-time/std"]
 extern-alloc = ["dep:esp-alloc"]
 web-bundle = []
+wasm-runtime = ["dep:wasmi", "dep:wasmi_core"]
 
 [dependencies]
 display_types = { path = "../libs/display_types" }
@@ -30,3 +31,5 @@ critical-section = "1.2.0"
 
 picoserve = { git = "https://github.com/sammhicks/picoserve.git", features = ["alloc", "ws"], optional = true }
 esp-alloc = { git = "https://github.com/esp-rs/esp-hal.git", package = "esp-alloc", optional = true, features = ["nightly"] }
+wasmi = { path = "../libs/wasmi/crates/wasmi", default-features = false, optional = true }
+wasmi_core = { path = "../libs/wasmi/crates/core", default-features = false, optional = true }

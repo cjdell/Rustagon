@@ -1,39 +1,81 @@
 mod platform;
 mod embassy_time_driver;
 
+use app::apps::common::WASM_LAUNCHING;
 use app::menu::menu_task;
+use app::menu::state::AppState;
 use app::menu::types::MenuRunnerContext;
 use app::platform::Platform;
-use embedded_graphics::prelude::RawData as _;
 use app::protocol::HostIpcChannel;
 use app::types::{HexButton, SystemMessage};
+use core::sync::atomic::Ordering;
 use display_renderer::{FrameBuffer, LcdState};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
+use embedded_graphics::prelude::RawData as _;
 use minifb::{Key, Window, WindowOptions};
+use platform::wasm::wasm_runner_loop;
 use platform::{DesktopPlatform, DesktopInputManager, DesktopSystemManager};
+use std::pin::Pin;
 use std::sync::Arc;
 
 const WIDTH: usize = 240;
 const HEIGHT: usize = 240;
 
 fn main() {
-    env_logger::init();
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
 
     let platform = Arc::new(DesktopPlatform::new());
 
-    // Channel for WASM stubs — leak to make it static (never freed on desktop)
+    // IPC channels — leaked for static lifetime (never freed on desktop)
     let host_channel = Box::leak(Box::new(HostIpcChannel::new()));
     let host_sender = host_channel.sender();
+    let host_receiver = host_channel.receiver();
+
+    let app_state = Arc::new(RwLock::<CriticalSectionRawMutex, AppState>::new(AppState::None));
+
+    // App loader: sends StartWasm over IPC when user picks a WASM app.
+    let app_loader: Option<
+        fn(String, app::apps::MenuAppContext<platform::DesktopPlatform>) -> Pin<Box<dyn std::future::Future<Output = ()>>>,
+    > = Some(|name: String, ctx: app::apps::MenuAppContext<platform::DesktopPlatform>| {
+        Box::pin(async move {
+            log::info!("app_loader: WASM_LAUNCHING=true, sending StartWasm({name})");
+            WASM_LAUNCHING.store(true, Ordering::Release);
+            let result = ctx.host_ipc_sender.try_send((0, app::protocol::HostIpcMessage::StartWasm(name)));
+            log::info!("app_loader: try_send result={result:?}");
+        })
+    });
 
     let runner_ctx = MenuRunnerContext {
         storage: platform.storage_manager(),
         platform: (*platform).clone(),
-        host_ipc_sender: host_sender,
-        app_state: None,
-        app_loader: None,
+        host_ipc_sender: host_sender.clone(),
+        app_state: Some(app_state.clone()),
+        app_loader,
         additional_apps: &[],
     };
 
-    // Run the menu task on a background thread
+    // Spawn the WASM runner thread (processes StartWasm, runs interpreter + IPC)
+    let runner_host_sender = host_sender.clone();
+    let runner_host_receiver = host_receiver.clone();
+    let runner_http = platform.http_client().unwrap();
+    let runner_display = platform.display_manager();
+    let runner_storage = platform.storage_manager();
+    let runner_app_state = app_state.clone();
+    std::thread::spawn(move || {
+        futures::executor::block_on(wasm_runner_loop(
+            runner_host_receiver,
+            runner_host_sender,
+            runner_http,
+            runner_display,
+            runner_storage,
+            runner_app_state,
+        ));
+    });
+
+    // Spawn the menu task on a background thread
     let platform_clone = platform.clone();
     std::thread::spawn(move || {
         futures::executor::block_on(menu_task(runner_ctx));
@@ -60,25 +102,46 @@ fn main() {
         }
 
         let now = now_ms();
-        let (screen, _) = platform_clone.get_screen();
-        lcd_state.update(screen, now);
-        lcd_state.notification_cleanup(now);
 
-        fb.fill(0);
-        let mut desk_fb = DesktopFrameBuffer(&mut fb);
-        lcd_state.draw(&mut desk_fb, &lcd_state.screen, now);
+        // Check if the WASM has pushed a raw framebuffer
+        let wasm_buffer = platform::wasm::LCD_BUFFER.lock().unwrap().clone();
 
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let i = (y * WIDTH + x) * 2;
-                let raw = ((fb[i] as u16) << 8) | (fb[i + 1] as u16);
-                let r5 = (raw >> 11) & 0x1F;
-                let g6 = (raw >> 5) & 0x3F;
-                let b5 = raw & 0x1F;
-                let r = (r5 * 255 + 15) / 31;
-                let g = (g6 * 255 + 31) / 63;
-                let b = (b5 * 255 + 15) / 31;
-                buf32[y * WIDTH + x] = (r as u32) << 16 | (g as u32) << 8 | b as u32;
+        if let Some(raw) = wasm_buffer {
+            // Render raw WASM framebuffer (RGB565 LE) directly
+            for y in 0..HEIGHT {
+                for x in 0..WIDTH {
+                    let i = (y * WIDTH + x) * 2;
+                    let raw565 = ((raw[i] as u16) << 8) | (raw[i + 1] as u16);
+                    let r5 = (raw565 >> 11) & 0x1F;
+                    let g6 = (raw565 >> 5) & 0x3F;
+                    let b5 = raw565 & 0x1F;
+                    let r = (r5 * 255 + 15) / 31;
+                    let g = (g6 * 255 + 31) / 63;
+                    let b = (b5 * 255 + 15) / 31;
+                    buf32[y * WIDTH + x] = (r as u32) << 16 | (g as u32) << 8 | b as u32;
+                }
+            }
+        } else {
+            let (screen, _) = platform_clone.get_screen();
+            lcd_state.update(screen, now);
+            lcd_state.notification_cleanup(now);
+
+            fb.fill(0);
+            let mut desk_fb = DesktopFrameBuffer(&mut fb);
+            lcd_state.draw(&mut desk_fb, &lcd_state.screen, now);
+
+            for y in 0..HEIGHT {
+                for x in 0..WIDTH {
+                    let i = (y * WIDTH + x) * 2;
+                    let raw = ((fb[i] as u16) << 8) | (fb[i + 1] as u16);
+                    let r5 = (raw >> 11) & 0x1F;
+                    let g6 = (raw >> 5) & 0x3F;
+                    let b5 = raw & 0x1F;
+                    let r = (r5 * 255 + 15) / 31;
+                    let g = (g6 * 255 + 31) / 63;
+                    let b = (b5 * 255 + 15) / 31;
+                    buf32[y * WIDTH + x] = (r as u32) << 16 | (g as u32) << 8 | b as u32;
+                }
             }
         }
 

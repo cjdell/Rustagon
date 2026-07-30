@@ -64,7 +64,7 @@ pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) 
               if let Ok(app) = state.app.try_read() {
                 match *app {
                   AppState::MenuApp => { menu_app_input_channel.send(MenuAppInput::Stop).await; }
-                  AppState::HostedApp => { runner_ctx.host_ipc_sender.send((0, crate::protocol::HostIpcMessage::Stop)).await; }
+                  AppState::HostedApp => { runner_ctx.host_ipc_sender.try_send((0, crate::protocol::HostIpcMessage::Stop)).ok(); }
                   _ => {}
                 }
               }
@@ -83,7 +83,7 @@ pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) 
                 continue;
               }
               AppState::HostedApp => {
-                runner_ctx.host_ipc_sender.send((0, crate::protocol::HostIpcMessage::HexButton(hex))).await;
+                runner_ctx.host_ipc_sender.try_send((0, crate::protocol::HostIpcMessage::HexButton(hex))).ok();
                 continue;
               }
               _ => {}
@@ -105,6 +105,7 @@ pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) 
   let menu_app_runner = async {
     loop {
       if let MenuAppInput::Start(app_name) = menu_app_input_channel.receive().await {
+        info!("menu_app_runner: Start app={app_name}");
         *app.write().await = AppState::MenuApp;
 
         let ctx = MenuAppContext::new(
@@ -116,17 +117,24 @@ pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) 
         // Try generic loader first, then custom firmware loader
         match MenuAppType::<P>::load_app_async(&app_name, ctx) {
           Ok(mut menu_app) => {
+            info!("menu_app_runner: built-in app started");
             menu_app.work().await;
+            info!("menu_app_runner: built-in app finished");
           }
           Err(ctx) => {
+            info!("menu_app_runner: not a built-in app, trying app_loader");
             if let Some(loader) = runner_ctx.app_loader {
               loader(app_name, ctx).await;
+              info!("menu_app_runner: app_loader returned");
+            } else {
+              info!("menu_app_runner: no app_loader available");
             }
           }
         }
 
-        // Check WASM_LAUNCHING to avoid drawing menu over a just-launched WASM app
-        if WASM_LAUNCHING.swap(false, Ordering::Acquire) {
+        let wasm_launching = WASM_LAUNCHING.swap(false, Ordering::Acquire);
+        info!("menu_app_runner: WASM_LAUNCHING={wasm_launching}");
+        if wasm_launching {
           *app.write().await = AppState::HostedApp;
         } else {
           *app.write().await = AppState::None;

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-app = { path = "../app" }
+app = { path = "../app", features = ["wasm-runtime"] }
 display_types = { path = "../libs/display_types" }
 display_renderer = { path = "../libs/display_renderer" }
 

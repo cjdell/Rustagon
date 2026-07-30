@@ -14,3 +14,5 @@ pub mod platform;
 pub mod protocol;
 pub mod types;
 pub mod utils;
+#[cfg(feature = "wasm-runtime")]
+pub mod wasm;

@@ -228,6 +228,8 @@ dependencies = [
  "picoserve",
  "serde",
  "serde_json",
+ "wasmi 1.0.7",
+ "wasmi_core 1.0.7",
 ]
 
 [[package]]

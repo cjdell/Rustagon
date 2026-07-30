@@ -17,6 +17,7 @@ pub struct MenuState<P: Platform> {
   pub http_message: HttpStatusMessage,
 }
 
+#[derive(Debug)]
 pub enum AppState {
   None,
   MenuApp,
@@ -27,6 +28,7 @@ impl<P: Platform> MenuState<P> {
   pub async fn refresh(&mut self) {
     let app = &self.app.clone();
     if let Ok(app) = app.try_read() {
+      log::info!("refresh: app_state={:?}", *app);
       match *app {
         AppState::None => self.draw_menu().await,
         AppState::MenuApp => {

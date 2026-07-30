@@ -3,6 +3,7 @@ pub mod config;
 pub mod display;
 pub mod fs;
 pub mod input;
+pub mod wasm;
 
 pub use common::*;
 pub use config::DesktopConfigManager;
