@@ -24,6 +24,8 @@ firmware/   — ESP32-S3 host. Implements Platform using esp-hal, embassy-net, r
 
 desktop/    — macOS/linux host. Implements Platform using minifb, ureq.
               MAY depend on ureq, minifb. MUST NOT contain menu logic.
+              Platform crate is I/O centric — no WASM awareness in platform/.
+              WASM runtime lives in tasks/ (mirrors firmware structure).
 ```
 
 ### Check the firmware compiles:
@@ -197,7 +199,17 @@ rustagon/
 ├── desktop/                          # Desktop platform (std, minifb, ureq)
 │   └── src/
 │       ├── main.rs                   # Minifb window, menu_task on bg thread
-│       └── platform/                 # DesktopPlatform, DesktopHttpClient (ureq), mocks
+│       ├── platform/                 # DesktopPlatform, DesktopHttpClient (ureq)
+│       │   ├── mod.rs                #   DesktopPlatform + DesktopHttpClient
+│       │   ├── display.rs            #   DesktopDisplayManager (minifb-backed)
+│       │   ├── fs.rs                 #   DesktopLocalFs (real directory-backed)
+│       │   ├── input.rs              #   DesktopInputManager (keyboard) + DesktopSystemManager
+│       │   ├── config.rs            #   DesktopConfigManager (JSON file-backed)
+│       │   └── common.rs             #   DesktopLed/Power/Wifi/System managers (no-op impls)
+│       └── tasks/                    # Desktop task wrappers (mirrors firmware/)
+│           └── wasm/                 # WASM runtime (analogous to firmware's second core)
+│               ├── mod.rs            #   spawn_wasm_runner, wasm_host_loop, run_program
+│               └── context.rs        #   DesktopWasmHost + LCD_BUFFER
 ├── drivers/                          # Hardware driver IC crates
 │   ├── bq25895/                      # BQ25895 charger IC driver
 │   └── cy8cmbr3116/                  # CY8CMBR3116 capacitive touch controller driver
@@ -267,6 +279,35 @@ The IPC handler (`firmware::tasks::ipc_handler`) runs as a separate Embassy task
 shares `Arc<RwLock<CriticalSectionRawMutex, AppState>>` with the menu task for coordinating
 WASM app lifecycle (Started/Stopped transitions, WASM_LAUNCHING flag).
 
+## Desktop WASM Runner
+
+The desktop WASM runner (`desktop/src/tasks/wasm/`) mirrors the firmware's WASM runtime
+(`firmware/src/tasks/wasm/`) in both structure and responsibility:
+
+| Concept | Firmware | Desktop |
+|---------|----------|---------|
+| Entry point | `second_core_task` (Embassy task on core 1) | `spawn_wasm_runner` (`std::thread::spawn`) |
+| Message dispatch | `wasm_host_loop` (processes StartWasm/StartNative) | `wasm_host_loop` (processes StartWasm only) |
+| Program execution | `run_program` (calls `app::wasm::wasmi_runner`) | `run_program` (calls `app::wasm::wasmi_runner`) |
+| Platform host impl | `HardwareWasmHost` (SPI display, GPIO) | `DesktopWasmHost` (shared framebuffer, stdout) |
+| IPC concurrent handler | Separate Embassy task (`ipc_handler`) | Inline in `run_program` via `join` |
+
+The `Platform` trait and the `desktop/src/platform/` directory are I/O-centric (display,
+input, storage, HTTP, etc.) and contain **no WASM awareness**. WASM concerns live entirely
+in `tasks/wasm/`, mirroring the firmware's separation of concerns.
+
+**LCD buffer for minifb rendering:** The WASM framebuffer is stored in `LCD_BUFFER`
+(static `Mutex<Option<Vec<u8>>>` in `context.rs`). The main thread's render loop checks it
+each frame. If `Some`, it renders the raw RGB565 buffer directly. If `None`, it falls back
+to rendering the `LcdState` (menu screen). The buffer is cleared when the WASM session
+ends via `run_program`'s cleanup.
+
+**Button forwarding during WASM execution:** When `AppState::HostedApp`, the menu task
+forwards button presses as `HostIpcMessage::HexButton` using `try_send` (non-blocking).
+The WASM tick loop peeks this channel via `try_peek()` and passes the message length to
+the WASM's `tick()` function, which calls `extern_read_host_ipc_message` to consume it.
+This avoids the menu thread blocking if the WASM is busy.
+
 ## Key Design Decisions & Crate Boundaries
 
 ### Why `embassy_net::Stack` is in firmware, not app
@@ -313,10 +354,13 @@ Both `app_state` in `MenuRunnerContext` and the `app` field in `MenuState` use
 1. **Trait Design** — Minimal interface, async for I/O, single state enum.
 2. **Internal Encapsulation** — No channels or sync types leak to the application.
 3. **State Notification** — `WatchedValue<T>` for state, `EventQueue<T,N>` for events.
-4. **Mock Implementations** — Must be implementable without hardware.
+4. **Platform Implementations** — Must be implementable without hardware where possible.
 5. **Hardware Implementation** — Uses concrete types from the crate, protected by mutexes.
 6. **Object-Safe Traits for Handles** — `Send + Sync + Debug`, `Pin<Box<dyn Future>>` returns.
 7. **Handle via Deref** — `StorageHandle` proxies via `Deref` to avoid boilerplate.
+8. **Platform is I/O centric** — The platform abstraction (`desktop/src/platform/`,
+   `firmware/src/platform/`) is about I/O subsystems (display, input, storage, HTTP).
+   WASM runtime concerns live in `tasks/`, not in the platform.
 
 ## Remaining Work
 
@@ -349,7 +393,6 @@ Both `app_state` in `MenuRunnerContext` and the `app` field in `MenuState` use
 
 1. **Desktop improvements**
    - Render icons (currently empty on non-xtensa)
-   - Add WASM stubs so FilesApp "Execute" shows a message
    - Improve keyboard mappings
 
 2. **Add unit tests to `app` crate** — Use `MockPlatform` for deterministic tests.
@@ -425,6 +468,7 @@ Applied to: `littlefs_rust::Filesystem` (raw C pointers), `embassy_net::Stack` (
 - **Menu wrapper (firmware):** `firmware/src/tasks/menu/mod.rs`
 - **Desktop platform:** `desktop/src/platform/mod.rs`
 - **WASM IPC:** `firmware/src/tasks/wasm/`
+- **Desktop WASM runner:** `desktop/src/tasks/wasm/`
 - **Network infrastructure:** `firmware/src/tasks/net.rs`
 - **WatchedValue:** `firmware/src/utils/watched_value.rs`
 - **EventQueue:** `firmware/src/utils/event_queue.rs`

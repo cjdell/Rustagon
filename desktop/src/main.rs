@@ -1,4 +1,5 @@
 mod platform;
+mod tasks;
 mod embassy_time_driver;
 
 use app::apps::common::WASM_LAUNCHING;
@@ -13,7 +14,6 @@ use display_renderer::{FrameBuffer, LcdState};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
 use embedded_graphics::prelude::RawData as _;
 use minifb::{Key, Window, WindowOptions};
-use platform::wasm::wasm_runner_loop;
 use platform::{DesktopPlatform, DesktopInputManager, DesktopSystemManager};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -57,23 +57,15 @@ fn main() {
         additional_apps: &[],
     };
 
-    // Spawn the WASM runner thread (processes StartWasm, runs interpreter + IPC)
-    let runner_host_sender = host_sender.clone();
-    let runner_host_receiver = host_receiver.clone();
-    let runner_http = platform.http_client().unwrap();
-    let runner_display = platform.display_manager();
-    let runner_storage = platform.storage_manager();
-    let runner_app_state = app_state.clone();
-    std::thread::spawn(move || {
-        futures::executor::block_on(wasm_runner_loop(
-            runner_host_receiver,
-            runner_host_sender,
-            runner_http,
-            runner_display,
-            runner_storage,
-            runner_app_state,
-        ));
-    });
+    // Spawn the WASM runner thread (analogous to firmware's second_core_task)
+    tasks::wasm::spawn_wasm_runner(
+        host_receiver.clone(),
+        host_sender.clone(),
+        platform.http_client().unwrap(),
+        platform.display_manager(),
+        platform.storage_manager(),
+        app_state.clone(),
+    );
 
     // Spawn the menu task on a background thread
     let platform_clone = platform.clone();
@@ -104,7 +96,7 @@ fn main() {
         let now = now_ms();
 
         // Check if the WASM has pushed a raw framebuffer
-        let wasm_buffer = platform::wasm::LCD_BUFFER.lock().unwrap().clone();
+        let wasm_buffer = tasks::wasm::LCD_BUFFER.lock().unwrap().clone();
 
         if let Some(raw) = wasm_buffer {
             // Render raw WASM framebuffer (RGB565 LE) directly
