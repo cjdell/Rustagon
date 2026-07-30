@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum SystemMessage {
-  BootButton,
+  BootButton, // This is labeled as "BOOP" on the device, it is GPIO0. We're using it as the Home button as in it will always quit the current app and show the main menu.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,6 +3,7 @@ use app::platform::power::{PowerManager, PowerStatus};
 use app::platform::system::SystemManager;
 use app::platform::wifi::{WiFiManager, WifiStatus};
 use app::types::{LedRequest, SystemMessage, WifiDesiredState, WifiResult};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use std::pin::Pin;
 
 #[derive(Debug)]
@@ -60,18 +61,27 @@ impl WiFiManager for DesktopWifiManager {
     }
 }
 
+static SYSTEM_SIGNAL: Signal<CriticalSectionRawMutex, SystemMessage> = Signal::new();
+
 #[derive(Debug)]
 pub struct DesktopSystemManager;
+
+impl DesktopSystemManager {
+    pub fn push_message(msg: SystemMessage) {
+        SYSTEM_SIGNAL.signal(msg);
+    }
+}
+
 impl SystemManager for DesktopSystemManager {
     fn next_button(
         &self,
     ) -> Pin<Box<dyn std::future::Future<Output = SystemMessage> + Send + '_>> {
-        Box::pin(async { std::future::pending::<SystemMessage>().await })
+        Box::pin(async { SYSTEM_SIGNAL.wait().await })
     }
     fn inject(
         &self,
-        _: SystemMessage,
+        msg: SystemMessage,
     ) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(async {})
+        Box::pin(async move { SYSTEM_SIGNAL.signal(msg); })
     }
 }

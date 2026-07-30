@@ -6,10 +6,10 @@ use app::menu::types::MenuRunnerContext;
 use app::platform::Platform;
 use embedded_graphics::prelude::RawData as _;
 use app::protocol::HostIpcChannel;
-use app::types::HexButton;
+use app::types::{HexButton, SystemMessage};
 use display_renderer::{FrameBuffer, LcdState};
 use minifb::{Key, Window, WindowOptions};
-use platform::{DesktopPlatform, DesktopInputManager};
+use platform::{DesktopPlatform, DesktopInputManager, DesktopSystemManager};
 use std::sync::Arc;
 
 const WIDTH: usize = 240;
@@ -54,6 +54,9 @@ fn main() {
         // Handle keyboard input
         if let Some(hex) = key_to_hex_button(&window) {
             DesktopInputManager::push_button(hex);
+        }
+        if window.is_key_released(Key::Backspace) {
+            DesktopSystemManager::push_message(SystemMessage::BootButton);
         }
 
         let now = now_ms();
