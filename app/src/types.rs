@@ -52,7 +52,10 @@ pub struct KnownWifiNetwork {
 
 // ================================ HTTP Status ================================
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::{Receiver, Sender}};
+use embassy_sync::{
+  blocking_mutex::raw::CriticalSectionRawMutex,
+  channel::{Receiver, Sender},
+};
 
 pub type HttpChannel = embassy_sync::channel::Channel<CriticalSectionRawMutex, HttpStatusMessage, 1>;
 pub type HttpSender = Sender<'static, CriticalSectionRawMutex, HttpStatusMessage, 1>;

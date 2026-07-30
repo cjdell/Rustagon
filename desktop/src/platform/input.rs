@@ -1,6 +1,5 @@
 use app::platform::input::InputManager;
 use app::types::HexButton;
-use core::fmt;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use std::pin::Pin;
 

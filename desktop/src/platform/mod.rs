@@ -1,11 +1,15 @@
+pub mod common;
+pub mod config;
 pub mod display;
+pub mod fs;
 pub mod input;
-mod mock;
 
+pub use common::*;
+pub use config::DesktopConfigManager;
 pub use display::DesktopDisplayManager;
+pub use fs::DesktopLocalFs;
 pub use input::DesktopInputManager;
 
-use crate::MockConfigManager;
 use app::platform::storage::ConfigFileTrait;
 use app::platform::*;
 use app::types::{DeviceConfig, OtaError};
@@ -96,13 +100,14 @@ impl DesktopPlatform {
     pub fn new() -> Self {
         let display_raw = Arc::new(DesktopDisplayManager::new());
         let display = DisplayHandle::new(display_raw.clone() as Arc<dyn DisplayManager>);
-        let led = LedHandle::new(Arc::new(mock::MockLedManager) as Arc<dyn LedManager>);
-        let power = PowerHandle::new(Arc::new(mock::MockPowerManager) as Arc<dyn PowerManager>);
-        let wifi = WiFiHandle::new(Arc::new(mock::MockWifiManager) as Arc<dyn WiFiManager>);
+        let led = LedHandle::new(Arc::new(DesktopLedManager) as Arc<dyn LedManager>);
+        let power = PowerHandle::new(Arc::new(DesktopPowerManager) as Arc<dyn PowerManager>);
+        let wifi = WiFiHandle::new(Arc::new(DesktopWifiManager) as Arc<dyn WiFiManager>);
         let input = InputHandle::new(Arc::new(DesktopInputManager::new()) as Arc<dyn InputManager>);
-        let system = SystemHandle::new(Arc::new(mock::MockSystemManager) as Arc<dyn SystemManager>);
-        let storage = StorageHandle::new(Arc::new(mock::MockStorageManager) as Arc<dyn LocalFsTrait>);
-        let config = ConfigHandle::new(Arc::new(MockConfigManager {}) as Arc<dyn ConfigFileTrait<DeviceConfig>>);
+        let system = SystemHandle::new(Arc::new(DesktopSystemManager) as Arc<dyn SystemManager>);
+        let local_fs = DesktopLocalFs::new();
+        let storage = StorageHandle::new(Arc::new(local_fs) as Arc<dyn LocalFsTrait>);
+        let config = ConfigHandle::new(Arc::new(DesktopConfigManager::new()) as Arc<dyn ConfigFileTrait<DeviceConfig>>);
         let http_client = HttpClientHandle::new(Arc::new(DesktopHttpClient) as Arc<dyn app::platform::HttpClient>);
 
         Self { display_raw, display, led, power, wifi, input, system, storage, config, http_client }
@@ -123,7 +128,7 @@ impl Platform for DesktopPlatform {
     fn http_client(&self) -> Option<HttpClientHandle> { Some(self.http_client.clone()) }
     fn storage_manager(&self) -> StorageHandle { self.storage.clone() }
     fn config_manager(&self) -> ConfigHandle<DeviceConfig> { self.config.clone() }
-    async fn format_storage(&self) -> Result<(), FsError> { Ok(()) }
+    async fn format_storage(&self) -> Result<(), FsError> { self.storage.format().await }
     async fn software_reset(&self) { std::process::exit(0); }
     async fn ota_begin(&self) -> Result<u32, OtaError> { Err(OtaError::NotSupported) }
     async fn ota_write_chunk(&self, _: u32, _: &[u8]) -> Result<(), OtaError> { Err(OtaError::NotSupported) }

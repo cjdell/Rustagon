@@ -3,8 +3,7 @@ mod embassy_time_driver;
 
 use app::menu::menu_task;
 use app::menu::types::MenuRunnerContext;
-use app::platform::storage::ConfigFileTrait;
-use app::platform::{ConfigHandle, LocalFsTrait, Platform};
+use app::platform::Platform;
 use embedded_graphics::prelude::RawData as _;
 use app::protocol::HostIpcChannel;
 use app::types::HexButton;
@@ -25,14 +24,8 @@ fn main() {
     let host_channel = Box::leak(Box::new(HostIpcChannel::new()));
     let host_sender = host_channel.sender();
 
-    // Storage with mock filesystem
-    let storage = app::platform::StorageHandle::new(Arc::new(MockStorageManager));
-
-    // Config with mock
-    let config_handle = ConfigHandle::new(Arc::new(MockConfigManager));
-
     let runner_ctx = MenuRunnerContext {
-        storage,
+        storage: platform.storage_manager(),
         platform: (*platform).clone(),
         host_ipc_sender: host_sender,
         app_state: None,
@@ -146,35 +139,4 @@ impl FrameBuffer for DesktopFrameBuffer<'_> {
     fn buffer_height(&self) -> u32 { HEIGHT as u32 }
 }
 
-// ============================== Mock implementations ==============================
 
-#[derive(Debug)]
-struct MockStorageManager;
-
-impl LocalFsTrait for MockStorageManager {
-    fn format(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), app::platform::FsError>> + Send + '_>> { Box::pin(async { Ok(()) }) }
-    fn list_files(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<app::platform::DirEntry>, app::platform::FsError>> + Send + '_>> { Box::pin(async { Ok(Vec::new()) }) }
-    fn list_dir(&self, _: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<app::platform::DirEntry>, app::platform::FsError>> + Send + '_>> { Box::pin(async { Ok(Vec::new()) }) }
-    fn get_file_size(&self, _: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u32, app::platform::FsError>> + Send + '_>> { Box::pin(async { Err(app::platform::FsError::NotFound) }) }
-    fn read_binary_chunk(&self, _: String, _: u32, _: u32) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, app::platform::FsError>> + Send + '_>> { Box::pin(async { Err(app::platform::FsError::NotFound) }) }
-    fn write_binary_chunk(&self, _: String, _: u32, _: Vec<u8>, _: bool) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), app::platform::FsError>> + Send + '_>> { Box::pin(async { Ok(()) }) }
-    fn read_text_file(&self, _: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, app::platform::FsError>> + Send + '_>> { Box::pin(async { Err(app::platform::FsError::NotFound) }) }
-    fn write_text_file(&self, _: String, _: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), app::platform::FsError>> + Send + '_>> { Box::pin(async { Ok(()) }) }
-    fn delete(&self, _: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), app::platform::FsError>> + Send + '_>> { Box::pin(async { Ok(()) }) }
-    fn mkdir(&self, _: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), app::platform::FsError>> + Send + '_>> { Box::pin(async { Ok(()) }) }
-    fn file_exists(&self, _: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> { Box::pin(async { false }) }
-    fn get_file_type(&self, _: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<app::platform::FileType, app::platform::FsError>> + Send + '_>> { Box::pin(async { Err(app::platform::FsError::NotFound) }) }
-}
-
-#[derive(Debug)]
-struct MockConfigManager;
-
-impl ConfigFileTrait<app::types::DeviceConfig> for MockConfigManager {
-    fn get_json(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, app::platform::StateError>> + Send + '_>> {
-        Box::pin(async { serde_json::to_string(&app::types::DeviceConfig::default()).map_err(|e| app::platform::StateError::Error(format!("{e:?}"))) })
-    }
-    fn set_json(&self, _: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), app::platform::StateError>> + Send + '_>> { Box::pin(async { Ok(()) }) }
-    fn get_data(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = app::types::DeviceConfig> + Send + '_>> { Box::pin(async { app::types::DeviceConfig::default() }) }
-    fn set_data(&self, _: app::types::DeviceConfig) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> { Box::pin(async {}) }
-    fn save(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), app::platform::StateError>> + Send + '_>> { Box::pin(async { Ok(()) }) }
-}
