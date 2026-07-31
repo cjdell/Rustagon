@@ -114,6 +114,10 @@ run_desktop:
 
     cargo run -r -p desktop -- "$data_dir"
 
+# Run the desktop emulator, auto-starting a WASM app from sdk/wasm
+run_desktop_app file:
+    cargo run -r -p desktop -- sdk/wasm/{{file}}.wsm
+
 # ============================================================
 # WASM SDK
 # ============================================================

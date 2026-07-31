@@ -2,7 +2,7 @@ use crate::apps::MenuAppContext;
 use crate::menu::state::StackEventHandle;
 use crate::platform::Platform;
 use crate::protocol::HostIpcSender;
-use alloc::{boxed::Box, string::String};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use core::{fmt, future::Future, pin::Pin};
 
 #[derive(Clone)]
@@ -39,6 +39,8 @@ pub struct MenuRunnerContext<P: Platform> {
   pub stack_event_handle: StackEventHandle,
   pub app_loader: Option<AppLoader<P>>,
   pub additional_apps: &'static [&'static str],
+  /// WASM app bytes to launch immediately on startup instead of using the menu.
+  pub auto_launch: Option<Vec<u8>>,
 }
 
 impl<P: Platform> Clone for MenuRunnerContext<P> {
@@ -49,6 +51,7 @@ impl<P: Platform> Clone for MenuRunnerContext<P> {
       stack_event_handle: self.stack_event_handle.clone(),
       app_loader: self.app_loader,
       additional_apps: self.additional_apps,
+      auto_launch: self.auto_launch.clone(),
     }
   }
 }

@@ -9,7 +9,11 @@ use log::info;
 pub async fn menu_task(runner_ctx: crate::tasks::menu::types::MenuRunnerContext) {
   info!("Starting Menu Task...");
 
-  runner_ctx.platform.wifi_manager().set_desired_state(crate::platform::WifiDesiredState::Online).await;
+  runner_ctx
+    .platform
+    .wifi_manager()
+    .set_desired_state(crate::platform::WifiDesiredState::Online)
+    .await;
 
   let app_ctx = app::menu::types::MenuRunnerContext {
     platform: runner_ctx.platform,
@@ -17,6 +21,7 @@ pub async fn menu_task(runner_ctx: crate::tasks::menu::types::MenuRunnerContext)
     stack_event_handle: runner_ctx.stack_event_handle,
     app_loader: None,
     additional_apps: &[],
+    auto_launch: None,
   };
 
   app::menu::menu_task::<HardwarePlatform>(app_ctx).await;

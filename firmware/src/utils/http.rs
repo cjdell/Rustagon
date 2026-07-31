@@ -1,4 +1,4 @@
-use crate::utils::{VecHelper, dns::DnsResolver};
+use crate::utils::{dns::DnsResolver, VecHelper};
 use alloc::{
   borrow::ToOwned as _,
   boxed::Box,
@@ -7,8 +7,8 @@ use alloc::{
 };
 use core::future::join;
 use embassy_net::{
-  Stack,
   tcp::client::{TcpClient, TcpClientState},
+  Stack,
 };
 use embassy_sync::{
   blocking_mutex::raw::NoopRawMutex,
@@ -17,7 +17,7 @@ use embassy_sync::{
 use embassy_time::Duration;
 use embedded_io_async::Read as _;
 use esp_alloc::ExternalMemory;
-use log::{error, info};
+use log::{debug, error};
 use reqwless::{
   client::HttpClient,
   request::{Method, RequestBuilder},
@@ -111,7 +111,7 @@ where
 {
   const CHUNK_SIZE: usize = 4096;
 
-  info!("HTTP: request url={}", http_request.url);
+  debug!("HTTP: request url={}", http_request.url);
 
   let state = Box::new_in(TcpClientState::<1, 1024, CHUNK_SIZE>::new(), ExternalMemory);
   let mut tcp_client = TcpClient::new(stack, &state);
@@ -143,7 +143,7 @@ where
     }
   };
 
-  info!("HTTP: got response status={}", response.status.0);
+  debug!("HTTP: got response status={}", response.status.0);
 
   let mut meta = HttpResponseMeta::new(response.status.0 as u32);
 
@@ -153,7 +153,7 @@ where
     }
   }
 
-  info!("HTTP: on_meta");
+  debug!("HTTP: on_meta");
   on_meta(meta).await;
 
   let mut reader = response.body().reader();
@@ -170,10 +170,10 @@ where
           if total_read > 0 {
             // Send any remaining data
             chunk_buf.truncate(total_read);
-            info!("HTTP: on_chunk len={}", total_read);
+            debug!("HTTP: on_chunk len={}", total_read);
             on_chunk(VecHelper::to_global_vec(chunk_buf)).await;
           }
-          info!("HTTP: done");
+          debug!("HTTP: done");
           return Ok(());
         }
         Ok(n) => {
@@ -181,7 +181,7 @@ where
 
           // If buffer is full, send it and break to get a new buffer
           if total_read == CHUNK_SIZE {
-            info!("HTTP: on_chunk len={}", CHUNK_SIZE);
+            debug!("HTTP: on_chunk len={}", CHUNK_SIZE);
             on_chunk(VecHelper::to_global_vec(chunk_buf)).await;
             break;
           }

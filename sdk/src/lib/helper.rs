@@ -1,6 +1,6 @@
 use crate::lib::protocol::{
-  HostIpcMessage, WasmIpcMessage, extern_get_millis, extern_read_host_ipc_message, extern_set_gpio,
-  extern_set_lcd_buffer, extern_write_stdout, extern_write_wasm_ipc_message,
+  extern_get_millis, extern_read_host_ipc_message, extern_set_gpio, extern_set_lcd_buffer, extern_write_stdout,
+  extern_write_wasm_ipc_message, HostIpcMessage, WasmIpcMessage,
 };
 use alloc::vec;
 
@@ -10,6 +10,14 @@ macro_rules! println {
     };
 
     ($($arg:tt)*) => {
+        crate::lib::helper::print_line(&alloc::format!("{}\n", format_args!($($arg)*)));
+    };
+}
+
+// Compiles out in release builds — use for high-frequency runtime diagnostics.
+macro_rules! debug_print {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
         crate::lib::helper::print_line(&alloc::format!("{}\n", format_args!($($arg)*)));
     };
 }
@@ -69,7 +77,7 @@ pub fn receive_host_ipc_message(host_msg_id: u32, host_msg_size: u32) -> HostIpc
     Err(err) => print_and_panic!("tick: Error receiving message: {err}"),
   };
 
-  println!("tick: received host msg id={host_msg_id} size={host_msg_size}: {host_msg:?}");
+  debug_print!("tick: received host msg id={host_msg_id} size={host_msg_size}: {host_msg:?}");
 
   host_msg
 }

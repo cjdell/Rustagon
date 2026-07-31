@@ -23,7 +23,16 @@ fn main() {
     .parse_default_env()
     .init();
 
-  let data_dir = std::env::args().nth(1).map(PathBuf::from).unwrap_or_else(default_data_dir);
+  let mut args = std::env::args().skip(1);
+  let (data_dir, wasm_app) = match (args.next(), args.next()) {
+    (Some(data), Some(app)) => (PathBuf::from(data), resolve_wasm_path(&app)),
+    (Some(arg), None) => match resolve_wasm_path(&arg) {
+      Some(app) => (default_data_dir(), Some(app)),
+      None => (PathBuf::from(arg), None),
+    },
+    (None, _) => (default_data_dir(), None),
+  };
+  let wasm_buffer = wasm_app.map(|path| std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display())));
   let platform = Arc::new(DesktopPlatform::new(data_dir));
 
   // IPC channels — leaked for static lifetime (never freed on desktop)
@@ -54,6 +63,7 @@ fn main() {
     stack_event_handle,
     app_loader,
     additional_apps: &[],
+    auto_launch: wasm_buffer,
   };
 
   // Spawn the WASM runner thread (analogous to firmware's second_core_task)
@@ -141,6 +151,20 @@ fn main() {
 
 fn default_data_dir() -> PathBuf {
   Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("desktop").join("data")
+}
+
+/// Resolve a CLI arg to an existing WASM app file, appending `.wsm` if needed.
+fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
+  let path = PathBuf::from(arg);
+  if path.is_file() {
+    return Some(path);
+  }
+  let with_ext = path.with_extension("wsm");
+  if with_ext.is_file() {
+    Some(with_ext)
+  } else {
+    None
+  }
 }
 
 fn key_to_hex_button(window: &Window) -> Option<HexButton> {

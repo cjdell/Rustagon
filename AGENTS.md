@@ -47,6 +47,7 @@ just run_firmware          # build + flash over USB (espflash)
 just build_sdk             # build all WASM apps -> sdk/wasm/*.wsm + manifest.json
 just build_manifest        # regenerate sdk/wasm/manifest.json from the .wsm files
 just emulate_wasm fetch    # build SDK + run an app in the desktop emulator
+just run_desktop_app fetch # run the desktop emulator, auto-starting a WASM app from sdk/wasm
 just run_wasm fetch        # build SDK + upload an app to the device over HTTP
 just upload_wasm fetch     # build SDK + upload an app as a file
 just deploy_firmware       # build + package merged.bin + deploy OTA firmware
@@ -841,7 +842,8 @@ because `run_program` uses `futures::future::join(..).await`.
 `unused implementer of Future that must be used` / `futures do nothing unless you .await
 or poll them` — treat that warning as an error. When adding a guest-request handler,
 verify the request future is actually driven (e.g. the `HTTP: request url=` log inside
-`perform_http_request_streaming` appears on the serial console).
+`perform_http_request_streaming` appears on the serial console — it is at debug level, so
+build with `ESP_LOG=DEBUG`).
 
 ### `StackSignal` — single-consumer event delivery
 

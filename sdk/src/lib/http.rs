@@ -14,7 +14,7 @@ pub struct HttpResponse {
 
 pub async fn make_http_request(req: HttpRequest) -> HttpResponse {
   let req_id = send_wasm_ipc_message(WasmIpcMessage::HttpRequest(req));
-  println!("make_http_request: sent request, req_id={req_id}");
+  debug_print!("make_http_request: sent request, req_id={req_id}");
 
   let mut response_meta: Option<HttpResponseMeta> = None;
   let mut response_body: Vec<u8> = Vec::new();
@@ -22,7 +22,7 @@ pub async fn make_http_request(req: HttpRequest) -> HttpResponse {
   loop {
     match get_next_host_message().await {
       (res_id, HostIpcMessage::HttpResponseMeta(meta)) => {
-        println!("make_http_request: got meta res_id={res_id} req_id={req_id} status={}", meta.status);
+        debug_print!("make_http_request: got meta res_id={res_id} req_id={req_id} status={}", meta.status);
         if res_id != req_id {
           continue;
         }
@@ -30,7 +30,7 @@ pub async fn make_http_request(req: HttpRequest) -> HttpResponse {
         response_meta = Some(meta);
       }
       (res_id, HostIpcMessage::HttpResponseBody(body)) => {
-        println!("make_http_request: got body res_id={res_id} req_id={req_id} len={}", body.len());
+        debug_print!("make_http_request: got body res_id={res_id} req_id={req_id} len={}", body.len());
         if res_id != req_id {
           continue;
         }
@@ -38,7 +38,7 @@ pub async fn make_http_request(req: HttpRequest) -> HttpResponse {
         response_body.extend(body);
       }
       (res_id, HostIpcMessage::HttpResponseComplete) => {
-        println!("make_http_request: got complete res_id={res_id} req_id={req_id}");
+        debug_print!("make_http_request: got complete res_id={res_id} req_id={req_id}");
         if res_id != req_id {
           continue;
         }
@@ -54,7 +54,7 @@ pub async fn make_http_request(req: HttpRequest) -> HttpResponse {
         };
       }
       (res_id, other) => {
-        println!("make_http_request: got unexpected message res_id={res_id}: {other:?}");
+        debug_print!("make_http_request: got unexpected message res_id={res_id}: {other:?}");
       }
     }
   }

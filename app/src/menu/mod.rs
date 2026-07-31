@@ -12,11 +12,11 @@ use crate::{
   types::*,
 };
 use alloc::{string::ToString, vec::Vec};
-use embassy_futures::select::{Either, Either3, Either4, select, select3, select4};
+use embassy_futures::select::{select, select3, select4, Either, Either3, Either4};
 use log::{debug, info};
 use wasm_protocol::HostIpcMessage as WireHostIpcMessage;
 
-pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) {
+pub async fn menu_task<P: Platform + 'static>(mut runner_ctx: MenuRunnerContext<P>) {
   let mut stack: Vec<AppStackEntry<P>> = Vec::new();
   let display = runner_ctx.platform.display_manager();
 
@@ -24,6 +24,16 @@ pub async fn menu_task<P: Platform + 'static>(runner_ctx: MenuRunnerContext<P>) 
     menu_options: get_root_menu_options::<P>(runner_ctx.additional_apps),
     selected: 0,
   });
+
+  // Auto-launch a WASM app (e.g. desktop CLI arg) before entering the menu loop
+  if let Some(buffer) = runner_ctx.auto_launch.take() {
+    info!("menu_task: auto-launching WASM app ({} bytes)", buffer.len());
+    runner_ctx
+      .host_ipc_sender
+      .send((0, HostIpcMessage::Runtime(HostRuntimeCommand::StartWasmWithBuffer(buffer))))
+      .await;
+    stack.push(AppStackEntry::HostedApp);
+  }
 
   let stack_signal = runner_ctx.stack_event_handle.clone();
 
@@ -269,12 +279,18 @@ async fn handle_menu_app<P: Platform>(
         }
         AppAction::LaunchWasm(name) => {
           debug!("handle_menu_app: launching wasm {name}");
-          runner_ctx.host_ipc_sender.send((0, HostIpcMessage::Runtime(HostRuntimeCommand::StartWasm(name)))).await;
+          runner_ctx
+            .host_ipc_sender
+            .send((0, HostIpcMessage::Runtime(HostRuntimeCommand::StartWasm(name))))
+            .await;
           stack.push(AppStackEntry::HostedApp);
         }
         AppAction::LaunchNative(name) => {
           debug!("handle_menu_app: launching native {name}");
-          runner_ctx.host_ipc_sender.send((0, HostIpcMessage::Runtime(HostRuntimeCommand::StartNative(name)))).await;
+          runner_ctx
+            .host_ipc_sender
+            .send((0, HostIpcMessage::Runtime(HostRuntimeCommand::StartNative(name))))
+            .await;
           stack.push(AppStackEntry::HostedApp);
         }
       }
@@ -338,10 +354,16 @@ async fn handle_hosted_app<P: Platform>(
 
     match input {
       Either4::First(_system) => {
-        runner_ctx.host_ipc_sender.try_send((0, HostIpcMessage::Runtime(HostRuntimeCommand::Stop))).ok();
+        runner_ctx
+          .host_ipc_sender
+          .try_send((0, HostIpcMessage::Runtime(HostRuntimeCommand::Stop)))
+          .ok();
       }
       Either4::Second(hex) => {
-        runner_ctx.host_ipc_sender.try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(hex)))).ok();
+        runner_ctx
+          .host_ipc_sender
+          .try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(hex))))
+          .ok();
       }
       Either4::Third(event) => {
         debug!("hosted_app: stack event {event:?}");
@@ -368,7 +390,10 @@ async fn handle_hosted_app<P: Platform>(
           if let DeviceEvent::Keyboard(ke) = &dev_event {
             if ke.typ == KeyEventType::Pressed {
               if let Some(nav) = device_key_to_nav(ke.code) {
-                runner_ctx.host_ipc_sender.try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(nav)))).ok();
+                runner_ctx
+                  .host_ipc_sender
+                  .try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(nav))))
+                  .ok();
               }
             }
           }
