@@ -67,7 +67,7 @@ deploy_firmware:
 
     cargo build --profile release-lto -p firmware --bin rustagon
 
-    target_file_name=target/xtensa-esp32s3-none-elf/release-lto/rustagon
+    target_file_name=../target/xtensa-esp32s3-none-elf/release-lto/rustagon
     dest_file_name=firmware.bin
     merged_file_name=web-flash-tool/merged.bin
 
