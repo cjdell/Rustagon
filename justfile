@@ -31,7 +31,7 @@ build_firmware:
     source .env
     set +a
 
-    cargo build -r --bin rustagon
+    cargo build --profile release-lto --bin rustagon
 
 # Build and flash firmware via USB
 run_firmware:
@@ -48,7 +48,7 @@ run_firmware:
 
     espflash erase-parts otadata --partition-table partitions.csv
 
-    cargo run -r --bin rustagon
+    cargo run --profile release-lto --bin rustagon
 
 # Build firmware and deploy to remote server
 deploy_firmware:
@@ -65,9 +65,9 @@ deploy_firmware:
 
     echo "Deploying version $FIRMWARE_VERSION"
 
-    cargo build -r -p firmware --bin rustagon
+    cargo build --profile release-lto -p firmware --bin rustagon
 
-    target_file_name=target/xtensa-esp32s3-none-elf/release/rustagon
+    target_file_name=target/xtensa-esp32s3-none-elf/release-lto/rustagon
     dest_file_name=firmware.bin
     merged_file_name=web-flash-tool/merged.bin
 
@@ -125,13 +125,13 @@ build_sdk:
 
     SDK_DIR=$PWD/sdk
 
-    rm -rf $SDK_DIR/../target/wasm32-unknown-unknown/release/*.wasm
+    rm -rf $SDK_DIR/../target/wasm32-unknown-unknown/release-lto/*.wasm
 
-    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true" cargo +nightly build -r -p sdk --target wasm32-unknown-unknown
+    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true" cargo +nightly build --profile release-lto -p sdk --target wasm32-unknown-unknown
 
     rm -rf $SDK_DIR/wasm/*.wsm
 
-    cp -a $SDK_DIR/../target/wasm32-unknown-unknown/release/*.wasm $SDK_DIR/wasm/
+    cp -a $SDK_DIR/../target/wasm32-unknown-unknown/release-lto/*.wasm $SDK_DIR/wasm/
 
     pushd $SDK_DIR/wasm
     for f in *.wasm; do [[ -f "$f" ]] && mv "$f" "${f%.wasm}.wsm"; done

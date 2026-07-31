@@ -35,6 +35,23 @@ wasmi_ir = { path = "libs/wasmi/crates/ir", default-features = false }
 wasmparser = { version = "0.228.0", default-features = false }
 wat = { version = "1.228.0", default-features = false }
 
+# Host crates (desktop, app, emulator, uploader) — fast release builds, no fat LTO.
+# Incremental only applies to workspace members and path deps (per Cargo), so
+# registry dependencies compile exactly as before.
 [profile.release]
+lto = false
+opt-level = 3
+incremental = true
+
+# Firmware and the WASM SDK keep maximum size optimization (fat LTO + opt-level
+# 'z'). Used by the firmware justfile recipes and build_sdk via --profile
+# release-lto. Must be used instead of RUSTFLAGS `-C lto=true` together with the
+# default release profile, which would conflict with cargo's `-C embed-bitcode=no`.
+# NOTE: `codegen-units` must NOT be set here — the esp toolchain's Xtensa
+# backend fails to compile xtensa-lx-rt's inline asm when `-C codegen-units` is
+# passed explicitly (leaving it at the default avoids the broken codegen path).
+[profile.release-lto]
+inherits = "release"
 lto = true
-opt-level = 'z'
+opt-level = "z"
+incremental = false

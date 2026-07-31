@@ -73,7 +73,30 @@ cd firmware && cargo build -r --lib             # firmware crate, no linker
 
 Note: linking the firmware *binary* needs the Xtensa linker
 (`xtensa-esp32s3-elf-gcc`), only available after `source ~/export-esp.sh`.
-Without it `cargo build -r --bin rustagon` fails at link; `--lib` compiles fine.
+Without it `cargo build --profile release-lto --bin rustagon` fails at link;
+`--lib` compiles fine.
+
+### Release Profiles
+
+The root `Cargo.toml` splits release builds so host crates build fast while the
+firmware and SDK stay as small as possible:
+
+- `[profile.release]` — fast builds for host crates (`desktop`, `app`,
+  `emulator`, `uploader`): no LTO, `opt-level = 3`, `incremental = true`.
+  Incremental only applies to workspace members and path deps, so registry
+  crates compile exactly as before.
+- `[profile.release-lto]` — size-optimized profile (fat LTO, `opt-level = 'z'`).
+  The firmware `just` recipes build with `--profile release-lto`, and `build_sdk`
+  does the same for the WASM binaries (producing them under
+  `target/wasm32-unknown-unknown/release-lto/`). This profile **must** be used for
+  the SDK instead of relying on RUSTFLAGS `-C lto=true` with the default release
+  profile, which would conflict with cargo's `-C embed-bitcode=no`.
+  Do **not** set `codegen-units` in this profile: the esp toolchain's Xtensa
+  backend fails to compile `xtensa-lx-rt`'s inline asm when `-C codegen-units`
+  is passed explicitly.
+
+Only the `just` recipes (which set the profile explicitly) produce the intended
+artifacts; a bare `cargo build -r` in a crate uses the fast (no-LTO) profile.
 
 ### Platform Trait
 
@@ -423,6 +446,9 @@ cd desktop && cargo build          # macOS/linux (minifb window)
 cd app && cargo build --features wasm-runtime
 cd firmware && cargo build -r --lib
 ```
+
+See **Release Profiles** above — the firmware binary is built with
+`--profile release-lto`, not plain `-r`.
 
 ## How the Menu Moves Through Crates
 
