@@ -450,6 +450,21 @@ cd firmware && cargo build -r --lib
 See **Release Profiles** above — the firmware binary is built with
 `--profile release-lto`, not plain `-r`.
 
+### Formatting
+
+The IDE formats on save with the repo's `rustfmt.toml` (`max_width = 140`,
+`tab_spaces = 2`) using each crate's edition. `opencode.json` configures a
+per-file formatter so opencode output matches; as a backup, after editing any
+`.rs` file run:
+
+```sh
+rustfmt --edition 2021 --config skip_children=true <file>
+```
+
+`skip_children=true` ensures only the edited file is formatted (crate roots
+won't drag in the rest of the crate). Do **not** use `cargo fmt` on the whole
+workspace — it reformats hundreds of unrelated files.
+
 ## How the Menu Moves Through Crates
 
 1. `app::menu::menu_task<P: Platform>()` — the full menu system. Uses an **AppStack** to

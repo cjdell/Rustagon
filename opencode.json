@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "formatter": {
+    "cargofmt": { "disabled": true },
+    "rustfmt": {
+      "command": ["rustfmt", "--edition", "2021", "--config", "skip_children=true", "$FILE"],
+      "extensions": [".rs"]
+    }
+  }
+}

@@ -23,10 +23,7 @@ fn main() {
     .parse_default_env()
     .init();
 
-  let data_dir = std::env::args()
-    .nth(1)
-    .map(PathBuf::from)
-    .unwrap_or_else(default_data_dir);
+  let data_dir = std::env::args().nth(1).map(PathBuf::from).unwrap_or_else(default_data_dir);
   let platform = Arc::new(DesktopPlatform::new(data_dir));
 
   // IPC channels — leaked for static lifetime (never freed on desktop)
@@ -143,11 +140,7 @@ fn main() {
 }
 
 fn default_data_dir() -> PathBuf {
-  Path::new(env!("CARGO_MANIFEST_DIR"))
-    .parent()
-    .unwrap()
-    .join("desktop")
-    .join("data")
+  Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("desktop").join("data")
 }
 
 fn key_to_hex_button(window: &Window) -> Option<HexButton> {
