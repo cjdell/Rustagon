@@ -39,14 +39,14 @@ impl Vec3 {
   }
 
   fn rotate_x(&self, angle: f32) -> Vec3 {
-    let cos_a = libm::cosf(angle);
-    let sin_a = libm::sinf(angle);
+    let cos_a = crate::lib::trig::fast_cos(angle);
+    let sin_a = crate::lib::trig::fast_sin(angle);
     Vec3::new(self.x, self.y * cos_a - self.z * sin_a, self.y * sin_a + self.z * cos_a)
   }
 
   fn rotate_y(&self, angle: f32) -> Vec3 {
-    let cos_a = libm::cosf(angle);
-    let sin_a = libm::sinf(angle);
+    let cos_a = crate::lib::trig::fast_cos(angle);
+    let sin_a = crate::lib::trig::fast_sin(angle);
     Vec3::new(
       self.x * cos_a + self.z * sin_a,
       self.y,
@@ -55,8 +55,8 @@ impl Vec3 {
   }
 
   fn rotate_z(&self, angle: f32) -> Vec3 {
-    let cos_a = libm::cosf(angle);
-    let sin_a = libm::sinf(angle);
+    let cos_a = crate::lib::trig::fast_cos(angle);
+    let sin_a = crate::lib::trig::fast_sin(angle);
     Vec3::new(self.x * cos_a - self.y * sin_a, self.x * sin_a + self.y * cos_a, self.z)
   }
 

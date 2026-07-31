@@ -11,23 +11,23 @@ extern crate alloc;
 use crate::lib::{
   graphics::{BufferTarget, SCREEN_HEIGHT, SCREEN_WIDTH},
   helper::get_millis,
-  protocol::{HexButton, HostIpcMessage, extern_set_lcd_buffer},
-  tasks::{HOST_IPC_CHANNEL, spawn, yield_now},
+  protocol::{extern_set_lcd_buffer, HexButton, HostIpcMessage},
+  tasks::{spawn, yield_now, HOST_IPC_CHANNEL},
 };
 use alloc::{boxed::Box, vec::Vec};
 use alloc::{format, vec};
 use core::iter::once;
 use embedded_3dgfx::{
-  K3dengine,
   draw::draw_zbuffered,
   mesh::{Geometry, K3dMesh, RenderMode},
+  K3dengine,
 };
 use embedded_graphics::{
-  Drawable as _, Pixel,
-  mono_font::{MonoTextStyle, ascii::FONT_6X10},
+  mono_font::{ascii::FONT_6X10, MonoTextStyle},
   pixelcolor::Rgb565,
   prelude::{DrawTarget as _, Point, WebColors},
   text::Text,
+  Drawable as _, Pixel,
 };
 use nalgebra::{Point3, Vector3};
 
@@ -184,13 +184,13 @@ fn wasm_main() {
       let time = (get_millis() - start_time) as f32 / 1_000.;
       let light_angle_h = if auto_rotate { time * 1.0 } else { manual_light_angle_h };
       let light_angle_v = if auto_rotate {
-        (time * 0.5).sin() * 0.3
+        crate::lib::trig::fast_sin(time * 0.5) * 0.3
       } else {
         manual_light_angle_v
       };
 
       // Create light direction vector
-      let light_dir = Vector3::new(light_angle_h.cos(), light_angle_v, light_angle_h.sin()).normalize();
+      let light_dir = Vector3::new(crate::lib::trig::fast_cos(light_angle_h), light_angle_v, crate::lib::trig::fast_sin(light_angle_h)).normalize();
 
       // Rotate cubes for dynamic lighting demonstration
       cube1.set_attitude(time * 0.3, time * 0.5, time * 0.2);
@@ -219,15 +219,11 @@ fn wasm_main() {
         light_dir.z,
         if auto_rotate { "ON" } else { "OFF" }
       );
-      Text::new(&info_text, Point::new(10, 20), text_style)
-        .draw(&mut display)
-        .unwrap();
+      Text::new(&info_text, Point::new(10, 20), text_style).draw(&mut display).unwrap();
 
       // Draw lighting status at bottom
       let status_text = "Watch the cube faces - they should change brightness as light moves!";
-      Text::new(status_text, Point::new(10, 580), text_style)
-        .draw(&mut display)
-        .unwrap();
+      Text::new(status_text, Point::new(10, 580), text_style).draw(&mut display).unwrap();
 
       // Draw light direction indicator (top-right corner)
       let indicator_x = 750;
@@ -237,12 +233,10 @@ fn wasm_main() {
       // Draw background circle
       for angle in 0..360 {
         let rad = (angle as f32).to_radians();
-        let px = (indicator_x as f32 + rad.cos() * indicator_radius) as i32;
-        let py = (indicator_y as f32 + rad.sin() * indicator_radius) as i32;
+        let px = (indicator_x as f32 + crate::lib::trig::fast_cos(rad) * indicator_radius) as i32;
+        let py = (indicator_y as f32 + crate::lib::trig::fast_sin(rad) * indicator_radius) as i32;
         if px >= 0 && px < 800 && py >= 0 && py < 600 {
-          display
-            .draw_iter(once(Pixel(Point::new(px, py), Rgb565::new(5, 5, 5))))
-            .ok();
+          display.draw_iter(once(Pixel(Point::new(px, py), Rgb565::new(5, 5, 5)))).ok();
         }
       }
 
@@ -253,15 +247,11 @@ fn wasm_main() {
       for i in -3..=3 {
         let px = (light_x as i32 + i).clamp(0, 799);
         let py = (light_y as i32).clamp(0, 599);
-        display
-          .draw_iter(once(Pixel(Point::new(px, py), Rgb565::CSS_YELLOW)))
-          .ok();
+        display.draw_iter(once(Pixel(Point::new(px, py), Rgb565::CSS_YELLOW))).ok();
 
         let px = (light_x as i32).clamp(0, 799);
         let py = (light_y as i32 + i).clamp(0, 599);
-        display
-          .draw_iter(once(Pixel(Point::new(px, py), Rgb565::CSS_YELLOW)))
-          .ok();
+        display.draw_iter(once(Pixel(Point::new(px, py), Rgb565::CSS_YELLOW))).ok();
       }
 
       // Update window

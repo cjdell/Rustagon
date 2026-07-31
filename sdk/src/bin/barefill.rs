@@ -8,6 +8,12 @@ use alloc::boxed::Box;
 #[macro_use]
 mod protocol;
 
+#[path = "../lib/allocator.rs"]
+mod allocator;
+
+#[path = "../lib/panic.rs"]
+mod panic;
+
 extern crate alloc;
 
 #[unsafe(no_mangle)]
@@ -20,9 +26,4 @@ fn wasm_main() {
 #[unsafe(no_mangle)]
 fn tick(_: u32, _: u32) -> u32 {
   1 // Finish
-}
-
-#[unsafe(no_mangle)]
-fn get_memory_usage() -> usize {
-  0
 }

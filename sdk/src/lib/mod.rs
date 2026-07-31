@@ -5,9 +5,11 @@ pub mod helper;
 pub mod allocator;
 pub mod graphics;
 pub mod http;
+pub mod panic;
 pub mod protocol;
 pub mod sleep;
 pub mod tasks;
+pub mod trig;
 
 #[macro_export]
 macro_rules! mk_static {

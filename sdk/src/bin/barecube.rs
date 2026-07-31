@@ -11,15 +11,24 @@ mod protocol;
 #[macro_use]
 mod graphics;
 
+#[path = "../lib/allocator.rs"]
+mod allocator;
+
+#[path = "../lib/panic.rs"]
+mod panic;
+
+#[path = "../lib/trig.rs"]
+mod trig;
+
 extern crate alloc;
 
 use alloc::boxed::Box;
 use core::f32::consts::PI;
 use embedded_graphics::{
-  Drawable as _,
   pixelcolor::Rgb565,
   prelude::{Point, Primitive as _, RgbColor},
   primitives::{Line, PrimitiveStyle},
+  Drawable as _,
 };
 
 use crate::{
@@ -101,8 +110,8 @@ fn create_cube_points() -> [Point3D; 8] {
 
 // Rotate a 3D point around the X axis
 fn rotate_x(point: Point3D, angle: f32) -> Point3D {
-  let cos_a = angle.cos();
-  let sin_a = angle.sin();
+  let cos_a = crate::trig::fast_cos(angle);
+  let sin_a = crate::trig::fast_sin(angle);
   Point3D {
     x: point.x,
     y: point.y * cos_a - point.z * sin_a,
@@ -112,8 +121,8 @@ fn rotate_x(point: Point3D, angle: f32) -> Point3D {
 
 // Rotate a 3D point around the Y axis
 fn rotate_y(point: Point3D, angle: f32) -> Point3D {
-  let cos_a = angle.cos();
-  let sin_a = angle.sin();
+  let cos_a = crate::trig::fast_cos(angle);
+  let sin_a = crate::trig::fast_sin(angle);
   Point3D {
     x: point.x * cos_a + point.z * sin_a,
     y: point.y,
@@ -123,8 +132,8 @@ fn rotate_y(point: Point3D, angle: f32) -> Point3D {
 
 // Rotate a 3D point around the Z axis
 fn rotate_z(point: Point3D, angle: f32) -> Point3D {
-  let cos_a = angle.cos();
-  let sin_a = angle.sin();
+  let cos_a = crate::trig::fast_cos(angle);
+  let sin_a = crate::trig::fast_sin(angle);
   Point3D {
     x: point.x * cos_a - point.y * sin_a,
     y: point.x * sin_a + point.y * cos_a,
@@ -211,13 +220,10 @@ fn wasm_main() {
       let start_point = projected_points[start_idx];
       let end_point = projected_points[end_idx];
 
-      Line::new(
-        Point::new(start_point.x, start_point.y),
-        Point::new(end_point.x, end_point.y),
-      )
-      .into_styled(line_style)
-      .draw(&mut display)
-      .unwrap();
+      Line::new(Point::new(start_point.x, start_point.y), Point::new(end_point.x, end_point.y))
+        .into_styled(line_style)
+        .draw(&mut display)
+        .unwrap();
     }
 
     // Update the display

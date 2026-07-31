@@ -131,7 +131,7 @@ build_sdk:
 
     rm -rf $SDK_DIR/../target/wasm32-unknown-unknown/release-lto/*.wasm
 
-    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true" cargo +nightly build --profile release-lto -p sdk --target wasm32-unknown-unknown
+    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true -C strip=symbols" cargo +nightly build --profile release-lto -p sdk --target wasm32-unknown-unknown
 
     rm -rf $SDK_DIR/wasm/*.wsm
 

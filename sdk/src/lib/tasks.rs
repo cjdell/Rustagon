@@ -1,13 +1,13 @@
 use crate::lib::helper::receive_host_ipc_message;
 use crate::lib::protocol::HostIpcMessage;
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel, Subscriber};
-use fixed_deque::Deque;
 
 extern crate alloc;
 extern crate core;
@@ -18,10 +18,60 @@ type HostIpcChannel = PubSubChannel<NoopRawMutex, (u32, HostIpcMessage), 10, 3, 
 type HostIpcSubscriber = Subscriber<'static, NoopRawMutex, (u32, HostIpcMessage), 10, 3, 1>;
 
 #[thread_local]
-static TASK_QUEUE: RefCell<Option<Deque<BoxFuture>>> = RefCell::new(None);
+static TASK_QUEUE: RefCell<Option<TaskQueue>> = RefCell::new(None);
 
 #[thread_local]
 pub static HOST_IPC_CHANNEL: HostIpcChannel = HostIpcChannel::new();
+
+/// Simple fixed-capacity FIFO queue (ring buffer) for spawned tasks.
+struct TaskQueue {
+  buf: Vec<Option<BoxFuture>>,
+  head: usize,
+  len: usize,
+}
+
+impl TaskQueue {
+  fn new(capacity: usize) -> Self {
+    let mut buf = Vec::with_capacity(capacity);
+    buf.resize_with(capacity, || None);
+    Self { buf, head: 0, len: 0 }
+  }
+
+  fn len(&self) -> usize {
+    self.len
+  }
+
+  fn is_empty(&self) -> bool {
+    self.len == 0
+  }
+
+  fn push_back(&mut self, item: BoxFuture) {
+    if self.len == self.buf.len() {
+      let new_capacity = self.buf.len() * 2;
+      let mut new_buf = Vec::with_capacity(new_capacity);
+      new_buf.resize_with(new_capacity, || None);
+      for i in 0..self.len {
+        let idx = (self.head + i) % self.buf.len();
+        new_buf[i] = self.buf[idx].take();
+      }
+      self.buf = new_buf;
+      self.head = 0;
+    }
+    let idx = (self.head + self.len) % self.buf.len();
+    self.buf[idx] = Some(item);
+    self.len += 1;
+  }
+
+  fn pop_front(&mut self) -> Option<BoxFuture> {
+    if self.len == 0 {
+      return None;
+    }
+    let item = self.buf[self.head].take();
+    self.head = (self.head + 1) % self.buf.len();
+    self.len -= 1;
+    item
+  }
+}
 
 /// Spawn an async task into the runtime
 pub fn spawn<F>(future: F)
@@ -30,7 +80,7 @@ where
 {
   let mut queue = TASK_QUEUE.borrow_mut();
   if queue.is_none() {
-    *queue = Some(Deque::new(10));
+    *queue = Some(TaskQueue::new(10));
   }
   queue.as_mut().unwrap().push_back(Box::pin(future));
 }
