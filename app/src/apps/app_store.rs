@@ -1,5 +1,5 @@
 use crate::{
-  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
+  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
@@ -49,19 +49,41 @@ struct AppState {
 
 impl AppState {
   fn new() -> Self {
-    Self { screen: Screen::Welcome, app_list: None, selected_app_index: 0, cursor: 0 }
+    Self {
+      screen: Screen::Welcome,
+      app_list: None,
+      selected_app_index: 0,
+      cursor: 0,
+    }
   }
 
-  fn reset_cursor(&mut self) { self.cursor = 0; }
-  fn move_cursor_up(&mut self) { if self.cursor > 0 { self.cursor -= 1; } }
-  fn move_cursor_down(&mut self, max: usize) { if self.cursor + 1 < max { self.cursor += 1; } }
-  fn app_count(&self) -> usize { self.app_list.as_ref().map(|l| l.len()).unwrap_or(0) }
-  fn current_app(&self) -> Option<&AppEntry> { self.app_list.as_ref()?.get(self.selected_app_index) }
+  fn reset_cursor(&mut self) {
+    self.cursor = 0;
+  }
+  fn move_cursor_up(&mut self) {
+    if self.cursor > 0 {
+      self.cursor -= 1;
+    }
+  }
+  fn move_cursor_down(&mut self, max: usize) {
+    if self.cursor + 1 < max {
+      self.cursor += 1;
+    }
+  }
+  fn app_count(&self) -> usize {
+    self.app_list.as_ref().map(|l| l.len()).unwrap_or(0)
+  }
+  fn current_app(&self) -> Option<&AppEntry> {
+    self.app_list.as_ref()?.get(self.selected_app_index)
+  }
 }
 
 impl<P: Platform> AppStoreApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
-    Self { ctx, state: AppState::new() }
+    Self {
+      ctx,
+      state: AppState::new(),
+    }
   }
 
   async fn download_manifest(&mut self) -> Result<AppList, ()> {
@@ -75,19 +97,16 @@ impl<P: Platform> AppStoreApp<P> {
     let mut meta = None;
     let mut body = Vec::new();
 
-    join(
-      http_client.request(req, &channel),
-      async {
-        loop {
-          match channel.receive().await {
-            HttpEvent::Meta(m) => meta = Some(m),
-            HttpEvent::Chunk(chunk) => body.extend(chunk),
-            HttpEvent::Done => break,
-            HttpEvent::Error => return,
-          }
+    join(http_client.request(req, &channel), async {
+      loop {
+        match channel.receive().await {
+          HttpEvent::Meta(m) => meta = Some(m),
+          HttpEvent::Chunk(chunk) => body.extend(chunk),
+          HttpEvent::Done => break,
+          HttpEvent::Error => return,
         }
-      },
-    )
+      }
+    })
     .await;
 
     let _meta = meta.ok_or(())?;
@@ -109,27 +128,26 @@ impl<P: Platform> AppStoreApp<P> {
     let display = self.ctx.platform.display_manager();
     let storage = self.ctx.platform.storage_manager();
 
-    join(
-      http_client.request(req, &channel),
-      async {
-        loop {
-          match channel.receive().await {
-            HttpEvent::Meta(_) => {}
-            HttpEvent::Chunk(chunk) => {
-              let len = chunk.len() as u64;
-              let _ = display.signal(LcdScreen::BoundedProgress(bytes_written as u32, app.size));
-              let _ = storage.write_binary_chunk(app_name.clone(), bytes_written as u32, chunk, false).await;
-              bytes_written += len;
-            }
-            HttpEvent::Done => {
-              let _ = display.signal(LcdScreen::BoundedProgress(bytes_written as u32, app.size));
-              return;
-            }
-            HttpEvent::Error => return,
+    join(http_client.request(req, &channel), async {
+      loop {
+        match channel.receive().await {
+          HttpEvent::Meta(_) => {}
+          HttpEvent::Chunk(chunk) => {
+            let len = chunk.len() as u64;
+            let _ = display.signal(LcdScreen::BoundedProgress(bytes_written as u32, app.size));
+            let _ = storage
+              .write_binary_chunk(app_name.clone(), bytes_written as u32, chunk, false)
+              .await;
+            bytes_written += len;
           }
+          HttpEvent::Done => {
+            let _ = display.signal(LcdScreen::BoundedProgress(bytes_written as u32, app.size));
+            return;
+          }
+          HttpEvent::Error => return,
         }
-      },
-    )
+      }
+    })
     .await;
 
     Ok(())
@@ -176,7 +194,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
       MenuAppInput::Button(hex) => {
         match &self.state.screen {
           Screen::Welcome => {
-            if let HexButton::Right = hex {
+            if let HexButton::HexB = hex {
               self.state.screen = Screen::Loading;
               self.ctx.update_lcd(self.render());
               match self.download_manifest().await {
@@ -187,60 +205,66 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
                 }
                 Err(()) => {
                   self.state.screen = Screen::Welcome;
-                  self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
+                  self
+                    .ctx
+                    .update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
                   sleep(1_000).await;
                 }
               }
             }
           }
           Screen::Loading => {}
-          Screen::AppList => {
-            match hex {
-              HexButton::Up => self.state.move_cursor_up(),
-              HexButton::Down => self.state.move_cursor_down(self.state.app_count()),
-              HexButton::Right => {
-                self.state.screen = Screen::Loading;
-                self.ctx.update_lcd(self.render());
-                match self.download_manifest().await {
-                  Ok(app_list) => {
-                    self.state.screen = Screen::AppList;
-                    self.state.app_list = Some(app_list);
-                    self.state.reset_cursor();
-                  }
-                  Err(()) => {
-                    self.state.screen = Screen::AppList;
-                    self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
-                    sleep(1_000).await;
-                  }
-                }
-              }
-              HexButton::Fire => {
-                self.state.selected_app_index = self.state.cursor;
-                self.state.screen = Screen::AppInfo;
-                self.state.cursor = 0;
-              }
-              _ => {}
-            }
-          }
-          Screen::AppInfo => {
-            match hex {
-              HexButton::Up => self.state.move_cursor_up(),
-              HexButton::Down => self.state.move_cursor_down(2),
-              HexButton::Fire => {
-                let current_app = self.state.current_app().unwrap().clone();
-                if self.state.cursor == 0 {
-                  if let Err(()) = self.download(&current_app).await {
-                    self.ctx.update_lcd(LcdScreen::Headline(Icon40::Error, "Download Error!".to_string()));
-                    sleep(1_000).await;
-                  }
-                } else {
+          Screen::AppList => match hex {
+            HexButton::Up => self.state.move_cursor_up(),
+            HexButton::Down => self.state.move_cursor_down(self.state.app_count()),
+            HexButton::Right => {
+              self.state.screen = Screen::Loading;
+              self.ctx.update_lcd(self.render());
+              match self.download_manifest().await {
+                Ok(app_list) => {
                   self.state.screen = Screen::AppList;
-                  self.state.cursor = self.state.selected_app_index;
+                  self.state.app_list = Some(app_list);
+                  self.state.reset_cursor();
+                }
+                Err(()) => {
+                  self.state.screen = Screen::AppList;
+                  self
+                    .ctx
+                    .update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
+                  sleep(1_000).await;
                 }
               }
-              _ => {}
             }
-          }
+            HexButton::Fire => {
+              self.state.selected_app_index = self.state.cursor;
+              self.state.screen = Screen::AppInfo;
+              self.state.cursor = 0;
+            }
+            _ => {}
+          },
+          Screen::AppInfo => match hex {
+            HexButton::Up => self.state.move_cursor_up(),
+            HexButton::Down => self.state.move_cursor_down(2),
+            HexButton::Left => {
+              self.state.screen = Screen::AppList;
+              self.state.cursor = self.state.selected_app_index;
+            }
+            HexButton::Fire => {
+              let current_app = self.state.current_app().unwrap().clone();
+              if self.state.cursor == 0 {
+                if let Err(()) = self.download(&current_app).await {
+                  self
+                    .ctx
+                    .update_lcd(LcdScreen::Headline(Icon40::Error, "Download Error!".to_string()));
+                  sleep(1_000).await;
+                }
+              } else {
+                self.state.screen = Screen::AppList;
+                self.state.cursor = self.state.selected_app_index;
+              }
+            }
+            _ => {}
+          },
         }
         AppAction::Continue
       }
