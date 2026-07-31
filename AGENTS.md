@@ -100,6 +100,45 @@ firmware and SDK stay as small as possible:
 Only the `just` recipes (which set the profile explicitly) produce the intended
 artifacts; a bare `cargo build -r` in a crate uses the fast (no-LTO) profile.
 
+### Keeping WASM apps small
+
+The goal is "a handful of kilobytes" per app (`bare` ≈ 100 B, `barefill` ≈ 1 KB,
+`barecube` ≈ 5 KB). The bulk of bloat comes from `std` being linked into every
+guest. Rules that keep it out:
+
+- **Minimal `sdk/Cargo.toml` deps.** Every entry links into *every* bin target
+  (even if the app never uses it). An unused std-based crate (e.g. `wasi`,
+  `pasts`, `anyhow`) drags `std` into all apps. Only list what the shared lib
+  (`sdk/src/lib/`) actually uses.
+- **`serde` must not enable its default `std` feature** — always
+  `default-features = false, features = ["derive", "alloc"]`. Same for any dep
+  with a `std` default feature.
+- **No std-only dependencies.** If a dep needs `std` (e.g. `fixed_deque` wraps
+  `std::collections::VecDeque`), replace it with a small hand-rolled equivalent
+  (see the `TaskQueue` ring buffer in `sdk/src/lib/tasks.rs`).
+- **Every bin must define `#[global_allocator]` and `#[panic_handler]`** so std's
+  dlmalloc allocator and panic machinery are never the link-time fallback. The
+  shared lib provides both via `allocator.rs` (lol_alloc) and `panic.rs`
+  (non-formatting). Bins that only `#[path]`-include part of the lib
+  (`barecube`, `barefill`) must include those two modules explicitly.
+- **`f32::cos()`/`f32::sin()` will NOT compile once `std` is gone.** Use
+  `libm::cosf`/`libm::sinf`, or the SDK's compact `fast_sin`/`fast_cos`
+  (`sdk/src/lib/trig.rs`, ~3.7 KB smaller than libm because it skips
+  `rem_pio2f`). Don't re-add a `std`-pulling dep to make inherent float methods
+  resolve.
+- **Do NOT change the wire protocol to binary.** The host↔guest IPC is
+  serde_json / serde-json-core JSON, and the JavaScript runtime in `web`
+  implements the same format. Any protocol change must stay JSON-compatible.
+- **Strip the name section** — `build_sdk` passes `-C strip=symbols` (worth
+  2–4 KB/app). Don't remove it.
+
+Measuring: inspect a built `.wsm` with `wasm-tools` (or the section/function
+parser used during the size audit) and confirm there are no `dlmalloc`,
+`std::panicking`, or `compiler_builtins::libm` symbols — those indicate `std`
+leaked back in. After any change, rebuild with `just build_sdk` and verify every
+app still runs in the desktop emulator (`just run_desktop_app <name>`), checking
+for `WASM: Program complete` and no panic/abort in the log.
+
 ### Platform Trait
 
 The `Platform` trait is the central abstraction in `app/src/platform/traits.rs`:
