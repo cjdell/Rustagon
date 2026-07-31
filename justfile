@@ -95,6 +95,26 @@ deploy_firmware:
     scp -r web-flash-tool/* 192.168.49.1:/srv/rustagon/firmware
 
 # ============================================================
+# Desktop
+# ============================================================
+
+# Build the desktop emulator
+build_desktop:
+    cargo build -r -p desktop
+
+# Build and run the desktop emulator (pick a data dir with fzf)
+run_desktop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    data_dir=$( { printf '%s\n' "$PWD/desktop/data" "$PWD/sdk/wasm"; \
+                  find "$PWD/desktop/data" -maxdepth 1 -mindepth 1 -type d | sort; } \
+                | fzf --prompt="Data dir> " --height=~10 --header="Select data directory" ) \
+      || data_dir="$PWD/desktop/data"
+
+    cargo run -r -p desktop -- "$data_dir"
+
+# ============================================================
 # WASM SDK
 # ============================================================
 

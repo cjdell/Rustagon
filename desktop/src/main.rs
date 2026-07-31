@@ -11,6 +11,7 @@ use display_renderer::{FrameBuffer, LcdState};
 use embedded_graphics::prelude::RawData as _;
 use minifb::{Key, Window, WindowOptions};
 use platform::{DesktopInputManager, DesktopPlatform, DesktopSystemManager};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const WIDTH: usize = 240;
@@ -22,7 +23,11 @@ fn main() {
     .parse_default_env()
     .init();
 
-  let platform = Arc::new(DesktopPlatform::new());
+  let data_dir = std::env::args()
+    .nth(1)
+    .map(PathBuf::from)
+    .unwrap_or_else(default_data_dir);
+  let platform = Arc::new(DesktopPlatform::new(data_dir));
 
   // IPC channels — leaked for static lifetime (never freed on desktop)
   let host_channel = Box::leak(Box::new(HostIpcChannel::new()));
@@ -135,6 +140,14 @@ fn main() {
 
     window.update_with_buffer(&buf32, WIDTH, HEIGHT).unwrap();
   }
+}
+
+fn default_data_dir() -> PathBuf {
+  Path::new(env!("CARGO_MANIFEST_DIR"))
+    .parent()
+    .unwrap()
+    .join("desktop")
+    .join("data")
 }
 
 fn key_to_hex_button(window: &Window) -> Option<HexButton> {

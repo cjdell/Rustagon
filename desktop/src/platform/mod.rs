@@ -16,6 +16,7 @@ use app::platform::*;
 use app::types::{DeviceConfig, OtaError};
 use core::{fmt, future::Future, pin::Pin};
 use std::io::Read;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -99,7 +100,7 @@ impl fmt::Debug for DesktopPlatform {
 }
 
 impl DesktopPlatform {
-    pub fn new() -> Self {
+    pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         let display_raw = Arc::new(DesktopDisplayManager::new());
         let display = DisplayHandle::new(display_raw.clone() as Arc<dyn DisplayManager>);
         let hexpansion = HexpansionHandle::new(Arc::new(DesktopHexpansionManager) as Arc<dyn HexpansionManager>);
@@ -108,7 +109,7 @@ impl DesktopPlatform {
         let wifi = WiFiHandle::new(Arc::new(DesktopWifiManager) as Arc<dyn WiFiManager>);
         let input = InputHandle::new(Arc::new(DesktopInputManager::new()) as Arc<dyn InputManager>);
         let system = SystemHandle::new(Arc::new(DesktopSystemManager) as Arc<dyn SystemManager>);
-        let local_fs = DesktopLocalFs::new();
+        let local_fs = DesktopLocalFs::new(data_dir);
         let storage = StorageHandle::new(Arc::new(local_fs) as Arc<dyn LocalFsTrait>);
         let config = ConfigHandle::new(Arc::new(DesktopConfigManager::new()) as Arc<dyn ConfigFileTrait<DeviceConfig>>);
         let http_client = HttpClientHandle::new(Arc::new(DesktopHttpClient) as Arc<dyn app::platform::HttpClient>);

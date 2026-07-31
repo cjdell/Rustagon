@@ -4,9 +4,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
-// const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../sdk/wasm");
-
 #[derive(Clone)]
 pub struct DesktopLocalFs {
   root: PathBuf,
@@ -19,8 +16,8 @@ impl fmt::Debug for DesktopLocalFs {
 }
 
 impl DesktopLocalFs {
-  pub fn new() -> Self {
-    let root = PathBuf::from(DATA_DIR);
+  pub fn new(data_dir: impl Into<PathBuf>) -> Self {
+    let root = data_dir.into();
     fs::create_dir_all(&root).ok();
     Self { root }
   }
