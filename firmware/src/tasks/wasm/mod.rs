@@ -38,7 +38,7 @@ async fn wasm_host_loop(
 
     loop {
         match host_ipc_receiver.receive().await.1 {
-            HostIpcMessage::StartNative(app_name) => {
+            HostIpcMessage::Runtime(HostRuntimeCommand::StartNative(app_name)) => {
                 wasm_ipc_sender.send((0, WasmIpcMessage::Started)).await;
 
                 let screen = LcdScreen::Headline(Icon40::Info, "Starting app...".to_string());
@@ -56,7 +56,7 @@ async fn wasm_host_loop(
 
                 wasm_ipc_sender.send((0, WasmIpcMessage::Stopped)).await;
             }
-            HostIpcMessage::StartWasm(filename) => {
+            HostIpcMessage::Runtime(HostRuntimeCommand::StartWasm(filename)) => {
                 wasm_ipc_sender.send((0, WasmIpcMessage::Started)).await;
 
                 let screen = LcdScreen::Headline(Icon40::Info, "Starting WASM...".to_string());
@@ -90,7 +90,7 @@ async fn wasm_host_loop(
                 info!("Wasm: Stopped");
                 print_memory_info();
             }
-            HostIpcMessage::StartWasmWithBuffer(buffer) => {
+            HostIpcMessage::Runtime(HostRuntimeCommand::StartWasmWithBuffer(buffer)) => {
                 wasm_ipc_sender.send((0, WasmIpcMessage::Started)).await;
 
                 let screen = LcdScreen::Headline(Icon40::Info, "Starting WASM...".to_string());

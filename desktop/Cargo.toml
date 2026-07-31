@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 app = { path = "../app", features = ["wasm-runtime"] }
+wasm_protocol = { path = "../libs/wasm_protocol" }
 display_types = { path = "../libs/display_types" }
 display_renderer = { path = "../libs/display_renderer" }
 

@@ -11,6 +11,7 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use embassy_futures::yield_now;
 use log::info;
 use wasmi::{Caller, Engine, Extern, Linker, Module, Store};
+use wasm_protocol::{HostIpcMessage as WireHostIpcMessage, WasmIpcMessage as WireWasmIpcMessage};
 
 /// Runs a WASM binary through the wasmi interpreter.
 ///
@@ -68,13 +69,22 @@ pub async fn wasmi_runner<H: WasmHost>(
     loop {
         let (host_msg_id, host_msg_length) = match host_ipc_receiver.try_peek() {
             Ok((host_msg_id, ref host_ipc_msg)) => {
-                if let HostIpcMessage::Stop = host_ipc_msg {
+                if let HostIpcMessage::Runtime(HostRuntimeCommand::Stop) = host_ipc_msg {
                     info!("WASM: Program aborted by Stop message");
                     store.data().wasm_ipc_sender.send((0, WasmIpcMessage::Stopped)).await;
                     return Ok(());
                 }
-                let host_msg_bytes = serde_json::to_vec(host_ipc_msg).unwrap();
-                (host_msg_id, host_msg_bytes.len() as u32)
+                match host_ipc_msg {
+                    HostIpcMessage::Wire(host_msg) => {
+                        let host_msg_bytes = serde_json::to_vec(host_msg).unwrap();
+                        info!("wasmi_runner: delivering host msg id={host_msg_id} len={}", host_msg_bytes.len());
+                        (host_msg_id, host_msg_bytes.len() as u32)
+                    }
+                    HostIpcMessage::Runtime(_) => {
+                        let _ = host_ipc_receiver.try_receive();
+                        (0, 0)
+                    }
+                }
             }
             Err(_) => (0, 0),
         };
@@ -153,13 +163,15 @@ fn register_host_functions<H: WasmHost>(
                     ReadWasmBuffer::read_memory(&caller, ptr, len);
                 let wasm_msg_id = caller.data().counter + 1;
 
-                let wasm_ipc_msg: WasmIpcMessage =
+                let wire_msg: WireWasmIpcMessage =
                     serde_json::from_slice(&wasm_msg_bytes).unwrap();
+
+                info!("wasmi_runner: guest message received: {wire_msg:?}");
 
                 caller
                     .data()
                     .wasm_ipc_sender
-                    .try_send((wasm_msg_id, wasm_ipc_msg))
+                    .try_send((wasm_msg_id, WasmIpcMessage::Wire(wire_msg)))
                     .unwrap();
 
                 caller.data_mut().counter = wasm_msg_id;
@@ -180,7 +192,12 @@ fn register_host_functions<H: WasmHost>(
                     panic!("Mismatched host IDs! {host_msg_id_a} {host_msg_id_b}");
                 }
 
-                let host_msg_bytes = serde_json::to_vec(&host_ipc_msg).unwrap();
+                let host_msg = match host_ipc_msg {
+                    HostIpcMessage::Wire(msg) => msg,
+                    HostIpcMessage::Runtime(_) => panic!("Runtime command reached guest read"),
+                };
+
+                let host_msg_bytes = serde_json::to_vec(&host_msg).unwrap();
                 ReadWasmBuffer::write_memory(&mut caller, ptr, &host_msg_bytes);
             },
         )?;

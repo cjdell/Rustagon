@@ -18,6 +18,7 @@ use embassy_time::{Duration, Timer};
 use esp_hal::time::Instant;
 use esp_println::println;
 use log::error;
+use wasm_protocol::HostIpcMessage as WireHostIpcMessage;
 
 pub struct ExampleNativeAsyncApp {
   ctx: NativeAppContext,
@@ -84,13 +85,13 @@ impl NativeApp for ExampleNativeAsyncApp {
       loop {
         let (_, host_ipc_msg) = self.ctx.receiver.receive().await;
         match host_ipc_msg {
-          HostIpcMessage::Stop => {
+          HostIpcMessage::Runtime(HostRuntimeCommand::Stop) => {
             println!("ExampleNativeApp: Received STOP instruction");
             let mut state = timeout_result!(self.state.write(), 1_000, "Run: State Lock Timeout").unwrap();
             state.quit = true;
             return;
           }
-          HostIpcMessage::HexButton(hex_button) => {
+          HostIpcMessage::Wire(WireHostIpcMessage::HexButton(hex_button)) => {
             println!("ExampleNativeApp: {hex_button:?}");
             match hex_button {
               HexButton::Up => {

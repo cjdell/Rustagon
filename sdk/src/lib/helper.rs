@@ -64,10 +64,14 @@ pub fn receive_host_ipc_message(host_msg_id: u32, host_msg_size: u32) -> HostIpc
   //   Err(err) => print_and_panic!("tick: Error receiving message: {err}"),
   // }
 
-  match serde_json_core::from_slice::<HostIpcMessage>(&host_msg_bytes) {
+  let host_msg = match serde_json_core::from_slice::<HostIpcMessage>(&host_msg_bytes) {
     Ok((host_msg, _)) => host_msg,
     Err(err) => print_and_panic!("tick: Error receiving message: {err}"),
-  }
+  };
+
+  println!("tick: received host msg id={host_msg_id} size={host_msg_size}: {host_msg:?}");
+
+  host_msg
 }
 
 pub fn send_wasm_ipc_message(wasm_ipc_message: WasmIpcMessage) -> u32 {

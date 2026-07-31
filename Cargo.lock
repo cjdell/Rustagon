@@ -229,6 +229,7 @@ dependencies = [
  "picoserve",
  "serde",
  "serde_json",
+ "wasm_protocol",
  "wasmi 1.0.7",
  "wasmi_core 1.0.7",
 ]
@@ -1417,6 +1418,7 @@ dependencies = [
  "minifb 0.26.0",
  "serde_json",
  "ureq",
+ "wasm_protocol",
 ]
 
 [[package]]
@@ -2087,6 +2089,7 @@ dependencies = [
  "sysinfo",
  "tinywasm",
  "tokio",
+ "wasm_protocol",
  "wasmi 1.1.0",
  "wasmi_core 1.1.0",
  "wasmi_wasi",
@@ -2804,6 +2807,7 @@ dependencies = [
  "smoltcp",
  "static_cell",
  "tca8418",
+ "wasm_protocol",
  "wasmi 1.0.7",
  "wasmi_core 1.0.7",
  "zerocopy",
@@ -5789,6 +5793,7 @@ dependencies = [
  "wasi 0.12.1+wasi-0.2.0",
  "wasi-async-runtime",
  "wasip1",
+ "wasm_protocol",
 ]
 
 [[package]]
@@ -7018,6 +7023,13 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "wasm_protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

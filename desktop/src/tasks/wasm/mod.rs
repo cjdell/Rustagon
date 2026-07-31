@@ -11,6 +11,7 @@ use embassy_sync::channel::Receiver;
 use futures::future::join;
 use log::{info, warn};
 use std::sync::Arc;
+use wasm_protocol::{HostIpcMessage as WireHostIpcMessage, WasmIpcMessage as WireWasmIpcMessage};
 
 pub fn spawn_wasm_runner(
     host_receiver: Receiver<'static, CriticalSectionRawMutex, (u32, HostIpcMessage), 1>,
@@ -47,7 +48,7 @@ async fn wasm_host_loop(
         let (_msg_id, msg) = host_receiver.receive().await;
         info!("wasm_host_loop: received msg={msg:?}");
         match msg {
-            HostIpcMessage::StartWasm(filename) => {
+            HostIpcMessage::Runtime(HostRuntimeCommand::StartWasm(filename)) => {
                 info!("wasm_host_loop: loading wasm file");
                 let buf = storage
                     .read_binary_chunk(filename, 0, 256 * 1024)
@@ -69,7 +70,7 @@ async fn wasm_host_loop(
                 .await;
                 info!("wasm_host_loop: run_program returned");
             }
-            HostIpcMessage::StartWasmWithBuffer(buffer) => {
+            HostIpcMessage::Runtime(HostRuntimeCommand::StartWasmWithBuffer(buffer)) => {
                 info!("wasm_host_loop: running from buffer ({} bytes)", buffer.len());
                 run_program(
                     buffer,
@@ -113,7 +114,7 @@ async fn run_program(
             let (wasm_req_id, msg) = wasm_receiver.receive().await;
             info!("run_program/ipc: received WasmIpcMessage::{msg:?}");
             match msg {
-                WasmIpcMessage::HttpRequest(http_req) => {
+                WasmIpcMessage::Wire(WireWasmIpcMessage::HttpRequest(http_req)) => {
                     info!("run_program/ipc: handling HTTP request to {}", http_req.url);
                     let channel = app::platform::HttpEventChannel::new();
                     join(
@@ -123,23 +124,23 @@ async fn run_program(
                                 match channel.receive().await {
                                     app::protocol::HttpEvent::Meta(meta) => {
                                         host_sender
-                                            .send((wasm_req_id, HostIpcMessage::HttpResponseMeta(meta)))
+                                            .send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseMeta(meta))))
                                             .await;
                                     }
                                     app::protocol::HttpEvent::Chunk(chunk) => {
                                         host_sender
-                                            .send((wasm_req_id, HostIpcMessage::HttpResponseBody(chunk)))
+                                            .send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseBody(chunk))))
                                             .await;
                                     }
                                     app::protocol::HttpEvent::Done => {
                                         host_sender
-                                            .send((wasm_req_id, HostIpcMessage::HttpResponseComplete))
+                                            .send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseComplete)))
                                             .await;
                                         break;
                                     }
                                     app::protocol::HttpEvent::Error => {
                                         host_sender
-                                            .send((wasm_req_id, HostIpcMessage::HttpError))
+                                            .send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpError)))
                                             .await;
                                         break;
                                     }

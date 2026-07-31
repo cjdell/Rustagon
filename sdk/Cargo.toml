@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+wasm_protocol = { path = "../libs/wasm_protocol" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
 serde-json-core = "0.6.0"

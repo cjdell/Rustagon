@@ -8,6 +8,7 @@ use esp_alloc::ExternalMemory;
 use esp_hal::time::Instant;
 use esp_println::println;
 use log::{error, warn};
+use wasm_protocol::{HostIpcMessage as WireHostIpcMessage, WasmIpcMessage as WireWasmIpcMessage};
 
 pub trait NativeAppName {
   fn app_name() -> &'static str;
@@ -52,7 +53,7 @@ pub struct HttpResponse {
 pub async fn make_http_request(ctx: &NativeAppContext, req: HttpRequest) -> Result<HttpResponse, anyhow::Error> {
   let req_id = Instant::now().duration_since_epoch().as_millis() as u32;
 
-  ctx.sender.send((req_id, WasmIpcMessage::HttpRequest(req))).await;
+  ctx.sender.send((req_id, WasmIpcMessage::Wire(WireWasmIpcMessage::HttpRequest(req)))).await;
 
   let mut response_meta: Option<HttpResponseMeta> = None;
   let mut response_body = Vec::new_in(ExternalMemory);
@@ -61,17 +62,17 @@ pub async fn make_http_request(ctx: &NativeAppContext, req: HttpRequest) -> Resu
     let (res_id, host_ipc_msg) = ctx.receiver.receive().await;
 
     match host_ipc_msg {
-      HostIpcMessage::HttpError => {
+      HostIpcMessage::Wire(WireHostIpcMessage::HttpError) => {
         return Err(anyhow::Error::msg("HttpError"));
       }
-      HostIpcMessage::HttpResponseMeta(meta) => {
+      HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseMeta(meta)) => {
         if res_id != req_id {
           continue;
         }
 
         response_meta = Some(meta);
       }
-      HostIpcMessage::HttpResponseBody(body) => {
+      HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseBody(body)) => {
         if res_id != req_id {
           continue;
         }
@@ -80,7 +81,7 @@ pub async fn make_http_request(ctx: &NativeAppContext, req: HttpRequest) -> Resu
           response_body.push(b);
         }
       }
-      HostIpcMessage::HttpResponseComplete => {
+      HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseComplete) => {
         return Ok(HttpResponse {
           meta: response_meta.unwrap(),
           body: match from_utf8(&response_body) {

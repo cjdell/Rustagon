@@ -8,6 +8,7 @@ publish = false
 cy8cmbr3116 = { path = "../drivers/cy8cmbr3116" }
 bq25895 = { path = "../drivers/bq25895" }
 app = { path = "../app", features = ["http-server", "embassy", "extern-alloc", "web-bundle", "wasm-runtime"] }
+wasm_protocol = { path = "../libs/wasm_protocol" }
 display_renderer = { path = "../libs/display_renderer" }
 display_types = { path = "../libs/display_types" }
 embedded-tools = { path = "../libs/embedded_tools" }

@@ -9,6 +9,7 @@ use app::protocol::HttpEvent;
 use core::future::join;
 use embassy_futures::select::{Either, select};
 use log::info;
+use wasm_protocol::{HostIpcMessage as WireHostIpcMessage, WasmIpcMessage as WireWasmIpcMessage};
 
 #[embassy_executor::task]
 pub async fn ipc_handler_task(
@@ -53,11 +54,13 @@ async fn handle_wasm_message(
     WasmIpcMessage::LcdScreen(lcd_screen) => {
       let _ = platform.display_manager().signal(lcd_screen);
     }
-    WasmIpcMessage::HttpRequest(http_request) => {
+    WasmIpcMessage::Wire(WireWasmIpcMessage::HttpRequest(http_request)) => {
+      info!("IPC: HttpRequest from guest id={wasm_req_id} url={}", http_request.url);
       let http_client = match platform.http_client() {
         Some(client) => client,
         None => {
-          host_ipc_sender.send((wasm_req_id, HostIpcMessage::HttpError)).await;
+          info!("IPC: no http client, sending HttpError");
+          host_ipc_sender.send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpError))).await;
           return;
         }
       };
@@ -69,23 +72,28 @@ async fn handle_wasm_message(
           loop {
             match channel.receive().await {
               HttpEvent::Meta(meta) => {
-                host_ipc_sender.send((wasm_req_id, HostIpcMessage::HttpResponseMeta(meta))).await;
+                info!("IPC: forwarding meta to guest id={wasm_req_id} status={}", meta.status);
+                host_ipc_sender.send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseMeta(meta)))).await;
               }
               HttpEvent::Chunk(chunk) => {
-                host_ipc_sender.send((wasm_req_id, HostIpcMessage::HttpResponseBody(chunk))).await;
+                info!("IPC: forwarding chunk to guest id={wasm_req_id} len={}", chunk.len());
+                host_ipc_sender.send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseBody(chunk)))).await;
               }
               HttpEvent::Done => {
-                host_ipc_sender.send((wasm_req_id, HostIpcMessage::HttpResponseComplete)).await;
+                info!("IPC: forwarding complete to guest id={wasm_req_id}");
+                host_ipc_sender.send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpResponseComplete))).await;
                 break;
               }
               HttpEvent::Error => {
-                host_ipc_sender.send((wasm_req_id, HostIpcMessage::HttpError)).await;
+                info!("IPC: http error, forwarding HttpError to guest id={wasm_req_id}");
+                host_ipc_sender.send((wasm_req_id, HostIpcMessage::Wire(WireHostIpcMessage::HttpError))).await;
                 break;
               }
             }
           }
         },
-      );
+      )
+      .await;
     }
   }
 }
@@ -97,6 +105,6 @@ async fn handle_http_event(
 ) {
   if let HttpStatusMessage::ReceivedFile(buffer) = http_message {
     stack_event_handle.send(StackEvent::Pushed(StackEntryType::HostedApp));
-    host_ipc_sender.send((0, HostIpcMessage::StartWasmWithBuffer(buffer))).await;
+    host_ipc_sender.send((0, HostIpcMessage::Runtime(HostRuntimeCommand::StartWasmWithBuffer(buffer)))).await;
   }
 }

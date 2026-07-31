@@ -17,6 +17,7 @@ wasm-runtime = ["dep:wasmi", "dep:wasmi_core"]
 [dependencies]
 display_types = { path = "../libs/display_types" }
 embedded-tools = { path = "../libs/embedded_tools" }
+wasm_protocol = { path = "../libs/wasm_protocol" }
 
 embassy-sync = "0.7.2"
 embassy-futures = "0.1.2"

@@ -17,7 +17,7 @@ use embassy_sync::{
 use embassy_time::Duration;
 use embedded_io_async::Read as _;
 use esp_alloc::ExternalMemory;
-use log::error;
+use log::{error, info};
 use reqwless::{
   client::HttpClient,
   request::{Method, RequestBuilder},
@@ -111,6 +111,8 @@ where
 {
   const CHUNK_SIZE: usize = 4096;
 
+  info!("HTTP: request url={}", http_request.url);
+
   let state = Box::new_in(TcpClientState::<1, 1024, CHUNK_SIZE>::new(), ExternalMemory);
   let mut tcp_client = TcpClient::new(stack, &state);
 
@@ -126,7 +128,7 @@ where
   let handle = match client.request(Method::GET, &http_request.url).await {
     Ok(handle) => handle,
     Err(err) => {
-      error!("client.request: {}", err);
+      error!("HTTP: client.request error: {}", err);
       return Err(());
     }
   };
@@ -136,10 +138,12 @@ where
   let response = match handle.send(&mut rx_buf).await {
     Ok(response) => response,
     Err(err) => {
-      error!("handle.send: {}", err);
+      error!("HTTP: handle.send error: {}", err);
       return Err(());
     }
   };
+
+  info!("HTTP: got response status={}", response.status.0);
 
   let mut meta = HttpResponseMeta::new(response.status.0 as u32);
 
@@ -149,7 +153,7 @@ where
     }
   }
 
-  // println!("perform_http_request_streaming: Meta: {:?}", meta);
+  info!("HTTP: on_meta");
   on_meta(meta).await;
 
   let mut reader = response.body().reader();
@@ -166,10 +170,10 @@ where
           if total_read > 0 {
             // Send any remaining data
             chunk_buf.truncate(total_read);
-            // println!("perform_http_request_streaming: Final chunk: {}", total_read);
+            info!("HTTP: on_chunk len={}", total_read);
             on_chunk(VecHelper::to_global_vec(chunk_buf)).await;
           }
-          // println!("perform_http_request_streaming: Finished");
+          info!("HTTP: done");
           return Ok(());
         }
         Ok(n) => {
@@ -177,13 +181,13 @@ where
 
           // If buffer is full, send it and break to get a new buffer
           if total_read == CHUNK_SIZE {
-            // println!("perform_http_request_streaming: Full chunk: {}", CHUNK_SIZE);
+            info!("HTTP: on_chunk len={}", CHUNK_SIZE);
             on_chunk(VecHelper::to_global_vec(chunk_buf)).await;
             break;
           }
         }
         Err(err) => {
-          error!("reader.read: {}", err);
+          error!("HTTP: reader.read error: {}", err);
           return Err(());
         }
       }

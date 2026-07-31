@@ -1,9 +1,6 @@
 extern crate alloc;
 extern crate core;
 
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use serde::{Deserialize, Serialize};
-
 #[link(wasm_import_module = "index")]
 unsafe extern "C" {
   pub fn extern_write_stdout(str: *const u8, len: u32) -> ();
@@ -19,64 +16,7 @@ unsafe extern "C" {
   pub fn extern_read_host_ipc_message(host_msg_id: u32, buf: *const u8) -> ();
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum WasmIpcMessage {
-  HttpRequest(HttpRequest),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum HostIpcMessage {
-  HexButton(HexButton),
-  HttpError,
-  HttpResponseMeta(HttpResponseMeta),
-  HttpResponseBody(Vec<u8>),
-  HttpResponseComplete,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum HexButton {
-  Up,
-  Right,
-  Fire,
-  Down,
-  Left,
-  HexA,
-  HexB,
-  HexC,
-  HexD,
-  HexE,
-  HexF,
-  Touch01,
-  Touch02,
-  Touch03,
-  Touch04,
-  Touch05,
-  Touch06,
-  Touch07,
-  Touch08,
-  Touch09,
-  Touch10,
-  Touch11,
-  Touch12,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HttpRequest {
-  pub url: String,
-  pub headers: Vec<(String, String)>,
-}
-
-impl HttpRequest {
-  pub fn new(url: String) -> Self {
-    Self {
-      url,
-      headers: Vec::new(),
-    }
-  }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HttpResponseMeta {
-  pub status: u32,
-  pub headers: Vec<(String, String)>,
-}
+// Wire protocol shared with the host runtime (app/firmware/desktop). The
+// SDK only ever sees the wire-facing message variants — host-internal
+// start/stop/lifecycle messages live in the app crate.
+pub use wasm_protocol::*;

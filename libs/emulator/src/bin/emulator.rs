@@ -5,7 +5,6 @@ mod tasks;
 #[path = "../utils/mod.rs"]
 mod utils;
 
-use crate::tasks::wasm::protocol::{HexButton, HostIpcMessage, HttpResponseMeta, WasmIpcMessage};
 use crate::tasks::wasm::wasmi_runner;
 use crate::utils::print_memory_usage;
 use minifb::{Key, Scale, Window, WindowOptions};
@@ -16,6 +15,7 @@ use std::time::SystemTime;
 use tokio::sync::RwLock;
 use tokio::task;
 use tokio::{task::yield_now, time::Duration, time::sleep};
+use wasm_protocol::{HexButton, HostIpcMessage, HttpResponseMeta, WasmIpcMessage};
 
 pub fn __make_static<T: ?Sized>(t: &mut T) -> &'static mut T {
   unsafe { ::core::mem::transmute(t) }
@@ -119,22 +119,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       if window.is_key_down(Key::Space) {}
 
       if window.is_key_down(Key::A) {
-        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::A));
+        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::HexA));
       }
       if window.is_key_down(Key::B) {
-        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::B));
+        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::HexB));
       }
       if window.is_key_down(Key::C) {
-        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::C));
+        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::HexC));
       }
       if window.is_key_down(Key::D) {
-        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::D));
+        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::HexD));
       }
       if window.is_key_down(Key::E) {
-        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::E));
+        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::HexE));
       }
       if window.is_key_down(Key::F) {
-        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::F));
+        send_host_ipc_msg(0, HostIpcMessage::HexButton(HexButton::HexF));
       }
 
       window

@@ -5,7 +5,7 @@ mod tasks;
 use app::menu::menu_task;
 use app::menu::types::MenuRunnerContext;
 use app::platform::Platform;
-use app::protocol::HostIpcChannel;
+use app::protocol::{HostIpcChannel, HostRuntimeCommand};
 use app::types::{HexButton, SystemMessage};
 use display_renderer::{FrameBuffer, LcdState};
 use embedded_graphics::prelude::RawData as _;
@@ -39,7 +39,9 @@ fn main() {
   > = Some(|name: String, ctx: app::apps::MenuAppContext<platform::DesktopPlatform>| {
     Box::pin(async move {
       log::info!("app_loader: sending StartWasm({name})");
-      let result = ctx.host_ipc_sender.try_send((0, app::protocol::HostIpcMessage::StartWasm(name)));
+      let result = ctx
+        .host_ipc_sender
+        .try_send((0, app::protocol::HostIpcMessage::Runtime(HostRuntimeCommand::StartWasm(name))));
       log::info!("app_loader: try_send result={result:?}");
     })
   });

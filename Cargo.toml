@@ -11,6 +11,7 @@ members = [
     "libs/embedded_tools",
     "libs/emulator",
     "libs/procmacros",
+    "libs/wasm_protocol",
     "sdk",
     "uploader",
 ]

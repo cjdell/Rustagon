@@ -26,19 +26,54 @@ desktop/    — macOS/linux host. Implements Platform using minifb, ureq.
               MAY depend on ureq, minifb. MUST NOT contain menu logic.
               Platform crate is I/O centric — no WASM awareness in platform/.
               WASM runtime lives in tasks/ (mirrors firmware structure).
+
+wasm_protocol/
+            — Wire protocol types shared between the host and the WASM SDK.
+              MUST be no_std and depend only on serde. Contains only type
+              definitions (enums + payload structs) — no logic, no embassy-sync,
+              no channels, no host functions, no LcdScreen. The app crate is the
+              source of truth; SDK-facing subsets live here so the guest never
+              sees host-internal lifecycle messages.
 ```
 
-### Check the firmware compiles:
+### Build (use `just`)
+
+All build/deploy tasks live in the root `justfile`. The firmware recipes handle the
+Xtensa toolchain (`source ~/export-esp.sh`) and the `firmware/.env` file for you:
 
 ```sh
-cd firmware && cargo build -r --bin rustagon
+just build_firmware        # ESP32-S3 firmware (release, bin rustagon)
+just run_firmware          # build + flash over USB (espflash)
+just build_sdk             # build all WASM apps -> sdk/wasm/*.wsm
+just emulate_wasm fetch    # build SDK + run an app in the desktop emulator
+just run_wasm fetch        # build SDK + upload an app to the device over HTTP
+just upload_wasm fetch     # build SDK + upload an app as a file
+just deploy_firmware       # build + package merged.bin + deploy OTA firmware
+just deploy_sdk            # build + deploy WASM apps
+just deploy_web            # build + deploy web frontend
+just deploy                # firmware + SDK + web
 ```
 
-### Check the desktop compiles:
+Prerequisites:
+- `just` installed (`brew install just`).
+- Firmware recipes need the Xtensa toolchain (`source ~/export-esp.sh`) and a
+  `firmware/.env` file — the recipes source both.
+- `just build_sdk` is the **only reliable way to build the WASM apps**: it sets the
+  correct `RUSTFLAGS` (stack size 32768, `--initial-memory=65536`) and copies the
+  binaries to `sdk/wasm/*.wsm`. A bare `cargo build` inside `sdk/` omits those flags
+  and produces binaries that exceed the guest memory limits.
+
+Manual checks without hardware (CI / no Xtensa toolchain):
 
 ```sh
-cd desktop && cargo build
+cd desktop && cargo build                       # macOS/linux (minifb window)
+cd app && cargo build --features wasm-runtime   # app library
+cd firmware && cargo build -r --lib             # firmware crate, no linker
 ```
+
+Note: linking the firmware *binary* needs the Xtensa linker
+(`xtensa-esp32s3-elf-gcc`), only available after `source ~/export-esp.sh`.
+Without it `cargo build -r --bin rustagon` fails at link; `--lib` compiles fine.
 
 ### Platform Trait
 
@@ -101,6 +136,46 @@ pattern as `SendFilesystem` (sound because all access is serialized by the singl
 async runtime).
 
 **Desktop:** implemented via `ureq` (blocking HTTP in a background thread).
+
+### WASM Wire Protocol (`libs/wasm_protocol`)
+
+The types exchanged between the host runtime and a WASM guest live in a dedicated
+shared crate, `libs/wasm_protocol` (`no_std`, serde + alloc only). It contains only
+*wire-facing* types, derived from the app crate as the source of truth:
+
+- Payloads: `HexButton`, `HttpMethod`, `HttpRequest` (app shape: `method`, `url`,
+  `headers`, `body`), `HttpResponseMeta`.
+- `WasmIpcMessage` (guest → host wire): only `HttpRequest(HttpRequest)`.
+- `HostIpcMessage` (host → guest wire): `HexButton`, `HttpError`, `HttpResponseMeta`,
+  `HttpResponseBody(Vec<u8>)`, `HttpResponseComplete`.
+
+**The SDK never sees lifecycle messages.** `sdk/src/lib/protocol.rs` re-exports
+`wasm_protocol::*` next to its `extern "C"` host-function block. The start/stop and
+display-sync variants that the runtime uses internally live only in the app crate,
+wrapped around the wire enums so the wire format stays byte-identical:
+
+```rust
+// app/src/protocol.rs
+pub enum HostRuntimeCommand { StartWasm(String), StartWasmWithBuffer(Vec<u8>), StartNative(String), Stop }
+
+pub enum WasmIpcMessage {          // host-internal superset
+  Wire(wasm_protocol::WasmIpcMessage),   // came from a guest
+  Started, MenuAppStarted, Stopped, LcdScreen(LcdScreen),
+}
+pub enum HostIpcMessage {          // host-internal superset
+  Runtime(HostRuntimeCommand),           // menu → wasm_host_loop (never a guest)
+  Wire(wasm_protocol::HostIpcMessage),   // host → guest
+}
+```
+
+`wasmi_runner` (`app/src/wasm/mod.rs`) is the boundary: it deserializes guest bytes
+into `wasm_protocol::WasmIpcMessage` and wraps them in `Wire(..)`, and it serializes
+only the *inner* wire enum when delivering `Wire(..)` host messages to a guest. The
+`Wire`/`Runtime` wrappers are never serialized to the guest, so changing the superset
+enums does not affect the wire format.
+
+Adding a new guest-facing variant means updating `libs/wasm_protocol` (the SDK picks
+it up automatically); adding a host-internal one means touching only `app::protocol`.
 
 ### Completed Subsystems
 
@@ -258,8 +333,9 @@ rustagon/
 │   │   ├── storage.rs                #   StorageHandle, ConfigHandle<State>
 │   │   ├── system.rs                 #   SystemManager trait + SystemHandle
 │   │   └── wifi.rs                   #   WiFiManager trait + WiFiHandle + WifiStatus
-│   ├── protocol.rs                   # HttpRequest, WasmIpcMessage, HostIpcMessage, channels
-│   ├── types.rs                      # Domain types (HexButton, LedRequest, DeviceConfig,
+│   ├── protocol.rs                   # Host-internal IPC supersets (WasmIpcMessage/HostIpcMessage,
+│   │                                  #   HostRuntimeCommand) wrapping wire enums from wasm_protocol
+│   ├── types.rs                      # Domain types (HexButton re-exported, LedRequest, DeviceConfig,
 │   │                                  #   HexpansionInfo, HexpansionEvent, DeviceEvent,
 │   │                                  #   KeyboardEvent, KeyCode, etc.)
 │   └── utils.rs                      # Sleep helper only
@@ -307,8 +383,12 @@ rustagon/
 │   ├── embedded_tools/               # LocalFsTrait, ConfigFileTrait (no_std)
 │   ├── emulator/                     # Legacy WASM emulator
 │   ├── esp32s3_embedded_tools/       # ESP32-S3 flash driver
-│   └── procmacros/                   # include_rgb565_icon!, partition_offset! macros
+│   ├── procmacros/                   # include_rgb565_icon!, partition_offset! macros
+│   └── wasm_protocol/                # Wire protocol types shared with the WASM SDK (no_std)
 ├── sdk/                              # WASM SDK for emulator programs
+│   └── src/lib/
+│       ├── protocol.rs               #   extern "C" host functions + re-export of wasm_protocol::*
+│       └── ...                       #   http, tasks, helper, graphics, etc.
 ├── uploader/                         # Firmware upload tool
 └── Cargo.toml                        # Workspace root
 
@@ -335,9 +415,13 @@ desktop/:
 
 ### Build
 
+See the **Build (use `just`)** section near the top of this document for the
+recommended `just` recipes (firmware/SDK/deploy). Manual per-crate checks:
+
 ```sh
-cd firmware && cargo build -r --bin rustagon    # ESP32-S3
-cd desktop && cargo build                       # macOS/linux (minifb window)
+cd desktop && cargo build          # macOS/linux (minifb window)
+cd app && cargo build --features wasm-runtime
+cd firmware && cargo build -r --lib
 ```
 
 ## How the Menu Moves Through Crates
@@ -425,16 +509,18 @@ to rendering the `LcdState` (menu screen). The buffer is cleared when the WASM s
 ends via `run_program`'s cleanup.
 
 **Button forwarding during WASM execution:** When the stack top is `HostedApp`, the menu
-task forwards button presses as `HostIpcMessage::HexButton` using `try_send` (non-blocking).
-The WASM tick loop peeks this channel via `try_peek()` and passes the message length to
-the WASM's `tick()` function, which calls `extern_read_host_ipc_message` to consume it.
-This avoids the menu thread blocking if the WASM is busy.
+task forwards button presses as `HostIpcMessage::Wire(HostIpcMessage::HexButton(..))`
+using `try_send` (non-blocking). The WASM tick loop peeks this channel via `try_peek()`
+and passes the message length to the WASM's `tick()` function, which calls
+`extern_read_host_ipc_message` to consume it. This avoids the menu thread blocking if the
+WASM is busy.
 
 **Stack events for WASM lifecycle:** Instead of a shared `AppState` RwLock, the WASM
 runner signals completion by sending `StackEvent::Popped` through the `StackSignal`.
 The menu runner's `handle_hosted_app` loop waits on `select3(system_button, hex_button, stack_signal.receive())`.
-When the boot button is pressed, `HostIpcMessage::Stop` is sent and the menu waits for the
-resulting `StackEvent::Popped` before resuming the previous app.
+When the boot button is pressed, `HostIpcMessage::Runtime(HostRuntimeCommand::Stop)` is
+sent and the menu waits for the resulting `StackEvent::Popped` before resuming the
+previous app.
 
 **`wasmi_runner` sends `Stopped` — callers must NOT send it again:** The WASM interpreter
 in `app/src/wasm/mod.rs` sends `WasmIpcMessage::Stopped` on natural completion (line 99)
@@ -527,8 +613,10 @@ for hex buttons.
 
 ### High Priority
 
-1. **HTTP headers support** — `perform_http_request_streaming` doesn't send request headers.
-   The `HttpRequest` has `headers` but the firmware impl ignores them.
+1. **HTTP request fields on firmware** — `perform_http_request_streaming` always issues
+   `Method::GET` and ignores `HttpRequest.method` and `HttpRequest.body`. It does send
+   `headers` but not in the canonical form. The `HttpRequest` has all three fields but
+   the firmware impl ignores `method`/`body`.
 
 2. **Move `WatchedValue` and `EventQueue` into `app` crate** — Currently in `firmware/src/utils/`,
    both are platform-agnostic (only use embassy-sync). Desktop WiFi/Input managers need them.
@@ -696,6 +784,21 @@ The default implementation is a no-op. Apps override it to react to keyboard inp
 (the Editor app), hexpansion state changes (the HexpansionViewer app), or future
 event types without requiring a badge button press.
 
+### Futures do nothing unless awaited — un-awaited `join!`
+
+**Problem:** `firmware/src/tasks/ipc_handler.rs` built the HTTP-response relay with
+`join!(http_client.request(..), async { .. });` but **forgot the `.await`**. The `join!`
+future was created and immediately dropped — never polled — so the request future (and
+its consumer) never ran. The WASM guest waited forever for a response: "the app does
+nothing but it also does not crash" (it just keeps ticking). Desktop was unaffected
+because `run_program` uses `futures::future::join(..).await`.
+
+**Solution:** Always `.await` the future produced by `join!`. The compiler warns with
+`unused implementer of Future that must be used` / `futures do nothing unless you .await
+or poll them` — treat that warning as an error. When adding a guest-request handler,
+verify the request future is actually driven (e.g. the `HTTP: request url=` log inside
+`perform_http_request_streaming` appears on the serial console).
+
 ### `StackSignal` — single-consumer event delivery
 
 **Problem:** Using an embassy-sync `Channel<M, StackEvent, N>` with multiple `Receiver`
@@ -718,7 +821,7 @@ consumer operation. No channel, no multiple receivers, no race.
 - **Menu state/stack:** `app/src/menu/state.rs`
 - **Menu types:** `app/src/menu/types.rs`
 - **Menu apps:** `app/src/apps/mod.rs` (enum + list/load), `app/src/apps/*.rs`
-- **Protocol types:** `app/src/protocol.rs`
+- **Protocol types:** `app/src/protocol.rs` (runtime supersets), `libs/wasm_protocol/src/lib.rs` (wire types), `sdk/src/lib/protocol.rs` (SDK re-export + host functions)
 - **Domain types:** `app/src/types.rs`
 - **Firmware entry point:** `firmware/src/bin/rustagon.rs`
 - **Firmware platform:** `firmware/src/platform/hardware.rs`

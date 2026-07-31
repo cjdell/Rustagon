@@ -18,6 +18,21 @@ green text:
 # Firmware
 # ============================================================
 
+# Build firmware
+build_firmware:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    source ~/export-esp.sh
+
+    cd firmware
+
+    set -a
+    source .env
+    set +a
+
+    cargo build -r --bin rustagon
+
 # Build and flash firmware via USB
 run_firmware:
     #!/usr/bin/env bash
@@ -84,7 +99,7 @@ deploy_firmware:
 # ============================================================
 
 # Build all WASM programs
-build_wasm:
+build_sdk:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -104,43 +119,12 @@ build_wasm:
 
     just bold "WASM binaries have been placed in /wasm folder"
 
-# Build and emulate a WASM app locally
-emulate_wasm file:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    just build_wasm
-
-    cargo run -r -p emulator $PWD/sdk/wasm/{{file}}.wsm
-
-# Build and upload WASM to device via HTTP
-run_wasm file:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    just build_wasm
-
-    cargo run -r -p uploader http://192.168.1.1/api/receive sdk/wasm/{{file}}.wsm
-
-# Build and upload WASM as a file
-upload_wasm file:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    just build_wasm
-
-    cargo run -r -p uploader http://192.168.1.1/api/file?{{file}}.wsm sdk/wasm/{{file}}.wsm
-
-# ============================================================
-# SDK (WASM Apps)
-# ============================================================
-
 # Build and deploy WASM apps to the remote server
 deploy_sdk:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    just build_wasm
+    just build_sdk
 
     rm -rf web/public/wasm/*.wsm
     cp -rv sdk/wasm/*.wsm web/public/wasm/
@@ -150,6 +134,33 @@ deploy_sdk:
 
     ssh 192.168.49.1 "rm -f /srv/rustagon/apps/*.wsm"
     scp -r public/wasm/* 192.168.49.1:/srv/rustagon/apps
+
+# Build and emulate a WASM app locally
+emulate_wasm file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    just build_sdk
+
+    cargo run -r -p emulator $PWD/sdk/wasm/{{file}}.wsm
+
+# Build and upload WASM to device via HTTP
+run_wasm file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    just build_sdk
+
+    cargo run -r -p uploader http://192.168.49.143/api/receive sdk/wasm/{{file}}.wsm
+
+# Build and upload WASM as a file
+upload_wasm file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    just build_sdk
+
+    cargo run -r -p uploader http://192.168.49.143/api/file?{{file}}.wsm sdk/wasm/{{file}}.wsm
 
 # ============================================================
 # Web App
