@@ -44,7 +44,8 @@ Xtensa toolchain (`source ~/export-esp.sh`) and the `firmware/.env` file for you
 ```sh
 just build_firmware        # ESP32-S3 firmware (release, bin rustagon)
 just run_firmware          # build + flash over USB (espflash)
-just build_sdk             # build all WASM apps -> sdk/wasm/*.wsm
+just build_sdk             # build all WASM apps -> sdk/wasm/*.wsm + manifest.json
+just build_manifest        # regenerate sdk/wasm/manifest.json from the .wsm files
 just emulate_wasm fetch    # build SDK + run an app in the desktop emulator
 just run_wasm fetch        # build SDK + upload an app to the device over HTTP
 just upload_wasm fetch     # build SDK + upload an app as a file

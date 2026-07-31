@@ -63,7 +63,7 @@ export class DummyDeviceApi implements DeviceApi {
     const res = await fetch("/wasm/manifest.json");
 
     if (res.status !== 200) {
-      alert("No mainfest found. Please run: \n\ndeno task generate-manifest");
+      alert("No mainfest found. Please run: \n\njust build_sdk");
       throw new Error("No manifest!");
     }
 
@@ -72,7 +72,7 @@ export class DummyDeviceApi implements DeviceApi {
     try {
       json = await res.json();
     } catch {
-      alert("No mainfest found. Please run: \n\ndeno task generate-manifest");
+      alert("No mainfest found. Please run: \n\njust build_sdk");
       throw new Error("No manifest!");
     }
 

@@ -4,8 +4,7 @@
     "dev": "vite",
     "build": "vite build",
     "serve": "vite preview",
-    "compress": "deno run --allow-read --allow-write compress.ts",
-    "generate-manifest": "deno run --allow-read --allow-write generate-manifest.ts"
+    "compress": "deno run --allow-read --allow-write compress.ts"
   },
   "nodeModulesDir": "auto",
   "compilerOptions": {

@@ -137,7 +137,16 @@ build_sdk:
     for f in *.wasm; do [[ -f "$f" ]] && mv "$f" "${f%.wasm}.wsm"; done
     popd
 
+    just build_manifest
+
     just bold "WASM binaries have been placed in /wasm folder"
+
+# Generate the WASM manifest.json from the built .wsm files
+build_manifest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    cargo run -q -p manifest-tool -- $PWD/sdk/wasm
 
 # Build and deploy WASM apps to the remote server
 deploy_sdk:
@@ -146,14 +155,11 @@ deploy_sdk:
 
     just build_sdk
 
-    rm -rf web/public/wasm/*.wsm
-    cp -rv sdk/wasm/*.wsm web/public/wasm/
+    rm -rf web/public/wasm/*
+    cp -rv sdk/wasm/* web/public/wasm/
 
-    cd web
-    deno task generate-manifest
-
-    ssh 192.168.49.1 "rm -f /srv/rustagon/apps/*.wsm"
-    scp -r public/wasm/* 192.168.49.1:/srv/rustagon/apps
+    ssh 192.168.49.1 "rm -f /srv/rustagon/apps/*.wsm /srv/rustagon/apps/manifest.json"
+    scp -r sdk/wasm/* 192.168.49.1:/srv/rustagon/apps
 
 # Build and emulate a WASM app locally
 emulate_wasm file:
