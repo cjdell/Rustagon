@@ -6,10 +6,16 @@ use alloc::{boxed::Box, string::String};
 use core::{fmt, future::Future, pin::Pin};
 
 #[derive(Clone)]
-pub enum Menu { Root }
+pub enum Menu {
+  Root,
+}
 
 impl Menu {
-  pub fn label(&self) -> &str { match self { Menu::Root => "Root" } }
+  pub fn label(&self) -> &str {
+    match self {
+      Menu::Root => "Root",
+    }
+  }
 }
 
 #[derive(Clone)]
@@ -20,13 +26,14 @@ pub enum MenuOption {
 }
 
 #[derive(Clone, Debug)]
-pub enum AppType { MenuApp, NativeApp }
+pub enum AppType {
+  MenuApp,
+  NativeApp,
+}
 
-pub type AppLoader<P> =
-  fn(String, MenuAppContext<P>) -> Pin<Box<dyn Future<Output = ()>>>;
+pub type AppLoader<P> = fn(String, MenuAppContext<P>) -> Pin<Box<dyn Future<Output = ()>>>;
 
 pub struct MenuRunnerContext<P: Platform> {
-  pub storage: crate::platform::StorageHandle,
   pub platform: P,
   pub host_ipc_sender: HostIpcSender,
   pub stack_event_handle: StackEventHandle,
@@ -37,7 +44,6 @@ pub struct MenuRunnerContext<P: Platform> {
 impl<P: Platform> Clone for MenuRunnerContext<P> {
   fn clone(&self) -> Self {
     Self {
-      storage: self.storage.clone(),
       platform: self.platform.clone(),
       host_ipc_sender: self.host_ipc_sender,
       stack_event_handle: self.stack_event_handle.clone(),
