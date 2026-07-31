@@ -14,10 +14,14 @@
 #![recursion_limit = "256"]
 
 use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc};
+use app::platform::HexpansionHandle;
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::rwlock::RwLock;
+use embedded_tools::config::storage::LocalFsConfigFileStorage;
+use embedded_tools::config::ConfigFile;
+use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
 use esp_hal::{
@@ -28,31 +32,28 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage as EspFlashStorage;
-use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
 use firmware::d_i2c::*;
-use embedded_tools::config::ConfigFile;
-use embedded_tools::config::storage::LocalFsConfigFileStorage;
-use app::platform::HexpansionHandle;
-use firmware::platform::drivers::{DriverEntry, tca8418::tca8418_driver_factory};
+use firmware::platform::drivers::{tca8418::tca8418_driver_factory, DriverEntry};
+use firmware::platform::{
+  display::{lcd_task, HardwareDisplayManager, LcdSignal},
+  system::{HardwareSystemManager, SystemHandle},
+};
 use firmware::platform::{
   ConfigHandle, HardwareHexpansionManager, HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager,
   HardwareStorageManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle, WiFiHandle,
-};
-use firmware::platform::{
-  display::{HardwareDisplayManager, LcdSignal, lcd_task},
-  system::{HardwareSystemManager, SystemHandle},
 };
 use firmware::tasks::*;
 use firmware::types::*;
 use firmware::utils::*;
 use log::{error, info, warn};
 use picoserve::make_static;
+use procmacros::partition_offset;
 use static_cell::StaticCell;
 
 extern crate alloc;
 extern crate core;
 
-const VFS_PARTITION_OFFSET: u32 = 0x00290000;
+const VFS_PARTITION_OFFSET: u32 = partition_offset!("vfs");
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -82,7 +83,9 @@ async fn main(spawner: Spawner) {
 
   let i2c = I2c::new(
     peripherals.I2C0,
-    esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(100)).with_timeout(BusTimeout::BusCycles(133_000)),
+    esp_hal::i2c::master::Config::default()
+      .with_frequency(Rate::from_khz(100))
+      .with_timeout(BusTimeout::BusCycles(133_000)),
   )
   .unwrap()
   .with_sda(peripherals.GPIO45)
@@ -124,9 +127,7 @@ async fn main(spawner: Spawner) {
   let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Checking filesystem...".to_owned()));
 
   // Create shared flash storage with auto-park for multicore safety
-  let flash = Arc::new(RwLock::new(
-    EspFlashStorage::new(peripherals.FLASH).multicore_auto_park(),
-  ));
+  let flash = Arc::new(RwLock::new(EspFlashStorage::new(peripherals.FLASH).multicore_auto_park()));
 
   // Try to mount the filesystem
   let littlefs_storage = LittleFsFlashStorage::new(flash.clone(), VFS_PARTITION_OFFSET);
@@ -145,7 +146,8 @@ async fn main(spawner: Spawner) {
       let config_file = ConfigFile::new(
         LocalFsConfigFileStorage::new(fs_for_config, "device.jsn".to_string()),
         DeviceConfig::default(),
-      ).await;
+      )
+      .await;
       let config_handle = ConfigHandle::new(Arc::new(config_file));
 
       (storage_handle, config_handle)
@@ -240,17 +242,32 @@ async fn main(spawner: Spawner) {
   // Driver registry — matched against hexpansion VID:PID
   const DRIVER_TABLE: &[DriverEntry] = &[
     // keebdex keyboard
-    DriverEntry { vid: 0xBAD3, pid: 0x4EEB, factory: tca8418_driver_factory },
+    DriverEntry {
+      vid: 0xBAD3,
+      pid: 0x4EEB,
+      factory: tca8418_driver_factory,
+    },
   ];
 
   let display_for_hx = display.clone();
   let hexpansion = HexpansionHandle::new(Arc::new(HardwareHexpansionManager::new(
-    spawner, hx_buses, display_for_hx, DRIVER_TABLE,
+    spawner,
+    hx_buses,
+    display_for_hx,
+    DRIVER_TABLE,
   )));
 
   let platform = HardwarePlatform::new_with_managers(
-    display, hexpansion, led, power, wifi, input, system, storage.clone(),
-    config_handle.clone(), storage_formatter.clone(),
+    display,
+    hexpansion,
+    led,
+    power,
+    wifi,
+    input,
+    system,
+    storage.clone(),
+    config_handle.clone(),
+    storage_formatter.clone(),
   );
 
   let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
@@ -306,13 +323,15 @@ async fn main(spawner: Spawner) {
   spawner.spawn(wifi_monitor_task(platform)).ok();
 
   // Spawn IPC handler for WASM IPC and HTTP events
-  spawner.spawn(ipc_handler_task(
-    wasm_ipc_channel,
-    http_channel.receiver(),
-    host_ipc_channel.sender(),
-    stack_event_handle,
-    platform_for_ws.clone(),
-  )).ok();
+  spawner
+    .spawn(ipc_handler_task(
+      wasm_ipc_channel,
+      http_channel.receiver(),
+      host_ipc_channel.sender(),
+      stack_event_handle,
+      platform_for_ws.clone(),
+    ))
+    .ok();
 
   spawner.spawn(menu_task(runner_ctx)).ok();
 

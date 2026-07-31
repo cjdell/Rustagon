@@ -8,10 +8,18 @@ static ALGO: Algorithm<u32> = Algorithm {
   init: 0,
   refin: true,
   refout: true,
-  xorout: 0xffffffff,
+  xorout: 0,
   check: 0,
   residue: 0,
 };
+
+/// CRC-32/LE as computed by the ESP-IDF bootloader's `esp_rom_crc32_le(0, ..)`.
+fn checksum(data: &[u8]) -> u32 {
+  let crc = Crc::<u32>::new(&ALGO);
+  let mut digest = crc.digest();
+  digest.update(data);
+  digest.finalize()
+}
 
 #[derive(Debug)]
 pub struct Ota<'a> {
@@ -80,6 +88,18 @@ impl<'a> Ota<'a> {
     (seq0, seq1)
   }
 
+  /// The slot to write the next OTA update into.
+  ///
+  /// With empty otadata the bootloader boots the first app partition (ota_0),
+  /// so treat that as current and target the other slot. Never write to the
+  /// slot the running firmware is executing from.
+  pub fn target_slot(&mut self) -> Slot {
+    match self.current_slot() {
+      Slot::None => Slot::Slot1,
+      slot => slot.next(),
+    }
+  }
+
   pub fn set_current_slot(&mut self, slot: Slot) {
     let (seq0, seq1) = self.get_slot_seq();
 
@@ -96,12 +116,6 @@ impl<'a> Ota<'a> {
     };
     let new_seq_le = new_seq.to_le_bytes();
 
-    let crc = Crc::<u32>::new(&ALGO);
-    let mut digest = crc.digest();
-    digest.update(&new_seq_le);
-    let checksum = digest.finalize();
-    let checksum_le = checksum.to_le_bytes();
-
     let mut buffer1 = [0xffu8; 0x20];
     let mut buffer2 = [0xffu8; 0x20];
 
@@ -110,10 +124,12 @@ impl<'a> Ota<'a> {
 
     if slot == Slot::Slot0 {
       buffer1[..4].copy_from_slice(&new_seq_le);
-      buffer1[28..].copy_from_slice(&checksum_le);
+      let crc = checksum(&buffer1[..28]).to_le_bytes();
+      buffer1[28..].copy_from_slice(&crc);
     } else {
       buffer2[..4].copy_from_slice(&new_seq_le);
-      buffer2[28..].copy_from_slice(&checksum_le);
+      let crc = checksum(&buffer2[..28]).to_le_bytes();
+      buffer2[28..].copy_from_slice(&crc);
     }
 
     self.flash.write(0xd000, &buffer1).unwrap();

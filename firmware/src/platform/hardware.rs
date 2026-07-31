@@ -124,7 +124,7 @@ impl Platform for HardwarePlatform {
     let mut flash = raw.write().await;
 
     let mut ota = Ota::new(&mut *flash);
-    let slot = ota.current_slot().next();
+    let slot = ota.target_slot();
     Ok(OTA_OFFSETS[slot.number()])
   }
 
@@ -139,7 +139,7 @@ impl Platform for HardwarePlatform {
     let mut flash = raw.write().await;
 
     let mut ota = Ota::new(&mut *flash);
-    let slot = ota.current_slot().next();
+    let slot = ota.target_slot();
     ota.set_current_slot(slot);
     Ok(())
   }
