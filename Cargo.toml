@@ -13,8 +13,8 @@ members = [
     "libs/procmacros",
     "libs/wasm_protocol",
     "sdk",
-    "sdk/manifest-tool",
-    "uploader",
+    "tools/manifest-tool",
+    "tools/uploader",
 ]
 
 [workspace.package]
@@ -36,7 +36,7 @@ wasmi_ir = { path = "libs/wasmi/crates/ir", default-features = false }
 wasmparser = { version = "0.228.0", default-features = false }
 wat = { version = "1.228.0", default-features = false }
 
-# Host crates (desktop, app, emulator, uploader) — fast release builds, no fat LTO.
+# Host crates (desktop, app, emulator, tools) — fast release builds, no fat LTO.
 # Incremental only applies to workspace members and path deps (per Cargo), so
 # registry dependencies compile exactly as before.
 [profile.release]

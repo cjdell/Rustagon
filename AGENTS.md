@@ -83,7 +83,7 @@ The root `Cargo.toml` splits release builds so host crates build fast while the
 firmware and SDK stay as small as possible:
 
 - `[profile.release]` — fast builds for host crates (`desktop`, `app`,
-  `emulator`, `uploader`): no LTO, `opt-level = 3`, `incremental = true`.
+  `emulator`, `tools`): no LTO, `opt-level = 3`, `incremental = true`.
   Incremental only applies to workspace members and path deps, so registry
   crates compile exactly as before.
 - `[profile.release-lto]` — size-optimized profile (fat LTO, `opt-level = 'z'`).
@@ -413,7 +413,9 @@ rustagon/
 │   └── src/lib/
 │       ├── protocol.rs               #   extern "C" host functions + re-export of wasm_protocol::*
 │       └── ...                       #   http, tasks, helper, graphics, etc.
-├── uploader/                         # Firmware upload tool
+├── tools/                            # Host build/deploy tools
+│   ├── manifest-tool/                #   WASM manifest generator
+│   └── uploader/                     #   Firmware upload tool
 └── Cargo.toml                        # Workspace root
 
 ### What Must NOT Be In Each Crate
