@@ -21,6 +21,8 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
   fn http_client(&self) -> Option<HttpClientHandle>;
   fn storage_manager(&self) -> StorageHandle;
   fn config_manager(&self) -> ConfigHandle<DeviceConfig>;
+  /// The currently running firmware version, baked in at build time.
+  fn firmware_version(&self) -> u32;
   async fn format_storage(&self) -> Result<(), FsError>;
   async fn software_reset(&self);
 

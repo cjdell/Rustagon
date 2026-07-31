@@ -100,6 +100,13 @@ deploy_firmware:
 
 # Build the desktop emulator
 build_desktop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    set -a
+    source firmware/.env
+    set +a
+
     cargo build -r -p desktop
 
 # Build and run the desktop emulator (pick a data dir with fzf)
@@ -112,10 +119,21 @@ run_desktop:
                 | fzf --prompt="Data dir> " --height=~10 --header="Select data directory" ) \
       || data_dir="$PWD/desktop/data"
 
+    set -a
+    source firmware/.env
+    set +a
+
     cargo run -r -p desktop -- "$data_dir"
 
 # Run the desktop emulator, auto-starting a WASM app from sdk/wasm
 run_desktop_app file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    set -a
+    source firmware/.env
+    set +a
+
     cargo run -r -p desktop -- sdk/wasm/{{file}}.wsm
 
 # ============================================================

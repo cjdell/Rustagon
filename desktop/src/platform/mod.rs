@@ -15,6 +15,7 @@ use app::platform::storage::ConfigFileTrait;
 use app::platform::*;
 use app::types::{DeviceConfig, OtaError};
 use core::{fmt, future::Future, pin::Pin};
+use log::info;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -177,6 +178,9 @@ impl Platform for DesktopPlatform {
   fn config_manager(&self) -> ConfigHandle<DeviceConfig> {
     self.config.clone()
   }
+  fn firmware_version(&self) -> u32 {
+    option_env!("FIRMWARE_VERSION").unwrap_or("0").parse().unwrap_or(0)
+  }
   async fn format_storage(&self) -> Result<(), FsError> {
     self.storage.format().await
   }
@@ -184,12 +188,15 @@ impl Platform for DesktopPlatform {
     std::process::exit(0);
   }
   async fn ota_begin(&self) -> Result<u32, OtaError> {
-    Err(OtaError::NotSupported)
+    info!("ota_begin: simulated flash offset 0");
+    Ok(0)
   }
-  async fn ota_write_chunk(&self, _: u32, _: &[u8]) -> Result<(), OtaError> {
-    Err(OtaError::NotSupported)
+  async fn ota_write_chunk(&self, offset: u32, chunk: &[u8]) -> Result<(), OtaError> {
+    info!("ota_write_chunk: writing {} bytes at offset {}", chunk.len(), offset);
+    Ok(())
   }
   async fn ota_commit(&self) -> Result<(), OtaError> {
-    Err(OtaError::NotSupported)
+    info!("ota_commit: simulated");
+    Ok(())
   }
 }
