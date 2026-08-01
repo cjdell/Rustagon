@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-app = { path = "../app", features = ["wasm-runtime"] }
+app = { path = "../app", features = ["wasm-runtime", "tokio", "web-bundle"] }
 wasm_protocol = { path = "../libs/wasm_protocol" }
 display_types = { path = "../libs/display_types" }
 display_renderer = { path = "../libs/display_renderer" }
@@ -12,8 +12,7 @@ display_renderer = { path = "../libs/display_renderer" }
 embedded-graphics = "0.8.1"
 minifb = "0.26.0"
 
-embassy-time = { version = "0.5.0", features = ["tick-hz-1_000_000"] }
-embassy-time-driver = "0.2.1"
+embassy-time = { version = "0.5.0", features = ["tick-hz-1_000_000", "generic-queue-32"] }
 embassy-net = { version = "0.8.0", features = ["std"] }
 embassy-sync = "0.7.2"
 embassy-futures = "0.1.2"
@@ -22,6 +21,9 @@ futures = { version = "0.3", default-features = false, features = ["executor"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
 
 ureq = { version = "3", features = ["json"] }
+
+picoserve = { git = "https://github.com/sammhicks/picoserve.git", features = ["alloc", "tokio", "ws"] }
+tokio = { version = "1.32.0", features = ["rt", "io-util", "net", "time", "macros", "sync"] }
 
 log = "0.4.29"
 env_logger = "0.11.0"

@@ -1,12 +1,17 @@
-mod embassy_time_driver;
+#![feature(impl_trait_in_assoc_type)]
+#![recursion_limit = "256"]
+
 mod platform;
 mod tasks;
 
 use app::menu::menu_task;
+use app::menu::state::{StackEntryType, StackEvent, StackEventHandle};
 use app::menu::types::MenuRunnerContext;
 use app::platform::Platform;
-use app::protocol::{HostIpcChannel, HostRuntimeCommand};
-use app::types::{HexButton, SystemMessage};
+use app::protocol::{HostIpcChannel, HostIpcMessage, HostIpcSender, HostRuntimeCommand};
+use app::types::{
+  HexButton, HttpReceiver, HttpStatusMessage, SystemMessage, WebSocketIncomingChannel, WebSocketIncomingMessage, WebSocketIncomingReceiver,
+};
 use display_renderer::{FrameBuffer, LcdState};
 use embedded_graphics::prelude::RawData as _;
 use minifb::{Key, Window, WindowOptions};
@@ -43,6 +48,7 @@ fn main() {
   // Stack signal — IPC handler sends events, menu runner consumes
   let stack_event_handle = app::menu::state::create_stack_event_handle();
   let stack_event_for_wasm = stack_event_handle.clone();
+  let stack_event_for_http = stack_event_handle.clone();
 
   // App loader: sends StartWasm over IPC when user picks a WASM app.
   let app_loader: Option<
@@ -76,6 +82,29 @@ fn main() {
     platform.storage_manager(),
   );
 
+  // HTTP server channels — leaked for static lifetime (never freed on desktop)
+  let http_channel = Box::leak(Box::new(app::types::HttpChannel::new()));
+  let web_socket_incoming_channel = Box::leak(Box::new(WebSocketIncomingChannel::new()));
+  let http_sender = http_channel.sender();
+  let http_receiver = http_channel.receiver();
+  let ws_incoming_sender = web_socket_incoming_channel.sender();
+  let ws_incoming_receiver = web_socket_incoming_channel.receiver();
+
+  // Start the HTTP server on a background thread (mirrors firmware's start_http)
+  tasks::http::start_http(http_sender, ws_incoming_sender, (*platform).clone());
+
+  // Forward files received over the HTTP API into the WASM runtime (mirrors firmware's ipc_handler)
+  let http_forwarder_sender = host_sender.clone();
+  std::thread::spawn(move || {
+    futures::executor::block_on(http_event_handler(http_receiver, http_forwarder_sender, stack_event_for_http));
+  });
+
+  // Forward WebSocket remote-control events into the platform (mirrors firmware's websocket_input_forwarder_task)
+  let ws_platform = (*platform).clone();
+  std::thread::spawn(move || {
+    futures::executor::block_on(websocket_input_forwarder(ws_incoming_receiver, ws_platform));
+  });
+
   // Spawn the menu task on a background thread
   let platform_clone = platform.clone();
   std::thread::spawn(move || {
@@ -106,21 +135,9 @@ fn main() {
     // Check if the WASM has pushed a raw framebuffer
     let wasm_buffer = tasks::wasm::LCD_BUFFER.lock().unwrap().clone();
 
-    if let Some(raw) = wasm_buffer {
+    let rgb565: &[u8] = if let Some(raw) = &wasm_buffer {
       // Render raw WASM framebuffer (RGB565 LE) directly
-      for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-          let i = (y * WIDTH + x) * 2;
-          let raw565 = ((raw[i] as u16) << 8) | (raw[i + 1] as u16);
-          let r5 = (raw565 >> 11) & 0x1F;
-          let g6 = (raw565 >> 5) & 0x3F;
-          let b5 = raw565 & 0x1F;
-          let r = (r5 * 255 + 15) / 31;
-          let g = (g6 * 255 + 31) / 63;
-          let b = (b5 * 255 + 15) / 31;
-          buf32[y * WIDTH + x] = (r as u32) << 16 | (g as u32) << 8 | b as u32;
-        }
-      }
+      raw.as_slice()
     } else {
       let (screen, _) = platform_clone.get_screen();
       lcd_state.update(screen, now);
@@ -130,18 +147,23 @@ fn main() {
       let mut desk_fb = DesktopFrameBuffer(&mut fb);
       lcd_state.draw(&mut desk_fb, &lcd_state.screen, now);
 
-      for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-          let i = (y * WIDTH + x) * 2;
-          let raw = ((fb[i] as u16) << 8) | (fb[i + 1] as u16);
-          let r5 = (raw >> 11) & 0x1F;
-          let g6 = (raw >> 5) & 0x3F;
-          let b5 = raw & 0x1F;
-          let r = (r5 * 255 + 15) / 31;
-          let g = (g6 * 255 + 31) / 63;
-          let b = (b5 * 255 + 15) / 31;
-          buf32[y * WIDTH + x] = (r as u32) << 16 | (g as u32) << 8 | b as u32;
-        }
+      &fb
+    };
+
+    // Publish the RGB565 frame so frame_buffer()/WebSocket streaming sees the current screen
+    platform_clone.display_raw.update_framebuffer(rgb565);
+
+    for y in 0..HEIGHT {
+      for x in 0..WIDTH {
+        let i = (y * WIDTH + x) * 2;
+        let raw = ((rgb565[i] as u16) << 8) | (rgb565[i + 1] as u16);
+        let r5 = (raw >> 11) & 0x1F;
+        let g6 = (raw >> 5) & 0x3F;
+        let b5 = raw & 0x1F;
+        let r = (r5 * 255 + 15) / 31;
+        let g = (g6 * 255 + 31) / 63;
+        let b = (b5 * 255 + 15) / 31;
+        buf32[y * WIDTH + x] = (r as u32) << 16 | (g as u32) << 8 | b as u32;
       }
     }
 
@@ -160,11 +182,7 @@ fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
     return Some(path);
   }
   let with_ext = path.with_extension("wsm");
-  if with_ext.is_file() {
-    Some(with_ext)
-  } else {
-    None
-  }
+  if with_ext.is_file() { Some(with_ext) } else { None }
 }
 
 fn key_to_hex_button(window: &Window) -> Option<HexButton> {
@@ -200,6 +218,35 @@ fn now_ms() -> i32 {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_millis() as i32
+}
+
+/// Consume files uploaded via the HTTP API (`/api/receive`) and launch them as
+/// a WASM program on the stack, mirroring `firmware/src/tasks/ipc_handler.rs`.
+async fn http_event_handler(http_receiver: HttpReceiver, host_ipc_sender: HostIpcSender, stack_event_handle: StackEventHandle) {
+  loop {
+    if let HttpStatusMessage::ReceivedFile(buffer) = http_receiver.receive().await {
+      log::info!("http_event_handler: received {} bytes, launching WASM program", buffer.len());
+      stack_event_handle.send(StackEvent::Pushed(StackEntryType::HostedApp));
+      host_ipc_sender
+        .send((0, HostIpcMessage::Runtime(HostRuntimeCommand::StartWasmWithBuffer(buffer))))
+        .await;
+    }
+  }
+}
+
+/// Forwards remote control events received over the WebSocket into the platform's
+/// input/system event queues, so they are indistinguishable from physical presses.
+async fn websocket_input_forwarder(web_socket_incoming_receiver: WebSocketIncomingReceiver, platform: DesktopPlatform) {
+  loop {
+    match web_socket_incoming_receiver.receive().await {
+      WebSocketIncomingMessage::HexButton(hex_button) => {
+        platform.input_manager().inject_button(hex_button).await;
+      }
+      WebSocketIncomingMessage::SystemMessage(message) => {
+        platform.system_manager().inject(message).await;
+      }
+    }
+  }
 }
 
 struct DesktopFrameBuffer<'a>(&'a mut [u8]);
