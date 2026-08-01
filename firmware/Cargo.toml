@@ -42,7 +42,7 @@ esp-storage = { git = "https://github.com/esp-rs/esp-hal.git", package = "esp-st
 
 embassy-executor = { version = "0.9.1", features = ["log"] }
 embassy-time = "0.5.0"
-embassy-net = { version = "0.8.0", features = ["dhcpv4", "medium-ethernet", "medium-ip", "tcp", "udp", "dhcpv4-hostname", "dns"] }
+embassy-net = { version = "0.8.0", features = ["dhcpv4", "medium-ethernet", "medium-ip", "tcp", "udp", "dhcpv4-hostname", "dns", "multicast"] }
 embassy-sync = "0.7.2"
 embassy-futures = "0.1.2"
 embassy-embedded-hal = "0.5.0"
@@ -56,8 +56,9 @@ embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
 
 edge-dhcp = "0.7.0"
+edge-mdns = { version = "0.7.0", features = ["log"] }
 edge-nal = "0.6.0"
-edge-nal-embassy = { version = "0.8.1", default-features = false, features = ["dhcpv4", "dhcpv4-hostname", "dns", "proto-ipv4", "tcp", "udp", "medium-ethernet", "medium-ip"] }
+edge-nal-embassy = { version = "0.8.1", default-features = false, features = ["dhcpv4", "dhcpv4-hostname", "dns", "multicast", "proto-ipv4", "tcp", "udp", "medium-ethernet", "medium-ip"] }
 
 wasmi = { path = "../libs/wasmi/crates/wasmi", default-features = false }
 wasmi_core = { path = "../libs/wasmi/crates/core", default-features = false, features = ["psram-alloc"] }

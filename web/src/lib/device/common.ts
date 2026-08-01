@@ -4,6 +4,13 @@ import type { HexButton } from "../wasm/index.ts";
 
 export const DeviceConfigSchema = v.object({
   owner_name: v.pipe(v.string(), v.minLength(1), v.maxLength(24), v.description("Who does this badge belong to?")),
+  device_name: v.pipe(
+    v.string(),
+    v.minLength(1),
+    v.maxLength(63),
+    v.title("Device Name"),
+    v.description("mDNS hostname the badge is reachable at, e.g. `<device_name>.local`"),
+  ),
   app_store_url: v.pipe(v.string(), v.url(), v.description("URL to retrieve new apps")),
   firmware_url: v.pipe(v.string(), v.url(), v.description("URL to retrieve new firmware")),
   wifi_mode: v.pipe(

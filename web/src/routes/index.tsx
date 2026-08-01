@@ -29,9 +29,14 @@ export function IndexRoute() {
 
       <Show when={deviceConfig()} fallback="Loading...">
         {(deviceConfig) => (
-          <p>
-            This badge belongs to <strong>{deviceConfig().owner_name}</strong>
-          </p>
+          <>
+            <p>
+              This badge belongs to <strong>{deviceConfig().owner_name}</strong>
+            </p>
+            <p>
+              It's reachable on your network at <strong>{deviceConfig().device_name}.local</strong>
+            </p>
+          </>
         )}
       </Show>
 

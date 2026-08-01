@@ -1,6 +1,6 @@
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 pub use app::platform::wifi::{WiFiHandle, WiFiManager, WifiStatus};
 pub use app::types::{WifiDesiredState, WifiMode, WifiResult};
-use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 use core::fmt;
 use core::net::Ipv4Addr;
 use core::pin::Pin;
@@ -10,13 +10,14 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock,
 use embassy_time::{Duration, Timer};
 use esp_hal::time::Instant;
 use esp_radio::wifi::{
-  AuthenticationMethod, ModeConfig, WifiController, WifiDevice,
   ap::{AccessPointConfig, AccessPointInfo},
   scan::{ScanConfig, ScanTypeConfig},
   sta::StationConfig,
+  AuthenticationMethod, ModeConfig, WifiController, WifiDevice,
 };
 use log::{error, info};
 
+use crate::platform::mdns::mdns_task;
 use crate::platform::ConfigHandle;
 use crate::utils::WatchedValue;
 
@@ -87,7 +88,9 @@ impl HardwareWifiManager {
     ap_ip: Ipv4Addr,
   ) {
     let manager = self.clone();
-    spawner.spawn(wifi_connection_task(device_config, controller, stack, ap_ip, manager)).ok();
+    spawner
+      .spawn(wifi_connection_task(device_config, controller, stack, ap_ip, manager, spawner))
+      .ok();
   }
 }
 
@@ -98,6 +101,7 @@ pub async fn wifi_connection_task(
   stack: embassy_net::Stack<'static>,
   ap_ip: Ipv4Addr,
   manager: HardwareWifiManager,
+  spawner: Spawner,
 ) {
   info!("WiFi: Connection task started");
 
@@ -185,8 +189,8 @@ pub async fn wifi_connection_task(
                 Ok(found_networks) => {
                   manager.store_scan_results(to_wifi_results(&found_networks)).await;
 
-                    for found_network in found_networks {
-                      for known in device_config.get_data().await.known_wifi_networks {
+                  for found_network in found_networks {
+                    for known in device_config.get_data().await.known_wifi_networks {
                       if known.ssid == found_network.ssid {
                         match best_network {
                           Some((_, _, best_so_far)) => {
@@ -262,6 +266,10 @@ pub async fn wifi_connection_task(
 
               Timer::after(Duration::from_millis(100)).await;
             }
+
+            // Advertise the device over mDNS once we have an address
+            let device_name = device_config.get_data().await.device_name;
+            spawner.spawn(mdns_task(stack, device_name, ip_address.unwrap())).ok();
           }
 
           let connected = check_connectivity(stack).await;
@@ -322,6 +330,10 @@ pub async fn wifi_connection_task(
 
               Timer::after(Duration::from_millis(100)).await;
             }
+
+            // Advertise the device over mDNS with the AP's static address
+            let device_name = device_config.get_data().await.device_name;
+            spawner.spawn(mdns_task(stack, device_name, ap_ip)).ok();
           }
         }
       },
@@ -477,5 +489,4 @@ impl WiFiManager for HardwareWifiManager {
       }
     })
   }
-
 }

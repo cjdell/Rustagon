@@ -199,7 +199,7 @@ run_wasm file:
 
     just build_sdk
 
-    cargo run -r -p uploader http://192.168.49.143/api/receive sdk/wasm/{{file}}.wsm
+    cargo run -r -p uploader http://rustagon.local/api/receive sdk/wasm/{{file}}.wsm
 
 # Build and upload WASM as a file
 upload_wasm file:
@@ -208,7 +208,7 @@ upload_wasm file:
 
     just build_sdk
 
-    cargo run -r -p uploader http://192.168.49.143/api/file?{{file}}.wsm sdk/wasm/{{file}}.wsm
+    cargo run -r -p uploader http://rustagon.local/api/file?{{file}}.wsm sdk/wasm/{{file}}.wsm
 
 # ============================================================
 # Web App

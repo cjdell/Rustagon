@@ -15,6 +15,9 @@ pub enum SystemMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceConfig {
   pub owner_name: String,
+  /// mDNS hostname advertised as `<device_name>.local`
+  #[serde(default)]
+  pub device_name: String,
   pub app_store_url: String,
   pub firmware_url: String,
   pub wifi_mode: WifiMode,
@@ -28,6 +31,7 @@ impl Default for DeviceConfig {
   fn default() -> Self {
     Self {
       owner_name: "Rustacean".to_string(),
+      device_name: "rustagon".to_string(),
       app_store_url: "http://apps.rustagon.chrisdell.info".to_string(),
       firmware_url: "http://firmware.rustagon.chrisdell.info".to_string(),
       wifi_mode: WifiMode::AccessPoint,

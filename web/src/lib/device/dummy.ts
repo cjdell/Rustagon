@@ -12,6 +12,7 @@ export class DummyDeviceApi implements DeviceApi {
   public async getDeviceConfig(): Promise<DeviceConfig> {
     return {
       owner_name: "Nameless",
+      device_name: "dummy",
       app_store_url: "http://foo",
       firmware_url: "http://foo",
       wifi_mode: "AccessPoint",
