@@ -2,6 +2,7 @@ import { RouteDefinition } from "@lib";
 import { Route, Router, type RouteSectionProps, useNavigate } from "@solidjs/router";
 import { type Component, For, Suspense } from "solid-js";
 import "./App.scss";
+import { ConfirmDialogProvider } from "./components/ConfirmDialog/index.tsx";
 import { NavBar } from "./components/NavBar/index.tsx";
 import { ConfigRoute } from "./routes/config.tsx";
 import { EmulatorRoute } from "./routes/emulator.tsx";
@@ -54,7 +55,9 @@ export function App() {
     <>
       <NavBar routes={Routes} pathname={props.location.pathname} />
       <main class="container">
-        <Suspense>{props.children}</Suspense>
+        <Suspense>
+          <ConfirmDialogProvider>{props.children}</ConfirmDialogProvider>
+        </Suspense>
       </main>
     </>
   );

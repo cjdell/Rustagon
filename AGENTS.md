@@ -64,6 +64,7 @@ Prerequisites:
   correct `RUSTFLAGS` (stack size 32768, `--initial-memory=65536`) and copies the
   binaries to `sdk/wasm/*.wsm`. A bare `cargo build` inside `sdk/` omits those flags
   and produces binaries that exceed the guest memory limits.
+- The web app uses `deno task build` for building (via Vite) and `deno task compress` for creating the bundled assets for firmware embedding.
 
 Manual checks without hardware (CI / no Xtensa toolchain):
 
@@ -453,6 +454,13 @@ rustagon/
 │   └── src/lib/
 │       ├── protocol.rs               #   extern "C" host functions + re-export of wasm_protocol::*
 │       └── ...                       #   http, tasks, helper, graphics, etc.
+├── web/                              # Web app for device management
+│   ├── src/                          # Source code (Solid.js, TypeScript)
+│   ├── public/                       # Static assets
+│   ├── dist/                         # Build output (Vite)
+│   ├── bundle/                       # Compressed bundle (inline assets, gzipped index.html)
+│   ├── deno.json                     # Deno configuration (Vite, Solid.js)
+│   └── vite.config.ts                # Vite configuration
 ├── tools/                            # Host build/deploy tools
 │   ├── manifest-tool/                #   WASM manifest generator
 │   └── uploader/                     #   Firmware upload tool

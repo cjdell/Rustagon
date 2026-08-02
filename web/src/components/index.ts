@@ -9,3 +9,4 @@ export * from "./MagicFields/index.tsx";
 export * from "./NavBar/index.tsx";
 export * from "./Select/index.tsx";
 export * from "./TextInput/index.tsx";
+export * from "./ConfirmDialog/index.tsx";

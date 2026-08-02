@@ -1,10 +1,11 @@
-import { Button, Card } from "@components";
+import { Button, Card, useConfirm } from "@components";
 import { GlobalDeviceApi, WifiResult } from "@lib";
 import { createResource, createSignal, For, Show } from "solid-js";
 import * as v from "valibot";
 
 export function WifiRoute() {
   const api = GlobalDeviceApi;
+  const confirm = useConfirm();
 
   const [deviceConfig, { mutate }] = createResource(() => api.getDeviceConfig());
   const [submittedCount, setSubmittedCount] = createSignal(0);
@@ -24,7 +25,7 @@ export function WifiRoute() {
     setScanResults(await api.scanWifiNetworks());
   };
 
-  const onAddScanResult = (result: WifiResult, idx: number) => {
+  const onAddScanResult = async (result: WifiResult, idx: number) => {
     if (addingScanResult() === idx) {
       if (addingScanResultPassword().length === 0) return;
 
@@ -33,7 +34,7 @@ export function WifiRoute() {
       setAddingScanResult(null);
       setAddingScanResultPassword("");
 
-      if (confirm("Save and reboot?")) {
+      if (await confirm({ title: "Save and Reboot", message: "Save and reboot?" })) {
         onSaveAndReboot();
       }
     }
@@ -45,7 +46,9 @@ export function WifiRoute() {
 
     addNetwork(result.ssid, "");
 
-    if (confirm("Save and reboot?")) {
+    if (
+      await confirm({ title: "Save and Reboot", message: "Save and reboot?" })
+    ) {
       onSaveAndReboot();
     }
   };
