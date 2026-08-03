@@ -130,6 +130,8 @@ run_desktop_app file:
     #!/usr/bin/env bash
     set -euo pipefail
 
+    just build_wasm {{file}}
+
     set -a
     source firmware/.env
     set +a
@@ -145,23 +147,33 @@ build_sdk:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    SDK_DIR=$PWD/sdk
-
-    rm -rf $SDK_DIR/../target/wasm32-unknown-unknown/release-lto/*.wasm
+    rm -rf target/wasm32-unknown-unknown/release-lto/*.wasm
 
     RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true -C strip=symbols" cargo +nightly build --profile release-lto -p sdk --target wasm32-unknown-unknown
 
-    rm -rf $SDK_DIR/wasm/*.wsm
+    rm -rf sdk/wasm/*.wsm
 
-    cp -a $SDK_DIR/../target/wasm32-unknown-unknown/release-lto/*.wasm $SDK_DIR/wasm/
+    cp -a target/wasm32-unknown-unknown/release-lto/*.wasm sdk/wasm/
 
-    pushd $SDK_DIR/wasm
+    pushd sdk/wasm
     for f in *.wasm; do [[ -f "$f" ]] && mv "$f" "${f%.wasm}.wsm"; done
     popd
 
     just build_manifest
 
     just bold "WASM binaries have been placed in /wasm folder"
+
+build_wasm file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true -C strip=symbols" cargo +nightly build --profile release-lto -p sdk --target wasm32-unknown-unknown --bin {{file}}
+
+    cp target/wasm32-unknown-unknown/release-lto/{{file}}.wasm sdk/wasm/{{file}}.wsm
+
+    just build_manifest
+
+    just bold "WASM binary {{file}}.wsm built"
 
 # Generate the WASM manifest.json from the built .wsm files
 build_manifest:
