@@ -56,7 +56,7 @@ impl<P: Platform> MenuApp for HexpansionViewerApp<P> {
     lines.push(MenuLine(Icon20::Info, "".to_string()));
     lines.push(MenuLine(Icon20::Info, "<= Back".to_string()));
 
-    LcdScreen::Menu { menu: lines, selected: 0 }
+    LcdScreen::Menu { menu: lines, selected: 0, animation: MenuAnimation::FromRight }
   }
 
   async fn init(&mut self) {

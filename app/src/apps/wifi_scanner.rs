@@ -81,7 +81,7 @@ impl<P: Platform> MenuApp for WifiScannerApp<P> {
           let menu: Vec<MenuLine> = self.state.networks.iter()
             .map(|net| MenuLine(Icon20::Wifi, format!("{} {}", Self::signal_bars(net.signal_strength), net.ssid)))
             .collect();
-          LcdScreen::Menu { menu, selected: self.state.cursor as u32 }
+          LcdScreen::Menu { menu, selected: self.state.cursor as u32, animation: MenuAnimation::FromRight }
         }
       }
     }

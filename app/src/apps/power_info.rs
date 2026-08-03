@@ -71,5 +71,5 @@ async fn build_status_screen<P: Platform>(ctx: &MenuAppContext<P>) -> LcdScreen 
   lines.push(MenuLine(Icon20::Info, format!("VREG: {}.{:02}V", status.charge_voltage_mv / 1000, (status.charge_voltage_mv % 1000) / 10)));
   lines.push(MenuLine(Icon20::Info, "<= Back".to_string()));
 
-  LcdScreen::Menu { menu: lines, selected: 0 }
+  LcdScreen::Menu { menu: lines, selected: 0, animation: MenuAnimation::FromRight }
 }

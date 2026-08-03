@@ -45,6 +45,9 @@ struct AppState {
   app_list: Option<AppList>,
   selected_app_index: usize,
   cursor: usize,
+  /// True after navigating back from AppInfo to AppList, so the list slides
+  /// in from the left (back direction) instead of from the right.
+  back_nav: bool,
 }
 
 impl AppState {
@@ -54,6 +57,7 @@ impl AppState {
       app_list: None,
       selected_app_index: 0,
       cursor: 0,
+      back_nav: false,
     }
   }
 
@@ -167,6 +171,11 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
           .map(|apps| apps.iter().map(|app| MenuLine(Icon20::File, app.name.clone())).collect())
           .unwrap_or_default(),
         selected: self.state.cursor as u32,
+        animation: if self.state.back_nav {
+          MenuAnimation::FromLeft
+        } else {
+          MenuAnimation::FromRight
+        },
       },
       Screen::AppInfo => {
         if let Some(app) = self.state.current_app() {
@@ -178,6 +187,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
               MenuLine(Icon20::Info, "Back".to_string()),
             ],
             selected: self.state.cursor as u32 + 2,
+            animation: MenuAnimation::FromRight,
           }
         } else {
           LcdScreen::Headline(Icon40::Error, "App not found".to_string())
@@ -202,6 +212,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
                   self.state.screen = Screen::AppList;
                   self.state.app_list = Some(app_list);
                   self.state.reset_cursor();
+                  self.state.back_nav = false;
                 }
                 Err(()) => {
                   self.state.screen = Screen::Welcome;
@@ -225,6 +236,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
                   self.state.screen = Screen::AppList;
                   self.state.app_list = Some(app_list);
                   self.state.reset_cursor();
+                  self.state.back_nav = false;
                 }
                 Err(()) => {
                   self.state.screen = Screen::AppList;
@@ -239,6 +251,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
               self.state.selected_app_index = self.state.cursor;
               self.state.screen = Screen::AppInfo;
               self.state.cursor = 0;
+              self.state.back_nav = false;
             }
             _ => {}
           },
@@ -248,6 +261,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
             HexButton::Left => {
               self.state.screen = Screen::AppList;
               self.state.cursor = self.state.selected_app_index;
+              self.state.back_nav = true;
             }
             HexButton::Fire => {
               let current_app = self.state.current_app().unwrap().clone();
@@ -261,6 +275,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
               } else {
                 self.state.screen = Screen::AppList;
                 self.state.cursor = self.state.selected_app_index;
+                self.state.back_nav = true;
               }
             }
             _ => {}

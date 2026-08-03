@@ -1,5 +1,5 @@
 use crate::{
-  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
+  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::Platform,
   types::*,
   utils::sleep,
@@ -19,7 +19,10 @@ impl<P: Platform> AppName for FilesApp<P> {
   }
 }
 
-enum Screen { FileList, FileDetail }
+enum Screen {
+  FileList,
+  FileDetail,
+}
 
 struct AppState {
   screen: Screen,
@@ -27,19 +30,41 @@ struct AppState {
   cursor: usize,
   selected_file: Option<DirEntry>,
   message: Option<String>,
+  /// True after navigating back from FileDetail to FileList, so the list
+  /// slides in from the left (back direction) instead of from the right.
+  back_nav: bool,
 }
 
 impl AppState {
   fn new() -> Self {
-    Self { screen: Screen::FileList, files: Vec::new(), cursor: 0, selected_file: None, message: None }
+    Self {
+      screen: Screen::FileList,
+      files: Vec::new(),
+      cursor: 0,
+      selected_file: None,
+      message: None,
+      back_nav: false,
+    }
   }
 
-  fn move_cursor_up(&mut self) { if self.cursor > 0 { self.cursor -= 1; } }
-  fn move_cursor_down(&mut self, max: usize) { if self.cursor + 1 < max { self.cursor += 1; } }
-  fn is_wasm(name: &str) -> bool { name.ends_with(".wsm") || name.ends_with(".wasm") }
+  fn move_cursor_up(&mut self) {
+    if self.cursor > 0 {
+      self.cursor -= 1;
+    }
+  }
+  fn move_cursor_down(&mut self, max: usize) {
+    if self.cursor + 1 < max {
+      self.cursor += 1;
+    }
+  }
+  fn is_wasm(name: &str) -> bool {
+    name.ends_with(".wsm") || name.ends_with(".wasm")
+  }
   fn detail_action_count(file: &DirEntry) -> usize {
     let mut count = 0usize;
-    if Self::is_wasm(&file.name) { count += 1; }
+    if Self::is_wasm(&file.name) {
+      count += 1;
+    }
     count += 1;
     count += 1;
     count
@@ -48,7 +73,10 @@ impl AppState {
 
 impl<P: Platform> FilesApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
-    Self { ctx, state: AppState::new() }
+    Self {
+      ctx,
+      state: AppState::new(),
+    }
   }
 
   async fn refresh_files(&mut self) {
@@ -70,11 +98,23 @@ impl<P: Platform> MenuApp for FilesApp<P> {
     }
     match &self.state.screen {
       Screen::FileList => {
-        let mut menu: Vec<MenuLine> = self.state.files.iter()
+        let mut menu: Vec<MenuLine> = self
+          .state
+          .files
+          .iter()
           .map(|f| MenuLine(Icon20::File, format!("{}  {}B", f.name, f.size)))
           .collect();
         menu.push(MenuLine(Icon20::Info, "<= Back".to_string()));
-        LcdScreen::Menu { menu, selected: self.state.cursor as u32 }
+        let animation = if self.state.back_nav {
+          MenuAnimation::FromLeft
+        } else {
+          MenuAnimation::FromRight
+        };
+        LcdScreen::Menu {
+          menu,
+          selected: self.state.cursor as u32,
+          animation,
+        }
       }
       Screen::FileDetail => {
         if let Some(file) = &self.state.selected_file {
@@ -82,10 +122,16 @@ impl<P: Platform> MenuApp for FilesApp<P> {
             MenuLine(Icon20::Info, format!("Name: {}", file.name)),
             MenuLine(Icon20::Info, format!("Size: {}B", file.size)),
           ];
-          if AppState::is_wasm(&file.name) { items.push(MenuLine(Icon20::Config, "Execute".to_string())); }
+          if AppState::is_wasm(&file.name) {
+            items.push(MenuLine(Icon20::Config, "Execute".to_string()));
+          }
           items.push(MenuLine(Icon20::Config, "Delete".to_string()));
           items.push(MenuLine(Icon20::Info, "<= Back".to_string()));
-          LcdScreen::Menu { menu: items, selected: self.state.cursor as u32 }
+          LcdScreen::Menu {
+            menu: items,
+            selected: self.state.cursor as u32,
+            animation: MenuAnimation::FromRight,
+          }
         } else {
           LcdScreen::Headline(Icon40::Error, "File not found".to_string())
         }
@@ -100,12 +146,10 @@ impl<P: Platform> MenuApp for FilesApp<P> {
   async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
     match input {
       MenuAppInput::Stop => AppAction::Stop,
-      MenuAppInput::Button(hex) => {
-        match &self.state.screen {
-          Screen::FileList => self.handle_file_list_input(hex).await,
-          Screen::FileDetail => self.handle_file_detail_input(hex).await,
-        }
-      }
+      MenuAppInput::Button(hex) => match &self.state.screen {
+        Screen::FileList => self.handle_file_list_input(hex).await,
+        Screen::FileDetail => self.handle_file_detail_input(hex).await,
+      },
     }
   }
 }
@@ -121,7 +165,9 @@ impl<P: Platform> FilesApp<P> {
           self.state.selected_file = Some(self.state.files[self.state.cursor].clone());
           self.state.cursor = 0;
           self.state.screen = Screen::FileDetail;
-        } else { return AppAction::Stop; }
+        } else {
+          return AppAction::Stop;
+        }
       }
       _ => {}
     }
@@ -129,14 +175,19 @@ impl<P: Platform> FilesApp<P> {
   }
 
   async fn handle_file_detail_input(&mut self, input: HexButton) -> AppAction {
-    let file = match &self.state.selected_file { Some(f) => f.clone(), None => return AppAction::Stop };
+    let file = match &self.state.selected_file {
+      Some(f) => f.clone(),
+      None => return AppAction::Stop,
+    };
     let info_lines = 2;
     let max = AppState::detail_action_count(&file);
     match input {
       HexButton::Up => self.state.move_cursor_up(),
       HexButton::Down => self.state.move_cursor_down(max + info_lines),
       HexButton::Fire => {
-        if self.state.cursor < info_lines { return AppAction::Continue; }
+        if self.state.cursor < info_lines {
+          return AppAction::Continue;
+        }
         let action_idx = self.state.cursor - info_lines;
         let has_execute = AppState::is_wasm(&file.name);
         if has_execute && action_idx == 0 {
@@ -146,14 +197,28 @@ impl<P: Platform> FilesApp<P> {
         let delete_idx = if has_execute { 1 } else { 0 };
         if action_idx == delete_idx {
           match self.ctx.platform.storage_manager().delete(file.name).await {
-            Ok(()) => { self.state.screen = Screen::FileList; self.state.cursor = 0; self.refresh_files().await; }
-            Err(err) => { warn!("Delete error: {err:?}"); self.set_message("Delete failed!").await; }
+            Ok(()) => {
+              self.state.screen = Screen::FileList;
+              self.state.cursor = 0;
+              self.state.back_nav = true;
+              self.refresh_files().await;
+            }
+            Err(err) => {
+              warn!("Delete error: {err:?}");
+              self.set_message("Delete failed!").await;
+            }
           }
           return AppAction::Continue;
         }
-        self.state.screen = Screen::FileList; self.state.cursor = 0;
+        self.state.screen = Screen::FileList;
+        self.state.cursor = 0;
+        self.state.back_nav = true;
       }
-      HexButton::Right | HexButton::Left => { self.state.screen = Screen::FileList; self.state.cursor = 0; }
+      HexButton::Right | HexButton::Left => {
+        self.state.screen = Screen::FileList;
+        self.state.cursor = 0;
+        self.state.back_nav = true;
+      }
       _ => {}
     }
     AppAction::Continue

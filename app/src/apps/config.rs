@@ -140,6 +140,7 @@ impl<P: Platform> MenuApp for ConfigApp<P> {
         MenuLine(Icon20::Info, "<= Back".to_string()),
       ],
       selected: self.state.cursor as u32,
+      animation: MenuAnimation::FromRight,
     }
   }
 

@@ -1,5 +1,5 @@
 use crate::{
-  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
+  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::Platform,
   types::*,
 };
@@ -94,7 +94,11 @@ fn render_state(pressed: u32) -> LcdScreen {
   } else {
     format!("{remaining} buttons remaining")
   };
-  LcdScreen::Menu { menu: lines, selected: 0 }
+  LcdScreen::Menu {
+    menu: lines,
+    selected: 0,
+    animation: MenuAnimation::None,
+  }
 }
 
 impl<P: Platform> InputTestApp<P> {

@@ -3,7 +3,7 @@
 extern crate alloc;
 
 use alloc::format;
-use display_types::{Icon20, Icon40, Image, LcdScreen, MenuLine};
+use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine};
 use embedded_graphics::{
   Drawable as _,
   mono_font::{MonoTextStyle, ascii::FONT_10X20},
@@ -26,39 +26,33 @@ pub trait FrameBuffer: DrawTarget<Color = Rgb565> {
 
 // ============================== Raw pixel drawing ==============================
 
-pub fn draw_raw_image(
-  display: &mut impl FrameBuffer,
-  start_x: i32,
-  start_y: i32,
-  width: u32,
-  height: u32,
-  image: &[u8],
-) {
-  let start_x = start_x as usize;
-  let start_y = start_y as usize;
-  let width = width as usize;
-  let height = height as usize;
-  let screen_w = display.buffer_width() as usize;
+pub fn draw_raw_image(display: &mut impl FrameBuffer, start_x: i32, start_y: i32, width: u32, height: u32, image: &[u8]) {
+  let screen_w = display.buffer_width() as i32;
+  let screen_h = display.buffer_height() as i32;
 
-  if start_y >= screen_w {
+  // Clip the destination rectangle to the visible screen and shift the source
+  // window to match. This is required for partially off-screen images — e.g.
+  // icons sliding in from the left edge during a menu animation — and avoids
+  // the wrap-around arithmetic a negative offset would otherwise produce.
+  let clip_x = start_x.max(0);
+  let clip_y = start_y.max(0);
+  let clip_w = ((start_x + width as i32).min(screen_w) - clip_x).max(0) as usize;
+  let clip_h = ((start_y + height as i32).min(screen_h) - clip_y).max(0) as usize;
+
+  if clip_w == 0 || clip_h == 0 {
     return;
   }
 
+  let src_x = (clip_x - start_x) as usize;
+  let src_y = (clip_y - start_y) as usize;
+  let width = width as usize;
+  let sw = screen_w as usize;
   let buf = display.raw_buffer();
-  let max_y = height.min(screen_w.saturating_sub(start_y));
 
-  for icon_y in 0..max_y {
-    let source_row_offset = icon_y * width * 2;
-    let target_row_offset = (icon_y + start_y) * screen_w * 2 + start_x * 2;
-
-    let source_start = source_row_offset;
-    let source_end = source_start + width * 2;
-    let target_start = target_row_offset;
-    let target_end = target_start + width * 2;
-
-    if target_end <= buf.len() && source_end <= image.len() {
-      buf[target_start..target_end].copy_from_slice(&image[source_start..source_end]);
-    }
+  for row in 0..clip_h {
+    let src = (src_y + row) * width * 2 + src_x * 2;
+    let dst = (clip_y as usize + row) * sw * 2 + clip_x as usize * 2;
+    buf[dst..dst + clip_w * 2].copy_from_slice(&image[src..src + clip_w * 2]);
   }
 }
 
@@ -248,10 +242,7 @@ impl LcdState {
         let text_width = headline.chars().count() as i32 * CHAR_WIDTH;
         let mut text = Text::new(
           &headline,
-          Point::new(
-            (SCREEN_WIDTH as i32 - text_width) / 2,
-            (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2,
-          ),
+          Point::new((SCREEN_WIDTH as i32 - text_width) / 2, (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2),
           style,
         );
         text.text_style.baseline = Baseline::Top;
@@ -271,10 +262,7 @@ impl LcdState {
         let text_width = msg.chars().count() as i32 * CHAR_WIDTH;
         let mut text = Text::new(
           &msg,
-          Point::new(
-            (SCREEN_WIDTH as i32 - text_width) / 2,
-            (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2,
-          ),
+          Point::new((SCREEN_WIDTH as i32 - text_width) / 2, (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2),
           style,
         );
         text.text_style.baseline = Baseline::Top;
@@ -296,10 +284,7 @@ impl LcdState {
         let text_width = status.chars().count() as i32 * CHAR_WIDTH;
         let mut text = Text::new(
           &status,
-          Point::new(
-            (SCREEN_WIDTH as i32 - text_width) / 2,
-            (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2,
-          ),
+          Point::new((SCREEN_WIDTH as i32 - text_width) / 2, (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2),
           style,
         );
         text.text_style.baseline = Baseline::Top;
@@ -307,8 +292,8 @@ impl LcdState {
 
         return 1_000;
       }
-      LcdScreen::Menu { menu, selected } => {
-        return self.draw_menu(display, menu, *selected, time_ms, now_ms);
+      LcdScreen::Menu { menu, selected, animation } => {
+        return self.draw_menu(display, menu, *selected, *animation, time_ms, now_ms);
       }
       LcdScreen::Notification(..) => {}
     }
@@ -316,7 +301,15 @@ impl LcdState {
     1_000
   }
 
-  fn draw_menu(&self, display: &mut impl FrameBuffer, menu: &[MenuLine], selected: u32, time_ms: i32, now_ms: i32) -> i32 {
+  fn draw_menu(
+    &self,
+    display: &mut impl FrameBuffer,
+    menu: &[MenuLine],
+    selected: u32,
+    animation: MenuAnimation,
+    time_ms: i32,
+    now_ms: i32,
+  ) -> i32 {
     let total_items = menu.len() as i32;
     let selected_idx = selected as i32;
 
@@ -337,10 +330,23 @@ impl LcdState {
     const START_SCROLLING: i32 = 2000;
     const SCROLLING_PIXELS_PER_SECOND: i32 = 25;
 
-    let x = if time_ms < ANIMATION_DURATION {
-      SCREEN_WIDTH as i32 - ((SCREEN_WIDTH as i32 - MARGIN) * time_ms / ANIMATION_DURATION)
-    } else {
-      MARGIN
+    let slide_dist = SCREEN_WIDTH as i32 - MARGIN;
+    let x = match animation {
+      MenuAnimation::None => MARGIN,
+      MenuAnimation::FromRight => {
+        if time_ms < ANIMATION_DURATION {
+          SCREEN_WIDTH as i32 - slide_dist * time_ms / ANIMATION_DURATION
+        } else {
+          MARGIN
+        }
+      }
+      MenuAnimation::FromLeft => {
+        if time_ms < ANIMATION_DURATION {
+          MARGIN - slide_dist + slide_dist * time_ms / ANIMATION_DURATION
+        } else {
+          MARGIN
+        }
+      }
     };
 
     let render_start_idx = (start_idx - OVERFLOW_LINES).max(0);
@@ -372,15 +378,9 @@ impl LcdState {
       if i == selected_idx {
         let s = (((now_ms as f32) / 500.).sin() + 1.) / 4. + 0.5;
         let b = (s * 255.) as u8;
-        Rectangle::new(
-          Point::new(text_x, y),
-          Size::new(text_width as u32, ICON_HEIGHT as u32),
-        )
-        .draw_styled(
-          &PrimitiveStyle::with_fill(Rgb565::from(Rgb888::new(b, b, b))),
-          display,
-        )
-        .ok();
+        Rectangle::new(Point::new(text_x, y), Size::new(text_width as u32, ICON_HEIGHT as u32))
+          .draw_styled(&PrimitiveStyle::with_fill(Rgb565::from(Rgb888::new(b, b, b))), display)
+          .ok();
       }
 
       let mut text = Text::new(&line.1, Point::new(text_x, y), txt_style);
@@ -390,7 +390,10 @@ impl LcdState {
       i += 1;
     }
 
-    if x > MARGIN {
+    // Redraw immediately while a slide is in progress; otherwise keep the 100ms
+    // cadence (selected-line blink + long-line scroll). Instant menus skip the
+    // busy redraw loop entirely.
+    if time_ms < ANIMATION_DURATION && animation != MenuAnimation::None {
       0
     } else {
       100
@@ -401,14 +404,7 @@ impl LcdState {
 // ============================== Notification drawing ==============================
 
 impl LcdState {
-  fn draw_notification(
-    &self,
-    display: &mut impl FrameBuffer,
-    icon: &Icon40,
-    text: &str,
-    elapsed: i32,
-    now_ms: i32,
-  ) -> i32 {
+  fn draw_notification(&self, display: &mut impl FrameBuffer, icon: &Icon40, text: &str, elapsed: i32, now_ms: i32) -> i32 {
     if let Some(underlying) = &self.underlying {
       let underlying_elapsed = now_ms - self.underlying_start_time;
       self.draw_screen(display, underlying, underlying_elapsed, now_ms);
@@ -475,7 +471,14 @@ impl LcdState {
 
 fn should_restart_animation(screen: &LcdScreen, new_screen: &LcdScreen) -> bool {
   match (screen, new_screen) {
-    (LcdScreen::Menu { menu: m1, .. }, LcdScreen::Menu { menu: m2, .. }) => m1 != m2,
+    (
+      LcdScreen::Menu {
+        menu: m1, animation: a1, ..
+      },
+      LcdScreen::Menu {
+        menu: m2, animation: a2, ..
+      },
+    ) => m1 != m2 || a1 != a2,
     (LcdScreen::Notification(..), LcdScreen::Notification(..)) => true,
     _ => true,
   }
@@ -487,4 +490,130 @@ fn smoothstep(t: f32) -> f32 {
 
 fn _u16_to_bytes(raw: u16) -> [u8; 2] {
   [(raw >> 8) as u8, (raw & 0xff) as u8]
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use alloc::vec;
+  use alloc::vec::Vec;
+  use embedded_graphics::prelude::RawData as _;
+
+  struct TestFrameBuffer {
+    buf: Vec<u8>,
+  }
+
+  impl TestFrameBuffer {
+    fn new() -> Self {
+      Self {
+        buf: vec![0u8; (SCREEN_WIDTH * SCREEN_HEIGHT * 2) as usize],
+      }
+    }
+  }
+
+  impl embedded_graphics::prelude::Dimensions for TestFrameBuffer {
+    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
+      embedded_graphics::primitives::Rectangle::new(
+        embedded_graphics::prelude::Point::zero(),
+        embedded_graphics::prelude::Size::new(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32),
+      )
+    }
+  }
+
+  impl embedded_graphics::prelude::DrawTarget for TestFrameBuffer {
+    type Color = Rgb565;
+    type Error = core::convert::Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+      I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+    {
+      for pixel in pixels {
+        let (x, y) = (pixel.0.x, pixel.0.y);
+        if x < 0 || x >= SCREEN_WIDTH as i32 || y < 0 || y >= SCREEN_HEIGHT as i32 {
+          continue;
+        }
+        let i = (y as usize * SCREEN_WIDTH + x as usize) * 2;
+        let raw: u16 = embedded_graphics::pixelcolor::raw::RawU16::from(pixel.1).into_inner();
+        self.buf[i] = (raw >> 8) as u8;
+        self.buf[i + 1] = (raw & 0xff) as u8;
+      }
+      Ok(())
+    }
+  }
+
+  impl FrameBuffer for TestFrameBuffer {
+    fn raw_buffer(&mut self) -> &mut [u8] {
+      &mut self.buf
+    }
+    fn buffer_width(&self) -> u32 {
+      SCREEN_WIDTH as u32
+    }
+    fn buffer_height(&self) -> u32 {
+      SCREEN_HEIGHT as u32
+    }
+  }
+
+  /// A 2x2 image with a distinct byte pattern per row/column, so placement
+  /// (including horizontal/vertical clipping) is easy to assert on.
+  fn test_image() -> Vec<u8> {
+    (0..8).map(|i| i as u8).collect()
+  }
+
+  fn pixel_at(fb: &TestFrameBuffer, x: usize, y: usize) -> [u8; 2] {
+    let i = (y * SCREEN_WIDTH + x) * 2;
+    [fb.buf[i], fb.buf[i + 1]]
+  }
+
+  #[test]
+  fn draw_at_negative_x_does_not_panic_and_clips() {
+    // Regression test: an icon row at y=0 combined with a negative x offset
+    // (FromLeft menu slide) used to wrap the offset arithmetic and panic.
+    // A 2x2 image at x=-1 spans -1..1, so only source column 1 is visible.
+    let mut fb = TestFrameBuffer::new();
+    let image = test_image();
+
+    draw_raw_image(&mut fb, -1, 0, 2, 2, &image);
+
+    assert_eq!(pixel_at(&fb, 0, 0), [2, 3]); // src (1, 0)
+    assert_eq!(pixel_at(&fb, 0, 1), [6, 7]); // src (1, 1)
+    // The rest of the framebuffer is untouched.
+    assert_eq!(pixel_at(&fb, 1, 0), [0, 0]);
+  }
+
+  #[test]
+  fn draw_fully_off_screen_left_draws_nothing() {
+    let mut fb = TestFrameBuffer::new();
+    let image = test_image();
+    draw_raw_image(&mut fb, -160, 0, 2, 2, &image);
+    assert_eq!(pixel_at(&fb, 0, 0), [0, 0]);
+  }
+
+  #[test]
+  fn draw_clipped_at_right_and_bottom_edges() {
+    let mut fb = TestFrameBuffer::new();
+    let image = test_image();
+
+    // 2x2 image at (239, 239): only the single pixel (239, 239) is visible.
+    draw_raw_image(&mut fb, 239, 239, 2, 2, &image);
+    assert_eq!(pixel_at(&fb, 239, 239), [0, 1]);
+    assert_eq!(pixel_at(&fb, 238, 239), [0, 0]);
+    assert_eq!(pixel_at(&fb, 239, 238), [0, 0]);
+
+    // 2x2 image fully off-screen right.
+    let mut fb = TestFrameBuffer::new();
+    draw_raw_image(&mut fb, 240, 0, 2, 2, &image);
+    assert_eq!(pixel_at(&fb, 239, 0), [0, 0]);
+  }
+
+  #[test]
+  fn draw_fully_on_screen_matches_layout() {
+    let mut fb = TestFrameBuffer::new();
+    let image = test_image();
+    draw_raw_image(&mut fb, 10, 20, 2, 2, &image);
+    assert_eq!(pixel_at(&fb, 10, 20), [0, 1]);
+    assert_eq!(pixel_at(&fb, 11, 20), [2, 3]);
+    assert_eq!(pixel_at(&fb, 10, 21), [4, 5]);
+    assert_eq!(pixel_at(&fb, 11, 21), [6, 7]);
+  }
 }

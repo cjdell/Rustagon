@@ -13,8 +13,31 @@ pub enum LcdScreen {
   Headline(Icon40, String),
   Progress(String),
   BoundedProgress(u32, u32),
-  Menu { menu: Vec<MenuLine>, selected: u32 },
+  Menu {
+    menu: Vec<MenuLine>,
+    selected: u32,
+    /// Slide-in animation used when this menu is displayed/updated.
+    #[serde(default)]
+    animation: MenuAnimation,
+  },
   Notification(Icon40, String),
+}
+
+/// Slide-in animation for a `LcdScreen::Menu`.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+pub enum MenuAnimation {
+  /// Slide in from the left edge (content moves rightward).
+  FromLeft,
+  /// Slide in from the right edge (content moves leftward).
+  FromRight,
+  /// No animation — instant update.
+  None,
+}
+
+impl Default for MenuAnimation {
+  fn default() -> Self {
+    Self::FromRight
+  }
 }
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]

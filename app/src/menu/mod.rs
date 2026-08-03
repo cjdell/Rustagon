@@ -12,7 +12,7 @@ use crate::{
   types::*,
 };
 use alloc::{string::ToString, vec::Vec};
-use embassy_futures::select::{select, select3, select4, Either, Either3, Either4};
+use embassy_futures::select::{Either, Either3, Either4, select, select3, select4};
 use log::{debug, info};
 use wasm_protocol::HostIpcMessage as WireHostIpcMessage;
 
@@ -93,6 +93,9 @@ async fn handle_root_menu<P: Platform>(
             })
             .collect(),
           selected: *selected,
+          // Returning to the root menu is a "back" transition: slide in from
+          // the left (content moves rightward) to mirror the forward push.
+          animation: MenuAnimation::FromLeft,
         },
         _ => unreachable!(),
       };
