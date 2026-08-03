@@ -10,12 +10,13 @@ use app::menu::types::MenuRunnerContext;
 use app::platform::Platform;
 use app::protocol::{HostIpcChannel, HostIpcMessage, HostIpcSender, HostRuntimeCommand};
 use app::types::{
-  HexButton, HttpReceiver, HttpStatusMessage, SystemMessage, WebSocketIncomingChannel, WebSocketIncomingMessage, WebSocketIncomingReceiver,
+  DeviceEvent, HexButton, HttpReceiver, HttpStatusMessage, KeyCode, KeyEventType, KeyboardEvent, SystemMessage, WebSocketIncomingChannel,
+  WebSocketIncomingMessage, WebSocketIncomingReceiver,
 };
 use display_renderer::{FrameBuffer, LcdState};
 use embedded_graphics::prelude::RawData as _;
-use minifb::{Key, Window, WindowOptions};
-use platform::{DesktopInputManager, DesktopPlatform, DesktopSystemManager};
+use minifb::{Key, KeyRepeat, Window, WindowOptions};
+use platform::{DesktopHexpansionManager, DesktopInputManager, DesktopPlatform, DesktopSystemManager};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -122,7 +123,10 @@ fn main() {
   let mut lcd_state = LcdState::new(display_types::LcdScreen::Splash, now_ms());
 
   while window.is_open() && !window.is_key_down(Key::Escape) {
-    // Handle keyboard input
+    // Handle keyboard input: character keys mimic the keyboard hexpansion
+    // (typing), while the navigation keys and Ctrl+A-F mimic the badge's hex
+    // buttons and boot button.
+    push_keyboard_events(&window);
     if let Some(hex) = key_to_hex_button(&window) {
       DesktopInputManager::push_button(hex);
     }
@@ -185,6 +189,119 @@ fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
   if with_ext.is_file() { Some(with_ext) } else { None }
 }
 
+/// Map a minifb key to the app's `KeyCode`, mimicking the KeebDeck keyboard
+/// hexpansion. Arrows/Enter/Backspace are intentionally unmapped — they mimic
+/// the badge's hex buttons and boot button instead. Modifier keys
+/// (Shift/Ctrl/Alt/CapsLock) are also unmapped: Ctrl is reserved for hex buttons
+/// and nothing consumes the rest.
+fn key_to_keycode(key: Key) -> Option<KeyCode> {
+  use KeyCode::*;
+  match key {
+    Key::A => Some(A),
+    Key::B => Some(B),
+    Key::C => Some(C),
+    Key::D => Some(D),
+    Key::E => Some(E),
+    Key::F => Some(F),
+    Key::G => Some(G),
+    Key::H => Some(H),
+    Key::I => Some(I),
+    Key::J => Some(J),
+    Key::K => Some(K),
+    Key::L => Some(L),
+    Key::M => Some(M),
+    Key::N => Some(N),
+    Key::O => Some(O),
+    Key::P => Some(P),
+    Key::Q => Some(Q),
+    Key::R => Some(R),
+    Key::S => Some(S),
+    Key::T => Some(T),
+    Key::U => Some(U),
+    Key::V => Some(V),
+    Key::W => Some(W),
+    Key::X => Some(X),
+    Key::Y => Some(Y),
+    Key::Z => Some(Z),
+    Key::Key0 => Some(Digit0),
+    Key::Key1 => Some(Digit1),
+    Key::Key2 => Some(Digit2),
+    Key::Key3 => Some(Digit3),
+    Key::Key4 => Some(Digit4),
+    Key::Key5 => Some(Digit5),
+    Key::Key6 => Some(Digit6),
+    Key::Key7 => Some(Digit7),
+    Key::Key8 => Some(Digit8),
+    Key::Key9 => Some(Digit9),
+    Key::Escape => Some(Escape),
+    Key::Tab => Some(Tab),
+    Key::Space => Some(Space),
+    Key::Delete => Some(Delete),
+    Key::Home => Some(Home),
+    Key::End => Some(End),
+    Key::PageUp => Some(PageUp),
+    Key::PageDown => Some(PageDown),
+    Key::F1 => Some(F1),
+    Key::F2 => Some(F2),
+    Key::F3 => Some(F3),
+    Key::F4 => Some(F4),
+    Key::F5 => Some(F5),
+    Key::F6 => Some(F6),
+    Key::F7 => Some(F7),
+    Key::F8 => Some(F8),
+    Key::F9 => Some(F9),
+    Key::F10 => Some(F10),
+    Key::F11 => Some(F11),
+    Key::F12 => Some(F12),
+    Key::Comma => Some(Comma),
+    Key::Period => Some(Period),
+    Key::Slash => Some(Slash),
+    Key::Semicolon => Some(Semicolon),
+    Key::Apostrophe => Some(Quote),
+    Key::Minus => Some(Minus),
+    Key::Equal => Some(Equals),
+    Key::Backquote => Some(Backtick),
+    Key::Backslash => Some(Backslash),
+    Key::LeftBracket => Some(LBracket),
+    Key::RightBracket => Some(RBracket),
+    _ => None,
+  }
+}
+
+fn ctrl_down(window: &Window) -> bool {
+  window.is_key_down(Key::LeftCtrl) || window.is_key_down(Key::RightCtrl)
+}
+
+/// Emit keyboard events for every key pressed/released this frame, mimicking
+/// the TCA8418 driver's per-key reporting. Keys pressed while Ctrl is held are
+/// reserved for hex buttons and skipped.
+fn push_keyboard_events(window: &Window) {
+  if ctrl_down(window) {
+    return;
+  }
+  for key in window.get_keys_pressed(KeyRepeat::No) {
+    if let Some(code) = key_to_keycode(key) {
+      DesktopHexpansionManager::push_device_event(DeviceEvent::Keyboard(KeyboardEvent {
+        port: 0,
+        typ: KeyEventType::Pressed,
+        code,
+      }));
+    }
+  }
+  for key in window.get_keys_released() {
+    if let Some(code) = key_to_keycode(key) {
+      DesktopHexpansionManager::push_device_event(DeviceEvent::Keyboard(KeyboardEvent {
+        port: 0,
+        typ: KeyEventType::Released,
+        code,
+      }));
+    }
+  }
+}
+
+/// Map keys to the badge's hex buttons. Navigation keys (arrows, Enter) work
+/// directly; the hex-letter buttons (A-F) require Ctrl so the letters stay
+/// available for typing.
 fn key_to_hex_button(window: &Window) -> Option<HexButton> {
   if window.is_key_released(Key::Up) {
     Some(HexButton::Up)
@@ -194,19 +311,19 @@ fn key_to_hex_button(window: &Window) -> Option<HexButton> {
     Some(HexButton::Right)
   } else if window.is_key_released(Key::Left) {
     Some(HexButton::Left)
-  } else if window.is_key_released(Key::Space) || window.is_key_released(Key::Enter) {
+  } else if window.is_key_released(Key::Enter) {
     Some(HexButton::Fire)
-  } else if window.is_key_released(Key::A) {
+  } else if ctrl_down(window) && window.is_key_released(Key::A) {
     Some(HexButton::HexA)
-  } else if window.is_key_released(Key::B) {
+  } else if ctrl_down(window) && window.is_key_released(Key::B) {
     Some(HexButton::HexB)
-  } else if window.is_key_released(Key::C) {
+  } else if ctrl_down(window) && window.is_key_released(Key::C) {
     Some(HexButton::HexC)
-  } else if window.is_key_released(Key::D) {
+  } else if ctrl_down(window) && window.is_key_released(Key::D) {
     Some(HexButton::HexD)
-  } else if window.is_key_released(Key::E) {
+  } else if ctrl_down(window) && window.is_key_released(Key::E) {
     Some(HexButton::HexE)
-  } else if window.is_key_released(Key::F) {
+  } else if ctrl_down(window) && window.is_key_released(Key::F) {
     Some(HexButton::HexF)
   } else {
     None
