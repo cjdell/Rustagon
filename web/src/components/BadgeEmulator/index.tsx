@@ -24,12 +24,25 @@ export function BadgeEmulator(props: Props) {
         runtime.sendHostIpcMessage({ HexButton: hexButtons[i] });
       });
 
+      hexagon.setHexReleaseHandler((i) => {
+        const hexButtons: HexButton[] = ["HexA", "HexB", "HexC", "HexD", "HexE", "HexF"];
+        runtime.sendHostIpcMessage({ HexButton: (hexButtons[i] + "Released") as HexButton });
+      });
+
       hexagon.setTouchHandler((i) => {
         runtime.sendHostIpcMessage({ HexButton: TouchButtons[i] });
       });
 
+      hexagon.setTouchReleaseHandler((i) => {
+        runtime.sendHostIpcMessage({ HexButton: (TouchButtons[i] + "Released") as HexButton });
+      });
+
       hexagon.setStickHandler((dir: HexButton) => {
         runtime.sendHostIpcMessage({ HexButton: dir });
+      });
+
+      hexagon.setStickReleaseHandler((dir: HexButton) => {
+        runtime.sendHostIpcMessage({ HexButton: (dir + "Released") as HexButton });
       });
 
       runtime.addFrameBufferHandler(Comlink.proxy((frameBuffer: Uint8Array) => {

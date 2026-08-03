@@ -33,8 +33,11 @@ export class HexagonCanvasManager {
 
   // Handlers
   private hexHandler = (_i: number) => {};
+  private hexReleaseHandler = (_i: number) => {};
   private touchHandler = (_i: number) => {};
+  private touchReleaseHandler = (_i: number) => {};
   private stickHandler = (_dir: HexButton) => {};
+  private stickReleaseHandler = (_dir: HexButton) => {};
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = this.canvas.getContext("2d") as CanvasRenderingContext2D;
@@ -50,14 +53,10 @@ export class HexagonCanvasManager {
     this.computeTouchPositions();
     this.computeStickPositions();
 
-    this.canvas.addEventListener("click", (e) => this.handleClick(e));
+    this.canvas.addEventListener("mousedown", (e) => this.handlePointerDown(e));
+    this.canvas.addEventListener("mouseup", () => this.handlePointerUp());
     this.canvas.addEventListener("mousemove", (e) => this.handleMove(e));
-    this.canvas.addEventListener("mouseleave", () => {
-      this.activeHex = null;
-      this.activeTouch = null;
-      this.activeStick = null;
-      this.draw();
-    });
+    this.canvas.addEventListener("mouseleave", () => this.handleMouseLeave());
 
     this.draw();
   }
@@ -241,7 +240,7 @@ export class HexagonCanvasManager {
     }
   }
 
-  private handleClick(e: MouseEvent): void {
+  private handlePointerDown(e: MouseEvent): void {
     const rect = this.canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
@@ -253,10 +252,6 @@ export class HexagonCanvasManager {
         this.touchHandler(i);
         this.activeTouch = i;
         this.draw();
-        setTimeout(() => {
-          this.activeTouch = null;
-          this.draw();
-        }, 200);
         return;
       }
     }
@@ -268,10 +263,6 @@ export class HexagonCanvasManager {
         this.hexHandler(i);
         this.activeHex = i;
         this.draw();
-        setTimeout(() => {
-          this.activeHex = null;
-          this.draw();
-        }, 200);
         return;
       }
     }
@@ -282,13 +273,43 @@ export class HexagonCanvasManager {
         this.stickHandler(btn.direction);
         this.activeStick = btn.direction;
         this.draw();
-        setTimeout(() => {
-          this.activeStick = null;
-          this.draw();
-        }, 200);
         return;
       }
     }
+  }
+
+  private handlePointerUp(): void {
+    if (this.activeTouch !== null) {
+      this.touchReleaseHandler(this.activeTouch);
+      this.activeTouch = null;
+    }
+    if (this.activeHex !== null) {
+      this.hexReleaseHandler(this.activeHex);
+      this.activeHex = null;
+    }
+    if (this.activeStick !== null) {
+      this.stickReleaseHandler(this.activeStick);
+      this.activeStick = null;
+    }
+    this.draw();
+  }
+
+  private handleMouseLeave(): void {
+    // The pointer left the canvas while a button was held — emit the release
+    // so consumers never see a dangling press.
+    if (this.activeTouch !== null) {
+      this.touchReleaseHandler(this.activeTouch);
+      this.activeTouch = null;
+    }
+    if (this.activeHex !== null) {
+      this.hexReleaseHandler(this.activeHex);
+      this.activeHex = null;
+    }
+    if (this.activeStick !== null) {
+      this.stickReleaseHandler(this.activeStick);
+      this.activeStick = null;
+    }
+    this.draw();
   }
 
   private handleMove(e: MouseEvent): void {
@@ -326,12 +347,24 @@ export class HexagonCanvasManager {
     this.hexHandler = handler;
   }
 
+  public setHexReleaseHandler(handler: (i: number) => void): void {
+    this.hexReleaseHandler = handler;
+  }
+
   public setTouchHandler(handler: (i: number) => void): void {
     this.touchHandler = handler;
   }
 
+  public setTouchReleaseHandler(handler: (i: number) => void): void {
+    this.touchReleaseHandler = handler;
+  }
+
   public setStickHandler(handler: (dir: HexButton) => void): void {
     this.stickHandler = handler;
+  }
+
+  public setStickReleaseHandler(handler: (dir: HexButton) => void): void {
+    this.stickReleaseHandler = handler;
   }
 
   public refresh(): void {

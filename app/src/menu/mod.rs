@@ -12,7 +12,7 @@ use crate::{
   types::*,
 };
 use alloc::{string::ToString, vec::Vec};
-use embassy_futures::select::{Either, Either3, Either4, select, select3, select4};
+use embassy_futures::select::{select, select3, select4, Either, Either3, Either4};
 use log::{debug, info};
 use wasm_protocol::HostIpcMessage as WireHostIpcMessage;
 
@@ -199,12 +199,14 @@ async fn handle_root_menu<P: Platform>(
         }
         Either::Second(dev_event) => {
           debug!("handle_root_menu: device event {dev_event:?}");
-          // Inject navigation keys as HexButton for menu navigation
+          // Inject navigation keys as HexButton (press and release) for menu navigation
           if let DeviceEvent::Keyboard(ke) = &dev_event {
-            if ke.typ == KeyEventType::Pressed {
-              if let Some(nav) = device_key_to_nav(ke.code) {
-                runner_ctx.platform.input_manager().inject_button(nav).await;
-              }
+            if let Some(nav) = device_key_to_nav(ke.code) {
+              let button = match ke.typ {
+                KeyEventType::Pressed => nav,
+                KeyEventType::Released => nav.released(),
+              };
+              runner_ctx.platform.input_manager().inject_button(button).await;
             }
           }
         }
@@ -389,15 +391,17 @@ async fn handle_hosted_app<P: Platform>(
         }
         Either::Second(dev_event) => {
           debug!("hosted_app: device event {dev_event:?}");
-          // Inject navigation keys as HexButton for hosted apps
+          // Forward navigation keys as HexButton (press and release) to hosted apps
           if let DeviceEvent::Keyboard(ke) = &dev_event {
-            if ke.typ == KeyEventType::Pressed {
-              if let Some(nav) = device_key_to_nav(ke.code) {
-                runner_ctx
-                  .host_ipc_sender
-                  .try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(nav))))
-                  .ok();
-              }
+            if let Some(nav) = device_key_to_nav(ke.code) {
+              let button = match ke.typ {
+                KeyEventType::Pressed => nav,
+                KeyEventType::Released => nav.released(),
+              };
+              runner_ctx
+                .host_ipc_sender
+                .try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(button))))
+                .ok();
             }
           }
         }

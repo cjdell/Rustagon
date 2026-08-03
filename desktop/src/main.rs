@@ -130,6 +130,9 @@ fn main() {
     if let Some(hex) = key_to_hex_button(&window) {
       DesktopInputManager::push_button(hex);
     }
+    if let Some(hex) = key_to_hex_button_released(&window) {
+      DesktopInputManager::push_button(hex);
+    }
     if window.is_key_released(Key::Backspace) {
       DesktopSystemManager::push_message(SystemMessage::BootButton);
     }
@@ -186,7 +189,11 @@ fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
     return Some(path);
   }
   let with_ext = path.with_extension("wsm");
-  if with_ext.is_file() { Some(with_ext) } else { None }
+  if with_ext.is_file() {
+    Some(with_ext)
+  } else {
+    None
+  }
 }
 
 /// Map a minifb key to the app's `KeyCode`, mimicking the KeebDeck keyboard
@@ -301,32 +308,40 @@ fn push_keyboard_events(window: &Window) {
 
 /// Map keys to the badge's hex buttons. Navigation keys (arrows, Enter) work
 /// directly; the hex-letter buttons (A-F) require Ctrl so the letters stay
-/// available for typing.
+/// available for typing. Emits a press event when the key goes down.
 fn key_to_hex_button(window: &Window) -> Option<HexButton> {
-  if window.is_key_released(Key::Up) {
-    Some(HexButton::Up)
-  } else if window.is_key_released(Key::Down) {
-    Some(HexButton::Down)
-  } else if window.is_key_released(Key::Right) {
-    Some(HexButton::Right)
-  } else if window.is_key_released(Key::Left) {
-    Some(HexButton::Left)
-  } else if window.is_key_released(Key::Enter) {
-    Some(HexButton::Fire)
-  } else if ctrl_down(window) && window.is_key_released(Key::A) {
-    Some(HexButton::HexA)
-  } else if ctrl_down(window) && window.is_key_released(Key::B) {
-    Some(HexButton::HexB)
-  } else if ctrl_down(window) && window.is_key_released(Key::C) {
-    Some(HexButton::HexC)
-  } else if ctrl_down(window) && window.is_key_released(Key::D) {
-    Some(HexButton::HexD)
-  } else if ctrl_down(window) && window.is_key_released(Key::E) {
-    Some(HexButton::HexE)
-  } else if ctrl_down(window) && window.is_key_released(Key::F) {
-    Some(HexButton::HexF)
-  } else {
-    None
+  for key in window.get_keys_pressed(KeyRepeat::No) {
+    if let Some(hex) = key_to_hex_button_inner(key, window) {
+      return Some(hex);
+    }
+  }
+  None
+}
+
+/// Emit the release counterpart when a hex-button key goes up.
+fn key_to_hex_button_released(window: &Window) -> Option<HexButton> {
+  for key in window.get_keys_released() {
+    if let Some(hex) = key_to_hex_button_inner(key, window) {
+      return Some(hex.released());
+    }
+  }
+  None
+}
+
+fn key_to_hex_button_inner(key: Key, window: &Window) -> Option<HexButton> {
+  match key {
+    Key::Up => Some(HexButton::Up),
+    Key::Down => Some(HexButton::Down),
+    Key::Right => Some(HexButton::Right),
+    Key::Left => Some(HexButton::Left),
+    Key::Enter => Some(HexButton::Fire),
+    Key::A if ctrl_down(window) => Some(HexButton::HexA),
+    Key::B if ctrl_down(window) => Some(HexButton::HexB),
+    Key::C if ctrl_down(window) => Some(HexButton::HexC),
+    Key::D if ctrl_down(window) => Some(HexButton::HexD),
+    Key::E if ctrl_down(window) => Some(HexButton::HexE),
+    Key::F if ctrl_down(window) => Some(HexButton::HexF),
+    _ => None,
   }
 }
 

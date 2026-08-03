@@ -20,12 +20,25 @@ export function BadgeRemote(props: Props) {
         props.deviceApi.sendMessage({ HexButton: hexButtons[i] });
       });
 
+      hexagon.setHexReleaseHandler((i) => {
+        const hexButtons: HexButton[] = ["HexA", "HexB", "HexC", "HexD", "HexE", "HexF"];
+        props.deviceApi.sendMessage({ HexButton: (hexButtons[i] + "Released") as HexButton });
+      });
+
       hexagon.setTouchHandler((i) => {
         props.deviceApi.sendMessage({ HexButton: TouchButtons[i] });
       });
 
+      hexagon.setTouchReleaseHandler((i) => {
+        props.deviceApi.sendMessage({ HexButton: (TouchButtons[i] + "Released") as HexButton });
+      });
+
       hexagon.setStickHandler((dir: HexButton) => {
         props.deviceApi.sendMessage({ HexButton: dir });
+      });
+
+      hexagon.setStickReleaseHandler((dir: HexButton) => {
+        props.deviceApi.sendMessage({ HexButton: (dir + "Released") as HexButton });
       });
 
       props.deviceApi.onFrameBuffer((frameBuffer) => {

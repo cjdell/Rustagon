@@ -116,6 +116,7 @@ async fn handle_button_press(events: &ButtonEventQueue, pressed: bool, state: &m
       *state = true;
     }
     (false, true) => {
+      events.push(button.released()).await;
       *state = false;
     }
     _ => {}
@@ -136,8 +137,8 @@ const TOUCH_HEX_MAP: [Option<HexButton>; 12] = [
   Some(HexButton::Touch05),
   Some(HexButton::Touch04),
   Some(HexButton::Touch03),
-  Some(HexButton::Touch01),  // CS13
-  Some(HexButton::Touch02),  // CS14
+  Some(HexButton::Touch01), // CS13
+  Some(HexButton::Touch02), // CS14
 ];
 
 #[embassy_executor::task]
@@ -154,15 +155,17 @@ async fn touch_monitoring_task(top_bus: MaskedI2cBus, events: ButtonEventQueue) 
 
   // Initialise the touch controller over I2C
   let mut touch = Cy8cmbr3116::new(top_bus);
-  if touch.init(|ms| {
-    // Can't block in an async context — use a spin-loop for the short
-    // delays required by the init sequence.  The init path calls this
-    // with 500 ms (NVM save) which is long, but the device NACKs the
-    // bus during that period anyway so spinning is acceptable.
-    let until = embassy_time::Instant::now()
-      + embassy_time::Duration::from_millis(ms as u64);
-    while embassy_time::Instant::now() < until {}
-  }).is_err() {
+  if touch
+    .init(|ms| {
+      // Can't block in an async context — use a spin-loop for the short
+      // delays required by the init sequence.  The init path calls this
+      // with 500 ms (NVM save) which is long, but the device NACKs the
+      // bus during that period anyway so spinning is acceptable.
+      let until = embassy_time::Instant::now() + embassy_time::Duration::from_millis(ms as u64);
+      while embassy_time::Instant::now() < until {}
+    })
+    .is_err()
+  {
     // Device not present or init failed — poll anyway; it may appear
     // later (e.g. power-cycled).  Warnings every cycle would be spammy
     // so just silently continue and the poll will fail silently too.
@@ -186,6 +189,9 @@ async fn touch_monitoring_task(top_bus: MaskedI2cBus, events: ButtonEventQueue) 
               *prev = true;
             }
             (false, true) => {
+              if let Some(btn) = mapping {
+                events.push(btn.released()).await;
+              }
               *prev = false;
             }
             _ => {}
