@@ -1,4 +1,4 @@
-use super::alloc::allocate_http_buffer;
+use crate::alloc_ext::external_vec;
 use crate::types::{HttpSender, HttpStatusMessage};
 use alloc::vec::Vec;
 use picoserve::{
@@ -31,15 +31,20 @@ impl RequestHandlerService<()> for ReceiveFileHandler {
 
     let mut reader = request.body_connection.body().reader();
 
-    let mut buffer = allocate_http_buffer(file_size);
+    let mut buffer = external_vec(file_size);
 
     let mut received_bytes: usize = 0;
 
     loop {
       let read_bytes = reader.read(&mut buffer[received_bytes..]).await?;
       received_bytes += read_bytes as usize;
-      if read_bytes == 0 { break; }
-      self.sender.send(HttpStatusMessage::Progress(received_bytes as u32, file_size as u32)).await;
+      if read_bytes == 0 {
+        break;
+      }
+      self
+        .sender
+        .send(HttpStatusMessage::Progress(received_bytes as u32, file_size as u32))
+        .await;
     }
 
     let connection = request.body_connection.finalize().await?;
@@ -47,7 +52,9 @@ impl RequestHandlerService<()> for ReceiveFileHandler {
     self.sender.send(HttpStatusMessage::ReceivedFile(buffer)).await;
 
     #[derive(Serialize)]
-    struct ResponseJson { pub received_bytes: usize }
+    struct ResponseJson {
+      pub received_bytes: usize,
+    }
 
     super::common::json_response_fn(&serde_json::to_string(&ResponseJson { received_bytes }).unwrap())
       .write_to(connection, response_writer)

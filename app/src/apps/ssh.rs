@@ -1,4 +1,5 @@
 use crate::{
+  alloc_ext::external_box,
   apps::{AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::{Platform, TcpEvent, TcpEventChannel, TcpHandle},
   ssh::{
@@ -54,7 +55,10 @@ pub struct SshApp<P: Platform> {
   active: usize,
   status: String,
   shifted: bool,
-  session: Option<SshSession>,
+  /// The session lives on the heap (external memory on firmware) so the big
+  /// SSH state machine never occupies the stack or inflates the menu stack
+  /// enum.
+  session: Option<Box<SshSession>>,
   tcp: Option<TcpHandle>,
   channel: Option<&'static TcpEventChannel>,
   terminal: Terminal,
@@ -211,7 +215,7 @@ impl<P: Platform> SshApp<P> {
 
     let platform = self.ctx.platform.clone();
     let mut rng = PlatformRng { platform: &platform };
-    let mut session = SshSession::new(user, host_key, &mut rng);
+    let mut session = external_box(SshSession::new(user, host_key, &mut rng));
     if let Err(err) = session.start(&mut rng) {
       self.fail(format!("Handshake failed: {err:?}"));
       return;

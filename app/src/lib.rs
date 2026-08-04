@@ -5,6 +5,7 @@
 
 extern crate alloc;
 
+pub mod alloc_ext;
 pub mod apps;
 #[cfg(feature = "http-server")]
 pub mod http;

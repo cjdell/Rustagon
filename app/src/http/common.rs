@@ -1,14 +1,12 @@
 use alloc::string::String;
 use alloc::vec::Vec;
+use picoserve::io::Read;
 use picoserve::{
   ResponseSent,
   request::{Path, Request},
   response::{Connection, Content, File, IntoResponse, Response, ResponseWriter, StatusCode},
   routing::PathRouterService,
 };
-use picoserve::io::Read;
-use super::alloc::allocate_http_buffer;
-
 #[cfg(feature = "web-bundle")]
 #[used]
 static HTML_DATA: &[u8] = include_bytes!("../../../web/bundle/index.html.gz");
@@ -53,7 +51,7 @@ macro_rules! json_response {
 macro_rules! read_request_to_buffer {
   ($request:expr, $response_writer:expr) => {{
     let file_size = $request.body_connection.body().content_length();
-    let mut buffer = $crate::http::alloc::allocate_http_buffer(file_size);
+    let mut buffer = $crate::alloc_ext::external_vec(file_size);
     let mut reader = $request.body_connection.body().reader();
     match reader.read_exact(&mut buffer).await {
       Ok(()) => Ok(()),
@@ -80,12 +78,11 @@ impl PathRouterService<()> for CustomNotFound {
     response_writer: W,
   ) -> Result<ResponseSent, W::Error> {
     if request.parts.method() == "OPTIONS" {
-      cors_options_response().write_to(request.body_connection.finalize().await?, response_writer).await
+      cors_options_response()
+        .write_to(request.body_connection.finalize().await?, response_writer)
+        .await
     } else {
-      (
-        StatusCode::NOT_FOUND,
-        format_args!("Path \"{:?}\" not found!\n", path.encoded()),
-      )
+      (StatusCode::NOT_FOUND, format_args!("Path \"{:?}\" not found!\n", path.encoded()))
         .write_to(request.body_connection.finalize().await?, response_writer)
         .await
     }
@@ -112,10 +109,7 @@ pub fn cors_options_response() -> impl IntoResponse {
 }
 
 pub fn json_response_fn(json: &str) -> impl IntoResponse {
-  Response::new(StatusCode::OK, json).with_headers([
-    ("Access-Control-Allow-Origin", "*"),
-    ("Content-Type", "application/json"),
-  ])
+  Response::new(StatusCode::OK, json).with_headers([("Access-Control-Allow-Origin", "*"), ("Content-Type", "application/json")])
 }
 
 #[cfg(feature = "web-bundle")]

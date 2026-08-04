@@ -34,7 +34,7 @@ puressh = { version = "0.1.3", default-features = false, features = ["alloc"] }
 purecrypto = { version = "0.6.29", default-features = false }
 
 picoserve = { git = "https://github.com/sammhicks/picoserve.git", features = ["alloc", "ws"], optional = true }
-esp-alloc = { git = "https://github.com/esp-rs/esp-hal.git", package = "esp-alloc", optional = true, features = ["nightly"] }
+esp-alloc = { git = "https://github.com/esp-rs/esp-hal.git", package = "esp-alloc", optional = true, features = ["esp32s3", "nightly"] }
 wasmi = { path = "../libs/wasmi/crates/wasmi", default-features = false, optional = true }
 wasmi_core = { path = "../libs/wasmi/crates/core", default-features = false, optional = true }
 

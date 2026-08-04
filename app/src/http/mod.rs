@@ -1,4 +1,3 @@
-pub mod alloc;
 #[macro_use]
 pub mod common;
 pub mod config;
@@ -12,14 +11,14 @@ pub mod wifi_join;
 pub mod wifi_scan;
 pub mod write_file;
 
+use crate::platform::Platform;
 use crate::platform::display::DisplayHandle;
 use crate::platform::storage::StorageHandle;
-use crate::platform::Platform;
 use crate::types::{DeviceConfig, HttpSender, WebSocketIncomingSender};
 use common::*;
-use picoserve::routing::{PathRouter, get, get_service, post, post_service};
-use picoserve::response::WebSocketUpgrade;
 use picoserve::Router;
+use picoserve::response::WebSocketUpgrade;
+use picoserve::routing::{PathRouter, get, get_service, post, post_service};
 
 pub use picoserve;
 
@@ -54,17 +53,12 @@ pub fn build_api_router<P: Platform + 'static>(
     )
     .route(
       "/receive",
-      post_service(receive_file::ReceiveFileHandler::new(sender.clone()))
-        .options(async || cors_options_response()),
+      post_service(receive_file::ReceiveFileHandler::new(sender.clone())).options(async || cors_options_response()),
     )
-    .route(
-      "/reboot",
-      post(async || "OK").options(async || cors_options_response()),
-    )
+    .route("/reboot", post(async || "OK").options(async || cors_options_response()))
     .route(
       "/ota",
-      post_service(ota::OtaUpdateHandler::new(platform))
-        .options(async || cors_options_response()),
+      post_service(ota::OtaUpdateHandler::new(platform)).options(async || cors_options_response()),
     )
     .route(
       "/ws",

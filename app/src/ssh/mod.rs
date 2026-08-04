@@ -31,13 +31,13 @@ use puressh::{
   auth::{ClientAuth, ClientCredential, ClientStep},
   channel::{ChannelEvent, ChannelOpen, ChannelRequest, ConnectionState},
   error::{Error, Result},
-  hostkey::{host_key_verify_by_name, HostKey, HostKeyVerify},
+  hostkey::{HostKey, HostKeyVerify, host_key_verify_by_name},
   transport::{
+    KexAlgorithms, KexInit, PacketCodec,
     ext_info::SSH_MSG_EXT_INFO,
     rekey::is_kex_msg,
     runner::{KexRunner, Role},
-    version::{VersionExchange, LOCAL_VERSION},
-    KexAlgorithms, KexInit, PacketCodec,
+    version::{LOCAL_VERSION, VersionExchange},
   },
 };
 
@@ -54,6 +54,28 @@ const MAX_BANNER_LINE: usize = 255;
 const MAX_BANNER_LINES: usize = 100;
 /// Tolerate a bounded total of banner bytes.
 const MAX_BANNER_TOTAL_BYTES: usize = 32 * 1024;
+
+/// Backing store for the session's inbound buffer. On the firmware
+/// (`extern-alloc`) the growing receive buffer lives in external memory
+/// (PSRAM) so it never competes with the small internal SRAM heap; elsewhere
+/// it is the default heap.
+#[cfg(feature = "extern-alloc")]
+type ExtVec = Vec<u8, esp_alloc::ExternalMemory>;
+#[cfg(not(feature = "extern-alloc"))]
+type ExtVec = Vec<u8>;
+
+/// A fresh empty inbound buffer, allocated in external memory where available.
+fn new_ext_vec() -> ExtVec {
+  #[cfg(feature = "extern-alloc")]
+  {
+    use esp_alloc::ExternalMemory;
+    Vec::new_in(ExternalMemory)
+  }
+  #[cfg(not(feature = "extern-alloc"))]
+  {
+    Vec::new()
+  }
+}
 
 /// 25519-only algorithm advertisement. See the module docs.
 ///
@@ -133,7 +155,7 @@ pub struct SshSession {
   phase: Phase,
   codec: PacketCodec,
   runner: KexRunner,
-  inbox: Vec<u8>,
+  inbox: ExtVec,
   outbox: VecDeque<Vec<u8>>,
   events: VecDeque<SshEvent>,
   /// Application packets received while a re-key was in flight (RFC 4253 §7.3).
@@ -166,7 +188,7 @@ impl SshSession {
       phase: Phase::AwaitingVersion,
       codec: PacketCodec::new(),
       runner: KexRunner::new(Role::Client, advert),
-      inbox: Vec::new(),
+      inbox: new_ext_vec(),
       outbox: VecDeque::new(),
       events: VecDeque::new(),
       deferred: VecDeque::new(),
