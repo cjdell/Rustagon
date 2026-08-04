@@ -13,7 +13,7 @@ use crate::utils::{EventQueue, MaskedI2cBus};
 
 const EVENT_QUEUE_DEPTH: usize = 10;
 
-type ButtonEventQueue = EventQueue<HexButton, EVENT_QUEUE_DEPTH>;
+pub type ButtonEventQueue = EventQueue<HexButton, EVENT_QUEUE_DEPTH>;
 
 #[derive(Clone)]
 pub struct HardwareInputManager {
@@ -27,6 +27,13 @@ impl HardwareInputManager {
     spawner.spawn(button_monitoring_task(sys_bus, top_bus, events.clone())).ok();
     spawner.spawn(touch_monitoring_task(touch_bus, events.clone())).ok();
     Self { events }
+  }
+
+  /// Clone of the shared button queue, used by keyboard hexpansion drivers so
+  /// arrow/enter keys surface as `HexButton` presses indistinguishable from
+  /// the physical badge buttons.
+  pub fn button_queue(&self) -> ButtonEventQueue {
+    self.events.clone()
   }
 }
 

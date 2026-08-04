@@ -1,5 +1,5 @@
 use crate::{
-  apps::{AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{common::AppName, AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput},
   platform::Platform,
   types::*,
 };
@@ -59,35 +59,54 @@ impl<P: Platform> EditorApp<P> {
           line.remove(cursor);
         }
       }
-      KeyCode::Left => {
-        if self.cursors[self.active] > 0 {
-          self.cursors[self.active] -= 1;
-        }
-      }
-      KeyCode::Right => {
-        if self.cursors[self.active] < self.lines[self.active].len() {
-          self.cursors[self.active] += 1;
-        }
-      }
-      KeyCode::Up => {
-        if self.active > 0 {
-          self.active -= 1;
-          self.clamp_cursor();
-        }
-      }
-      KeyCode::Down => {
-        if self.active < self.lines.len() - 1 {
-          self.active += 1;
-          self.clamp_cursor();
-        }
-      }
       KeyCode::Home => {
         self.cursors[self.active] = 0;
       }
       KeyCode::End => {
         self.cursors[self.active] = self.lines[self.active].len();
       }
-      KeyCode::Enter => {
+      KeyCode::Space => {
+        self.insert_char(' ');
+      }
+      KeyCode::Tab => {
+        self.insert_str("  ");
+      }
+      _ => {
+        if let Some(ch) = keycode_to_char(code) {
+          self.insert_char(ch);
+        }
+      }
+    }
+  }
+
+  /// Handle a navigation button. Arrows and Fire/Enter arrive here as `HexButton`
+  /// presses (identical to the physical badge buttons); character keys still
+  /// arrive as keyboard events via [`handle_key`](Self::handle_key).
+  fn handle_nav_button(&mut self, button: HexButton) {
+    match button {
+      HexButton::Left => {
+        if self.cursors[self.active] > 0 {
+          self.cursors[self.active] -= 1;
+        }
+      }
+      HexButton::Right => {
+        if self.cursors[self.active] < self.lines[self.active].len() {
+          self.cursors[self.active] += 1;
+        }
+      }
+      HexButton::Up => {
+        if self.active > 0 {
+          self.active -= 1;
+          self.clamp_cursor();
+        }
+      }
+      HexButton::Down => {
+        if self.active < self.lines.len() - 1 {
+          self.active += 1;
+          self.clamp_cursor();
+        }
+      }
+      HexButton::Fire => {
         // Split the current line at the cursor; the tail becomes a new line
         // below it. Keep the window at 8 lines by rotating the oldest line out.
         let tail = self.lines[self.active].split_off(self.cursors[self.active]);
@@ -103,17 +122,7 @@ impl<P: Platform> EditorApp<P> {
         }
         self.cursors[self.active] = 0;
       }
-      KeyCode::Space => {
-        self.insert_char(' ');
-      }
-      KeyCode::Tab => {
-        self.insert_str("  ");
-      }
-      _ => {
-        if let Some(ch) = keycode_to_char(code) {
-          self.insert_char(ch);
-        }
-      }
+      _ => {}
     }
   }
 
@@ -207,10 +216,14 @@ impl<P: Platform> MenuApp for EditorApp<P> {
   }
 
   async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    // Editing is driven by the keyboard hexpansion; hex buttons do not edit.
-    // Exit via the boot button (the menu runner pops the app on a system button).
     match input {
       MenuAppInput::Stop => AppAction::Stop,
+      // Navigation buttons (arrows, Fire) — unified with the keyboard's arrow
+      // and Enter keys, which the platform surfaces as HexButton presses.
+      MenuAppInput::Button(hex) => {
+        self.handle_nav_button(hex);
+        AppAction::Continue
+      }
       _ => AppAction::Continue,
     }
   }

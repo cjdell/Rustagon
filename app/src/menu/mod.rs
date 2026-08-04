@@ -411,13 +411,12 @@ async fn handle_hosted_app<P: Platform>(
 }
 
 /// Map a key event's KeyCode to a HexButton for navigation.
+///
+/// Arrows and Enter are intentionally absent: the platform already surfaces
+/// them as `HexButton` presses (firmware keyboard driver, desktop key mapping),
+/// so they never arrive here as separate keyboard events.
 fn device_key_to_nav(code: KeyCode) -> Option<HexButton> {
   match code {
-    KeyCode::Up => Some(HexButton::Up),
-    KeyCode::Down => Some(HexButton::Down),
-    KeyCode::Left => Some(HexButton::Left),
-    KeyCode::Right => Some(HexButton::Right),
-    KeyCode::Enter => Some(HexButton::Fire),
     KeyCode::Escape => Some(HexButton::HexF),
     KeyCode::Tab => Some(HexButton::HexE),
     _ => None,

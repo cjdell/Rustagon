@@ -184,6 +184,22 @@ pub enum KeyEventType {
   Released,
 }
 
+impl KeyCode {
+  /// Map a directional/confirm key to its unified `HexButton` equivalent so
+  /// keyboard arrow and Enter keys are indistinguishable from physical hex
+  /// buttons. Returns `None` for keys that remain plain keyboard events.
+  pub fn to_hex_button(self) -> Option<HexButton> {
+    match self {
+      KeyCode::Up => Some(HexButton::Up),
+      KeyCode::Down => Some(HexButton::Down),
+      KeyCode::Left => Some(HexButton::Left),
+      KeyCode::Right => Some(HexButton::Right),
+      KeyCode::Enter => Some(HexButton::Fire),
+      _ => None,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum KeyCode {
   A,

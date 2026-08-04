@@ -899,9 +899,23 @@ sufficient — all device events flow to the same consumers (the menu loop and
 apps). Per-driver queues would require multiplexed consumption, adding complexity
 without benefit for the current use cases.
 
-`KeyboardEvent` navigation keys (arrows, Enter, Escape) are also injected as
-`HexButton` events into the input manager at the root menu and for hosted
-(WASM/native) apps, so the keyboard works for menu navigation without app changes.
+**Navigation keys are unified into `HexButton` at the platform boundary.** Keyboard
+arrow keys and Enter are translated into `HexButton` presses (Up/Down/Left/Right/Fire)
+*below* the app layer, so menu apps and WASM guests cannot tell keyboard input from the
+physical badge buttons:
+- **Firmware:** the `tca8418` keyboard driver calls `KeyCode::to_hex_button()`
+  (`app::types`) and pushes the press/release onto the shared button queue
+  (`HardwareInputManager::button_queue()`, plumbed through the driver factory).
+  Arrows/Enter never appear as `DeviceEvent::Keyboard`; only character/editing keys
+  (letters, digits, Backspace, Delete, Home, End, Tab, Space) do.
+- **Desktop:** `desktop/src/main.rs` maps arrows/Enter directly to `HexButton` in
+  `key_to_hex_button` and excludes them from `key_to_keycode`, so they are never
+  keyboard events there either.
+
+Consequently `device_key_to_nav` in `app/src/menu/mod.rs` only maps Escape→HexF and
+Tab→HexE; arrows/Enter never reach it. Apps must handle directions/Fire via
+`MenuAppInput::Button(..)` (the Editor does: `handle_nav_button`). WASM guests always
+received only `HexButton` over the wire, so they are unaffected.
 
 ### `AppEvent` — external events for MenuApps
 

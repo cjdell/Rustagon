@@ -226,7 +226,9 @@ async fn main(spawner: Spawner) {
 
   let wifi = WiFiHandle::new(Arc::new(wifi_manager));
 
-  let input = InputHandle::new(Arc::new(HardwareInputManager::new(spawner, sys_bus.clone(), top_bus.clone())));
+  let input_manager = HardwareInputManager::new(spawner, sys_bus.clone(), top_bus.clone());
+  let button_queue = input_manager.button_queue();
+  let input = InputHandle::new(Arc::new(input_manager));
 
   let system = SystemHandle::new(Arc::new(HardwareSystemManager::new(spawner, peripherals.GPIO0)));
 
@@ -255,6 +257,7 @@ async fn main(spawner: Spawner) {
     hx_buses,
     display_for_hx,
     DRIVER_TABLE,
+    button_queue,
   )));
 
   let platform = HardwarePlatform::new_with_managers(
