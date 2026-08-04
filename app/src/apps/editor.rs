@@ -1,15 +1,26 @@
 use crate::{
-  apps::{AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{common::AppName, AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput},
   platform::Platform,
   types::*,
 };
-use alloc::{format, string::String, string::ToString, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use log::info;
+
+/// Number of lines in the editor's fixed buffer window. The `TextBuffer`
+/// `LcdScreen` mode displays up to 8 lines, so the window is 8 lines deep.
+const BUFFER_LINES: usize = 8;
 
 pub struct EditorApp<P: Platform> {
   ctx: MenuAppContext<P>,
-  buffer: String,
-  cursor: usize,
+  /// The editor's fixed 8-line window. Each entry is one line of text; lines
+  /// grow as you type. When the buffer overflows (e.g. Enter on the last line)
+  /// the oldest line is dropped — the window rotates, matching how a future
+  /// file-backed editor will page through a larger file.
+  lines: Vec<String>,
+  /// Index of the currently selected line within `lines`.
+  active: usize,
+  /// Per-line cursor positions (byte index into the corresponding `lines` entry).
+  cursors: Vec<usize>,
 }
 
 impl<P: Platform> AppName for EditorApp<P> {
@@ -22,8 +33,9 @@ impl<P: Platform> EditorApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
     Self {
       ctx,
-      buffer: String::new(),
-      cursor: 0,
+      lines: vec![String::new(); BUFFER_LINES],
+      active: 0,
+      cursors: vec![0; BUFFER_LINES],
     }
   }
 
@@ -34,50 +46,91 @@ impl<P: Platform> EditorApp<P> {
     info!("EditorApp: handling key {code:?}");
     match code {
       KeyCode::Backspace => {
-        if self.cursor > 0 {
-          self.buffer.remove(self.cursor - 1);
-          self.cursor -= 1;
+        if self.cursors[self.active] > 0 {
+          let line = &mut self.lines[self.active];
+          line.remove(self.cursors[self.active] - 1);
+          self.cursors[self.active] -= 1;
         }
       }
       KeyCode::Delete => {
-        if self.cursor < self.buffer.len() {
-          self.buffer.remove(self.cursor);
+        let cursor = self.cursors[self.active];
+        let line = &mut self.lines[self.active];
+        if cursor < line.len() {
+          line.remove(cursor);
         }
       }
       KeyCode::Left => {
-        if self.cursor > 0 {
-          self.cursor -= 1;
+        if self.cursors[self.active] > 0 {
+          self.cursors[self.active] -= 1;
         }
       }
       KeyCode::Right => {
-        if self.cursor < self.buffer.len() {
-          self.cursor += 1;
+        if self.cursors[self.active] < self.lines[self.active].len() {
+          self.cursors[self.active] += 1;
+        }
+      }
+      KeyCode::Up => {
+        if self.active > 0 {
+          self.active -= 1;
+          self.clamp_cursor();
+        }
+      }
+      KeyCode::Down => {
+        if self.active < self.lines.len() - 1 {
+          self.active += 1;
+          self.clamp_cursor();
         }
       }
       KeyCode::Home => {
-        self.cursor = 0;
+        self.cursors[self.active] = 0;
       }
       KeyCode::End => {
-        self.cursor = self.buffer.len();
+        self.cursors[self.active] = self.lines[self.active].len();
       }
       KeyCode::Enter => {
-        self.buffer.insert(self.cursor, '\n');
-        self.cursor += 1;
+        // Split the current line at the cursor; the tail becomes a new line
+        // below it. Keep the window at 8 lines by rotating the oldest line out.
+        let tail = self.lines[self.active].split_off(self.cursors[self.active]);
+        self.lines.insert(self.active + 1, tail);
+        self.cursors.insert(self.active + 1, 0);
+        if self.lines.len() > BUFFER_LINES {
+          // Dropping the top line shifts everything (including the inserted
+          // tail) up one slot, so the tail lands back at `self.active`.
+          self.lines.remove(0);
+          self.cursors.remove(0);
+        } else {
+          self.active += 1;
+        }
+        self.cursors[self.active] = 0;
       }
       KeyCode::Space => {
-        self.buffer.insert(self.cursor, ' ');
-        self.cursor += 1;
+        self.insert_char(' ');
       }
       KeyCode::Tab => {
-        self.buffer.insert_str(self.cursor, "  ");
-        self.cursor += 2;
+        self.insert_str("  ");
       }
       _ => {
         if let Some(ch) = keycode_to_char(code) {
-          self.buffer.insert(self.cursor, ch);
-          self.cursor += 1;
+          self.insert_char(ch);
         }
       }
+    }
+  }
+
+  fn insert_char(&mut self, ch: char) {
+    self.lines[self.active].insert(self.cursors[self.active], ch);
+    self.cursors[self.active] += 1;
+  }
+
+  fn insert_str(&mut self, s: &str) {
+    self.lines[self.active].insert_str(self.cursors[self.active], s);
+    self.cursors[self.active] += s.len();
+  }
+
+  fn clamp_cursor(&mut self) {
+    let len = self.lines[self.active].len();
+    if self.cursors[self.active] > len {
+      self.cursors[self.active] = len;
     }
   }
 
@@ -145,28 +198,16 @@ fn keycode_to_char(code: KeyCode) -> Option<char> {
 
 impl<P: Platform> MenuApp for EditorApp<P> {
   fn render(&self) -> LcdScreen {
-    let mut lines: Vec<MenuLine> = Vec::new();
-    lines.push(MenuLine(Icon20::Info, "Editor".to_string()));
-    lines.push(MenuLine(Icon20::Info, "".to_string()));
-
-    let display_text = if self.buffer.len() > 80 {
-      format!("{}...", &self.buffer[..80])
-    } else if self.buffer.is_empty() {
-      "Type to begin...".to_string()
-    } else {
-      self.buffer.clone()
-    };
-    lines.push(MenuLine(Icon20::Info, display_text));
-
-    lines.push(MenuLine(Icon20::Info, "".to_string()));
-    lines.push(MenuLine(Icon20::Info, "<= Back".to_string()));
-
-    // The editor re-renders on every keystroke — update instantly, no slide.
-    LcdScreen::Menu {
-      menu: lines,
-      selected: 0,
-      animation: MenuAnimation::None,
-    }
+    let lines = self
+      .lines
+      .iter()
+      .enumerate()
+      .map(|(i, text)| TextBufferLine {
+        text: text.clone(),
+        cursor: (i == self.active).then_some(self.cursors[i] as u32),
+      })
+      .collect();
+    LcdScreen::TextBuffer { lines }
   }
 
   async fn init(&mut self) {
@@ -176,9 +217,10 @@ impl<P: Platform> MenuApp for EditorApp<P> {
 
   async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
     self.drain_device_events();
+    // Editing is driven by the keyboard hexpansion; hex buttons do not edit.
+    // Exit via the boot button (the menu runner pops the app on a system button).
     match input {
       MenuAppInput::Stop => AppAction::Stop,
-      MenuAppInput::Button(HexButton::Fire | HexButton::Left) => AppAction::Stop,
       _ => AppAction::Continue,
     }
   }

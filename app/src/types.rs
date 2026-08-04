@@ -1,5 +1,5 @@
 // Re-export common display types
-pub use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine};
+pub use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine, TextBufferLine};
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;

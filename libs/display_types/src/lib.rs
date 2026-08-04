@@ -20,6 +20,13 @@ pub enum LcdScreen {
     #[serde(default)]
     animation: MenuAnimation,
   },
+  /// Multi-line text buffer drawn inside a centred bordered frame. `lines`
+  /// holds up to 8 lines; the line carrying `Some(cursor)` is the active
+  /// (selected) line — the renderer centres its cursor, shifting the line so
+  /// off-screen content is visible, and draws a blinking cursor on it.
+  TextBuffer {
+    lines: Vec<TextBufferLine>,
+  },
   Notification(Icon40, String),
 }
 
@@ -42,6 +49,17 @@ impl Default for MenuAnimation {
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct MenuLine(pub Icon20, pub String);
+
+/// One line of a `LcdScreen::TextBuffer` frame.
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+pub struct TextBufferLine {
+  pub text: String,
+  /// Byte index of the blinking cursor within `text`. Lines with a cursor are
+  /// the active (selected) line and are rendered with a highlight plus a
+  /// blinking cursor that centres itself by shifting the line.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub cursor: Option<u32>,
+}
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Icon20 {

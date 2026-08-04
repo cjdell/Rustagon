@@ -3,12 +3,12 @@
 extern crate alloc;
 
 use alloc::format;
-use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine};
+use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine, TextBufferLine};
 use embedded_graphics::{
   Drawable as _,
   mono_font::{MonoTextStyle, ascii::FONT_10X20},
   pixelcolor::{Rgb565, Rgb888},
-  prelude::{Angle, DrawTarget, Point, RgbColor, Size},
+  prelude::{Angle, DrawTarget, DrawTargetExt, Point, RgbColor, Size},
   primitives::{Arc, PrimitiveStyle, Rectangle, RoundedRectangle, StyledDrawable},
   text::{Baseline, Text},
 };
@@ -163,6 +163,20 @@ const NOTIF_HOLD_MS: i32 = 2_000;
 const NOTIF_SLIDE_OUT_MS: i32 = 350;
 const NOTIF_TOTAL_MS: i32 = NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS + NOTIF_SLIDE_OUT_MS;
 
+// Text buffer constants (LcdScreen::TextBuffer) — a centred 160x160 frame that
+// holds exactly 8 lines of FONT_10X20 (8 * LINE_HEIGHT == TB_FRAME_SIZE).
+const TB_FRAME_SIZE: i32 = 160;
+const TB_FRAME_X: i32 = (SCREEN_WIDTH as i32 - TB_FRAME_SIZE) / 2;
+const TB_FRAME_Y: i32 = (SCREEN_HEIGHT as i32 - TB_FRAME_SIZE) / 2;
+const TB_MAX_LINES: usize = 8;
+const TB_TEXT_INSET_X: i32 = 4;
+const TB_TEXT_X: i32 = TB_FRAME_X + TB_TEXT_INSET_X;
+/// Horizontal space available for text inside the frame (used for cursor
+/// centring and scrolling).
+const TB_TEXT_W: i32 = TB_FRAME_SIZE - TB_TEXT_INSET_X * 2;
+/// Half-cycle of the cursor blink, in ms.
+const TB_CURSOR_BLINK_MS: i32 = 500;
+
 // ============================== Renderer state ==============================
 
 pub struct LcdState {
@@ -295,6 +309,9 @@ impl LcdState {
       LcdScreen::Menu { menu, selected, animation } => {
         return self.draw_menu(display, menu, *selected, *animation, time_ms, now_ms);
       }
+      LcdScreen::TextBuffer { lines } => {
+        return self.draw_text_buffer(display, lines, now_ms);
+      }
       LcdScreen::Notification(..) => {}
     }
 
@@ -401,6 +418,86 @@ impl LcdState {
   }
 }
 
+// ============================== Text buffer drawing ==============================
+
+impl LcdState {
+  /// Draws a `LcdScreen::TextBuffer`: a centred 160x160 bordered frame holding
+  /// up to 8 lines. The line carrying `Some(cursor)` is the active line — it is
+  /// highlighted and its cursor blinks, and the line is shifted so the cursor
+  /// stays centred unless it is already at the line's beginning or end.
+  fn draw_text_buffer(&self, display: &mut impl FrameBuffer, lines: &[TextBufferLine], now_ms: i32) -> i32 {
+    // Centred 160x160 frame with a border (the display is a 240x240 circle, so
+    // a centred square frame fits fully on screen).
+    let frame = Rectangle::new(
+      Point::new(TB_FRAME_X, TB_FRAME_Y),
+      Size::new(TB_FRAME_SIZE as u32, TB_FRAME_SIZE as u32),
+    );
+    frame
+      .draw_styled(&PrimitiveStyle::with_stroke(Rgb565::from(Rgb888::new(70, 70, 110)), 1), display)
+      .ok();
+
+    // Everything else is clipped to the frame interior so text never overwrites
+    // the border.
+    let interior = Rectangle::new(
+      Point::new(TB_FRAME_X + 1, TB_FRAME_Y + 1),
+      Size::new(TB_FRAME_SIZE as u32 - 2, TB_FRAME_SIZE as u32 - 2),
+    );
+    let mut clip = display.clipped(&interior);
+
+    let cursor_on = (now_ms / TB_CURSOR_BLINK_MS) % 2 == 0;
+
+    let mut i = 0;
+    while i < lines.len().min(TB_MAX_LINES) {
+      let line = &lines[i];
+      let y = TB_FRAME_Y + i as i32 * LINE_HEIGHT;
+
+      let has_cursor = line.cursor.is_some();
+      let text_width = line.text.chars().count() as i32 * CHAR_WIDTH;
+      let cursor_x = match line.cursor {
+        Some(cursor) => byte_to_char_index(&line.text, cursor as usize) as i32 * CHAR_WIDTH,
+        None => 0,
+      };
+
+      // Shift the active line so the cursor stays centred, unless the cursor is
+      // already at the line's extreme beginning or end. Non-active lines are
+      // never shifted.
+      let scroll = if has_cursor {
+        text_line_scroll(text_width, cursor_x, TB_TEXT_W)
+      } else {
+        0
+      };
+      let text_x = TB_TEXT_X - scroll;
+
+      if has_cursor {
+        // Highlight the active line across its visible text.
+        Rectangle::new(
+          Point::new(text_x, y),
+          Size::new(text_width.min(TB_TEXT_W) as u32, LINE_HEIGHT as u32),
+        )
+        .draw_styled(&PrimitiveStyle::with_fill(Rgb565::from(Rgb888::new(28, 28, 52))), &mut clip)
+        .ok();
+      }
+
+      let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+      let mut text = Text::new(&line.text, Point::new(text_x, y), style);
+      text.text_style.baseline = Baseline::Top;
+      text.draw(&mut clip).ok();
+
+      if has_cursor && cursor_on {
+        // Block cursor over the character under the edit position.
+        Rectangle::new(Point::new(text_x + cursor_x, y), Size::new(CHAR_WIDTH as u32, LINE_HEIGHT as u32))
+          .draw_styled(&PrimitiveStyle::with_fill(Rgb565::WHITE), &mut clip)
+          .ok();
+      }
+
+      i += 1;
+    }
+
+    // Redraw on a cadence so the cursor keeps blinking.
+    100
+  }
+}
+
 // ============================== Notification drawing ==============================
 
 impl LcdState {
@@ -486,6 +583,32 @@ fn should_restart_animation(screen: &LcdScreen, new_screen: &LcdScreen) -> bool 
 
 fn smoothstep(t: f32) -> f32 {
   t * t * (3.0 - 2.0 * t)
+}
+
+/// Converts a UTF-8 byte index into a character index, clamping safely even if
+/// the byte index falls past the end of the string. The cursor position in a
+/// `TextBufferLine` is a byte index (the editor inserts/removes bytes); the
+/// renderer needs the character column to lay the cursor out.
+fn byte_to_char_index(s: &str, byte_idx: usize) -> usize {
+  let mut bytes = 0;
+  let mut chars = 0;
+  for c in s.chars() {
+    if bytes >= byte_idx {
+      break;
+    }
+    bytes += c.len_utf8();
+    chars += 1;
+  }
+  chars
+}
+
+/// Horizontal scroll offset (in pixels) that keeps a cursor centred within a
+/// `window_w`-wide viewport. When the line fits there is nothing to scroll;
+/// when it overflows the cursor is centred unless it already sits at the line's
+/// extreme beginning (left) or end (right), in which case the line is shown
+/// from its very start or end respectively.
+fn text_line_scroll(text_width: i32, cursor_x: i32, window_w: i32) -> i32 {
+  (cursor_x - window_w / 2).clamp(0, (text_width - window_w).max(0))
 }
 
 fn _u16_to_bytes(raw: u16) -> [u8; 2] {
@@ -615,5 +738,44 @@ mod tests {
     assert_eq!(pixel_at(&fb, 11, 20), [2, 3]);
     assert_eq!(pixel_at(&fb, 10, 21), [4, 5]);
     assert_eq!(pixel_at(&fb, 11, 21), [6, 7]);
+  }
+
+  #[test]
+  fn byte_to_char_index_counts_utf8_chars() {
+    assert_eq!(byte_to_char_index("abc", 0), 0);
+    assert_eq!(byte_to_char_index("abc", 2), 2);
+    assert_eq!(byte_to_char_index("abc", 3), 3);
+    // Multi-byte characters (the future file-backed editor may load them).
+    assert_eq!(byte_to_char_index("aé中", 0), 0);
+    assert_eq!(byte_to_char_index("aé中", 1), 1);
+    assert_eq!(byte_to_char_index("aé中", 3), 2);
+    assert_eq!(byte_to_char_index("aé中", 6), 3);
+    // A byte index past the end clamps to the string length.
+    assert_eq!(byte_to_char_index("abc", 99), 3);
+  }
+
+  #[test]
+  fn text_line_scroll_keeps_cursor_centred() {
+    let window = 152;
+
+    // A line that fits never scrolls, wherever the cursor is.
+    let fits = 80;
+    assert_eq!(text_line_scroll(fits, 0, window), 0);
+    assert_eq!(text_line_scroll(fits, fits, window), 0);
+
+    // Overflowing line: cursor at the extreme start is not shifted.
+    let overflow = 300;
+    assert_eq!(text_line_scroll(overflow, 0, window), 0);
+
+    // Cursor in the middle is centred (scroll = cursor - window/2).
+    let cursor_x = 200;
+    assert_eq!(text_line_scroll(overflow, cursor_x, window), cursor_x - window / 2);
+
+    // Cursor at the extreme end clamps to the max scroll (line end shown).
+    assert_eq!(text_line_scroll(overflow, overflow, window), overflow - window);
+
+    // The centred cursor ends up exactly at window/2 within the viewport.
+    let mid = 150;
+    assert_eq!(mid - text_line_scroll(overflow, mid, window), window / 2);
   }
 }
