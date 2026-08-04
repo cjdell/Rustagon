@@ -1,5 +1,5 @@
 use crate::{
-  apps::{common::AppName, AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput},
+  apps::{AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::Platform,
   types::*,
 };
@@ -133,14 +133,6 @@ impl<P: Platform> EditorApp<P> {
       self.cursors[self.active] = len;
     }
   }
-
-  fn drain_device_events(&mut self) {
-    while let Some(event) = self.ctx.platform.hexpansion_manager().try_next_device_event() {
-      let DeviceEvent::Keyboard(ke) = event;
-      info!("EditorApp: device event {ke:?}");
-      self.handle_key(ke.code, ke.typ);
-    }
-  }
 }
 
 fn keycode_to_char(code: KeyCode) -> Option<char> {
@@ -211,12 +203,10 @@ impl<P: Platform> MenuApp for EditorApp<P> {
   }
 
   async fn init(&mut self) {
-    self.drain_device_events();
     self.ctx.update_lcd(self.render());
   }
 
   async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    self.drain_device_events();
     // Editing is driven by the keyboard hexpansion; hex buttons do not edit.
     // Exit via the boot button (the menu runner pops the app on a system button).
     match input {
@@ -231,6 +221,5 @@ impl<P: Platform> MenuApp for EditorApp<P> {
     if let AppEvent::Device(DeviceEvent::Keyboard(ke)) = event {
       self.handle_key(ke.code, ke.typ);
     }
-    self.drain_device_events();
   }
 }
