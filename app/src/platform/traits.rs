@@ -6,6 +6,7 @@ use super::led::LedHandle;
 use super::power::PowerHandle;
 use super::storage::{ConfigHandle, FsError, StorageHandle};
 use super::system::SystemHandle;
+use super::tcp::TcpHandle;
 use super::wifi::WiFiHandle;
 use crate::types::{DeviceConfig, OtaError};
 use core::fmt;
@@ -19,10 +20,16 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
   fn system_manager(&self) -> SystemHandle;
   fn hexpansion_manager(&self) -> HexpansionHandle;
   fn http_client(&self) -> Option<HttpClientHandle>;
+  /// A raw TCP stream client (used by the SSH app). `None` on platforms that
+  /// cannot open raw sockets.
+  fn tcp_client(&self) -> Option<TcpHandle>;
   fn storage_manager(&self) -> StorageHandle;
   fn config_manager(&self) -> ConfigHandle<DeviceConfig>;
   /// The currently running firmware version, baked in at build time.
   fn firmware_version(&self) -> u32;
+  /// Fill `dest` with cryptographically-secure random bytes from the device
+  /// entropy source (hardware TRNG on firmware, OS RNG on desktop).
+  fn entropy(&self, dest: &mut [u8]);
   async fn format_storage(&self) -> Result<(), FsError>;
   async fn software_reset(&self);
 

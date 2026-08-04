@@ -56,3 +56,14 @@ inherits = "release"
 lto = true
 opt-level = "z"
 incremental = false
+
+# The SSH crypto (puressh + purecrypto) crashes on the Xtensa backend when
+# built at `opt-level = 'z'` with fat LTO: the constant-time curve25519 code is
+# inlined into one enormous stack frame that overflows the firmware's main task
+# stack (a `LoadProhibited` inside `point_double`). Building these two crates at
+# `opt-level = 0` keeps their frames small and the codegen simple, at the cost
+# of a few KB of firmware size. The rest of the firmware stays size-optimized.
+[profile.release-lto.package.puressh]
+opt-level = 0
+[profile.release-lto.package.purecrypto]
+opt-level = 0

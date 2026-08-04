@@ -21,6 +21,7 @@ futures = { version = "0.3", default-features = false, features = ["executor"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
 
 ureq = { version = "3", features = ["json"] }
+getrandom = "0.2"
 
 picoserve = { git = "https://github.com/sammhicks/picoserve.git", features = ["alloc", "tokio", "ws"] }
 tokio = { version = "1.32.0", features = ["rt", "io-util", "net", "time", "macros", "sync"] }

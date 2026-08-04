@@ -6,6 +6,7 @@ pub mod led;
 pub mod power;
 pub mod storage;
 pub mod system;
+pub mod tcp;
 pub mod traits;
 pub mod wifi;
 
@@ -17,5 +18,6 @@ pub use led::{LedHandle, LedManager};
 pub use power::{PowerError, PowerHandle, PowerManager};
 pub use storage::{ConfigHandle, DirEntry, FileType, FsError, LocalFsTrait, StateError, StorageHandle};
 pub use system::{SystemHandle, SystemManager};
+pub use tcp::{TcpClient, TcpEvent, TcpEventChannel, TcpHandle};
 pub use traits::Platform;
 pub use wifi::{WiFiHandle, WiFiManager, WifiStatus};

@@ -3,12 +3,14 @@ pub mod config;
 pub mod display;
 pub mod fs;
 pub mod input;
+pub mod tcp;
 
 pub use common::*;
 pub use config::DesktopConfigManager;
 pub use display::DesktopDisplayManager;
 pub use fs::DesktopLocalFs;
 pub use input::DesktopInputManager;
+pub use tcp::DesktopTcpClient;
 
 use app::platform::hexpansion::HexpansionHandle;
 use app::platform::storage::ConfigFileTrait;
@@ -104,6 +106,7 @@ pub struct DesktopPlatform {
   storage: StorageHandle,
   config: ConfigHandle<DeviceConfig>,
   http_client: HttpClientHandle,
+  tcp_client: TcpHandle,
 }
 
 impl fmt::Debug for DesktopPlatform {
@@ -126,6 +129,7 @@ impl DesktopPlatform {
     let storage = StorageHandle::new(Arc::new(local_fs) as Arc<dyn LocalFsTrait>);
     let config = ConfigHandle::new(Arc::new(DesktopConfigManager::new()) as Arc<dyn ConfigFileTrait<DeviceConfig>>);
     let http_client = HttpClientHandle::new(Arc::new(DesktopHttpClient) as Arc<dyn app::platform::HttpClient>);
+    let tcp_client = TcpHandle::new(Arc::new(DesktopTcpClient::new()) as Arc<dyn TcpClient>);
 
     Self {
       display_raw,
@@ -139,6 +143,7 @@ impl DesktopPlatform {
       storage,
       config,
       http_client,
+      tcp_client,
     }
   }
 
@@ -172,6 +177,9 @@ impl Platform for DesktopPlatform {
   fn http_client(&self) -> Option<HttpClientHandle> {
     Some(self.http_client.clone())
   }
+  fn tcp_client(&self) -> Option<TcpHandle> {
+    Some(self.tcp_client.clone())
+  }
   fn storage_manager(&self) -> StorageHandle {
     self.storage.clone()
   }
@@ -180,6 +188,11 @@ impl Platform for DesktopPlatform {
   }
   fn firmware_version(&self) -> u32 {
     option_env!("FIRMWARE_VERSION").unwrap_or("0").parse().unwrap_or(0)
+  }
+  fn entropy(&self, dest: &mut [u8]) {
+    if let Err(err) = getrandom::getrandom(dest) {
+      log::warn!("DesktopPlatform: entropy unavailable: {err:?}");
+    }
   }
   async fn format_storage(&self) -> Result<(), FsError> {
     self.storage.format().await

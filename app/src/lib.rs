@@ -13,6 +13,7 @@ pub mod menu;
 pub mod native;
 pub mod platform;
 pub mod protocol;
+pub mod ssh;
 pub mod types;
 pub mod utils;
 #[cfg(feature = "wasm-runtime")]

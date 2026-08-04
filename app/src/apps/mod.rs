@@ -7,16 +7,16 @@ pub mod hexpansion_viewer;
 pub mod input_test;
 pub mod ota_updater;
 pub mod power_info;
+pub mod ssh;
 pub mod wifi_scanner;
 
 pub use common::{AppAction, AppEvent, AppName, MenuApp, MenuAppContext, MenuAppInput};
 
-use crate::platform::Platform;
 use crate::apps::{
-  app_store::AppStoreApp, config::ConfigApp, editor::EditorApp, files::FilesApp,
-  hexpansion_viewer::HexpansionViewerApp, input_test::InputTestApp, ota_updater::OtaUpdaterApp,
-  power_info::PowerInfoApp, wifi_scanner::WifiScannerApp,
+  app_store::AppStoreApp, config::ConfigApp, editor::EditorApp, files::FilesApp, hexpansion_viewer::HexpansionViewerApp,
+  input_test::InputTestApp, ota_updater::OtaUpdaterApp, power_info::PowerInfoApp, ssh::SshApp, wifi_scanner::WifiScannerApp,
 };
+use crate::platform::Platform;
 pub enum MenuAppType<P: Platform> {
   AppStoreApp(AppStoreApp<P>),
   ConfigApp(ConfigApp<P>),
@@ -26,6 +26,7 @@ pub enum MenuAppType<P: Platform> {
   InputTestApp(InputTestApp<P>),
   OtaUpdaterApp(OtaUpdaterApp<P>),
   PowerInfoApp(PowerInfoApp<P>),
+  SshApp(SshApp<P>),
   WifiScannerApp(WifiScannerApp<P>),
 }
 
@@ -40,6 +41,7 @@ impl<P: Platform> MenuApp for MenuAppType<P> {
       MenuAppType::InputTestApp(app) => app.init().await,
       MenuAppType::OtaUpdaterApp(app) => app.init().await,
       MenuAppType::PowerInfoApp(app) => app.init().await,
+      MenuAppType::SshApp(app) => app.init().await,
       MenuAppType::WifiScannerApp(app) => app.init().await,
     }
   }
@@ -54,6 +56,7 @@ impl<P: Platform> MenuApp for MenuAppType<P> {
       MenuAppType::InputTestApp(app) => app.render(),
       MenuAppType::OtaUpdaterApp(app) => app.render(),
       MenuAppType::PowerInfoApp(app) => app.render(),
+      MenuAppType::SshApp(app) => app.render(),
       MenuAppType::WifiScannerApp(app) => app.render(),
     }
   }
@@ -68,6 +71,7 @@ impl<P: Platform> MenuApp for MenuAppType<P> {
       MenuAppType::InputTestApp(app) => app.handle_input(input).await,
       MenuAppType::OtaUpdaterApp(app) => app.handle_input(input).await,
       MenuAppType::PowerInfoApp(app) => app.handle_input(input).await,
+      MenuAppType::SshApp(app) => app.handle_input(input).await,
       MenuAppType::WifiScannerApp(app) => app.handle_input(input).await,
     }
   }
@@ -82,13 +86,14 @@ impl<P: Platform> MenuApp for MenuAppType<P> {
       MenuAppType::InputTestApp(app) => app.handle_event(event).await,
       MenuAppType::OtaUpdaterApp(app) => app.handle_event(event).await,
       MenuAppType::PowerInfoApp(app) => app.handle_event(event).await,
+      MenuAppType::SshApp(app) => app.handle_event(event).await,
       MenuAppType::WifiScannerApp(app) => app.handle_event(event).await,
     }
   }
 }
 
 impl<P: Platform> MenuAppType<P> {
-  pub fn list_apps() -> [&'static str; 9] {
+  pub fn list_apps() -> [&'static str; 10] {
     [
       AppStoreApp::<P>::app_name(),
       ConfigApp::<P>::app_name(),
@@ -98,6 +103,7 @@ impl<P: Platform> MenuAppType<P> {
       InputTestApp::<P>::app_name(),
       OtaUpdaterApp::<P>::app_name(),
       PowerInfoApp::<P>::app_name(),
+      SshApp::<P>::app_name(),
       WifiScannerApp::<P>::app_name(),
     ]
   }
@@ -126,6 +132,9 @@ impl<P: Platform> MenuAppType<P> {
     }
     if name == PowerInfoApp::<P>::app_name() {
       return Ok(MenuAppType::PowerInfoApp(PowerInfoApp::new(ctx)));
+    }
+    if name == SshApp::<P>::app_name() {
+      return Ok(MenuAppType::SshApp(SshApp::new(ctx)));
     }
     if name == WifiScannerApp::<P>::app_name() {
       return Ok(MenuAppType::WifiScannerApp(WifiScannerApp::new(ctx)));

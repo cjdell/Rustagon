@@ -7,7 +7,7 @@ use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
 use crate::utils::ota::Ota;
 use alloc::sync::Arc;
-use app::platform::{HexpansionHandle, HttpClientHandle, Platform};
+use app::platform::{HexpansionHandle, HttpClientHandle, Platform, TcpHandle};
 use app::types::OtaError;
 use core::fmt;
 use embassy_executor::Spawner;
@@ -29,6 +29,7 @@ pub struct HardwarePlatform {
   config: ConfigHandle,
   storage_formatter: HardwareStorageManager,
   http_client: Option<HttpClientHandle>,
+  tcp_client: Option<TcpHandle>,
 }
 
 impl HardwarePlatform {
@@ -56,11 +57,17 @@ impl HardwarePlatform {
       config,
       storage_formatter,
       http_client: None,
+      tcp_client: None,
     }
   }
 
   pub fn with_http_client(mut self, client: HttpClientHandle) -> Self {
     self.http_client = Some(client);
+    self
+  }
+
+  pub fn with_tcp_client(mut self, client: TcpHandle) -> Self {
+    self.tcp_client = Some(client);
     self
   }
 }
@@ -94,6 +101,9 @@ impl Platform for HardwarePlatform {
   fn http_client(&self) -> Option<HttpClientHandle> {
     self.http_client.clone()
   }
+  fn tcp_client(&self) -> Option<TcpHandle> {
+    self.tcp_client.clone()
+  }
   fn storage_manager(&self) -> StorageHandle {
     self.storage.clone()
   }
@@ -103,6 +113,14 @@ impl Platform for HardwarePlatform {
 
   fn firmware_version(&self) -> u32 {
     crate::FIRMWARE_VERSION.parse().unwrap_or(0)
+  }
+
+  fn entropy(&self, dest: &mut [u8]) {
+    let rng = esp_hal::rng::Rng::new();
+    for chunk in dest.chunks_mut(4) {
+      let v = rng.random().to_le_bytes();
+      chunk.copy_from_slice(&v[..chunk.len()]);
+    }
   }
 
   async fn format_storage(&self) -> Result<(), FsError> {

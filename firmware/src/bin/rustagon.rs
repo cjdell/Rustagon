@@ -308,6 +308,9 @@ async fn main(spawner: Spawner) {
   let http_client = firmware::platform::http::HardwareHttpClient::new(stack);
   let platform = platform.with_http_client(app::platform::HttpClientHandle::new(Arc::new(http_client)));
 
+  let tcp_client = firmware::platform::tcp::HardwareTcpClient::new(stack);
+  let platform = platform.with_tcp_client(app::platform::TcpHandle::new(Arc::new(tcp_client)));
+
   // Stack signal — IPC handler sends events, menu runner consumes
   let stack_event_handle = app::menu::state::create_stack_event_handle();
   let stack_event_for_menu = stack_event_handle.clone();
