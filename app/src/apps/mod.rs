@@ -10,7 +10,7 @@ pub mod power_info;
 pub mod ssh;
 pub mod wifi_scanner;
 
-pub use common::{AppAction, AppEvent, AppName, MenuApp, MenuAppContext, MenuAppInput};
+pub use common::{AppAction, AppError, AppEvent, AppName, MenuApp, MenuAppContext, MenuAppInput};
 
 use crate::apps::{
   app_store::AppStoreApp, config::ConfigApp, editor::EditorApp, files::FilesApp, hexpansion_viewer::HexpansionViewerApp,
@@ -88,6 +88,51 @@ impl<P: Platform> MenuApp for MenuAppType<P> {
       MenuAppType::PowerInfoApp(app) => app.handle_event(event).await,
       MenuAppType::SshApp(app) => app.handle_event(event).await,
       MenuAppType::WifiScannerApp(app) => app.handle_event(event).await,
+    }
+  }
+
+  async fn tick(&mut self) {
+    match self {
+      MenuAppType::AppStoreApp(app) => app.tick().await,
+      MenuAppType::ConfigApp(app) => app.tick().await,
+      MenuAppType::EditorApp(app) => app.tick().await,
+      MenuAppType::FilesApp(app) => app.tick().await,
+      MenuAppType::HexpansionViewerApp(app) => app.tick().await,
+      MenuAppType::InputTestApp(app) => app.tick().await,
+      MenuAppType::OtaUpdaterApp(app) => app.tick().await,
+      MenuAppType::PowerInfoApp(app) => app.tick().await,
+      MenuAppType::SshApp(app) => app.tick().await,
+      MenuAppType::WifiScannerApp(app) => app.tick().await,
+    }
+  }
+
+  async fn on_stop(&mut self) {
+    match self {
+      MenuAppType::AppStoreApp(app) => app.on_stop().await,
+      MenuAppType::ConfigApp(app) => app.on_stop().await,
+      MenuAppType::EditorApp(app) => app.on_stop().await,
+      MenuAppType::FilesApp(app) => app.on_stop().await,
+      MenuAppType::HexpansionViewerApp(app) => app.on_stop().await,
+      MenuAppType::InputTestApp(app) => app.on_stop().await,
+      MenuAppType::OtaUpdaterApp(app) => app.on_stop().await,
+      MenuAppType::PowerInfoApp(app) => app.on_stop().await,
+      MenuAppType::SshApp(app) => app.on_stop().await,
+      MenuAppType::WifiScannerApp(app) => app.on_stop().await,
+    }
+  }
+
+  async fn on_shown(&mut self) {
+    match self {
+      MenuAppType::AppStoreApp(app) => app.on_shown().await,
+      MenuAppType::ConfigApp(app) => app.on_shown().await,
+      MenuAppType::EditorApp(app) => app.on_shown().await,
+      MenuAppType::FilesApp(app) => app.on_shown().await,
+      MenuAppType::HexpansionViewerApp(app) => app.on_shown().await,
+      MenuAppType::InputTestApp(app) => app.on_shown().await,
+      MenuAppType::OtaUpdaterApp(app) => app.on_shown().await,
+      MenuAppType::PowerInfoApp(app) => app.on_shown().await,
+      MenuAppType::SshApp(app) => app.on_shown().await,
+      MenuAppType::WifiScannerApp(app) => app.on_shown().await,
     }
   }
 }

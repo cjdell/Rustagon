@@ -25,7 +25,7 @@ pub mod terminal;
 mod tests;
 
 use alloc::{boxed::Box, collections::VecDeque, format, string::String, vec::Vec};
-use log::info;
+use log::{debug, info};
 use purecrypto::rng::{CryptoRng, CryptoRngCore, RngCore};
 use puressh::{
   auth::{ClientAuth, ClientCredential, ClientStep},
@@ -237,7 +237,7 @@ impl SshSession {
     loop {
       match self.codec.decode(&self.inbox)? {
         Some((payload, consumed)) => {
-          info!(
+          debug!(
             "ssh: decoded msg={} consumed={} inbox_left={}",
             payload.first().copied().unwrap_or(0),
             consumed,
@@ -247,7 +247,7 @@ impl SshSession {
           self.route_packet(&payload, rng)?;
         }
         None => {
-          info!("ssh: no more decodable packets (inbox {} bytes)", self.inbox.len());
+          debug!("ssh: no more decodable packets (inbox {} bytes)", self.inbox.len());
           return Ok(());
         }
       }
@@ -342,7 +342,7 @@ impl SshSession {
   /// Route one decoded transport packet.
   fn route_packet<R: CryptoRngCore>(&mut self, payload: &[u8], rng: &mut R) -> Result<()> {
     let msg = payload.first().copied().unwrap_or(0);
-    info!("ssh: route msg={msg} phase={:?} kexing={}", self.phase, self.runner.is_kexing());
+    debug!("ssh: route msg={msg} phase={:?} kexing={}", self.phase, self.runner.is_kexing());
     match payload.first().copied() {
       Some(1) => Err(Error::Protocol("peer sent SSH_MSG_DISCONNECT")),
       Some(2) | Some(3) | Some(4) => Ok(()),
@@ -358,7 +358,7 @@ impl SshSession {
           info!("ssh: peer-initiated rekey");
           self.initiate_rekey(rng)?;
         }
-        info!("ssh: routing kex msg {b}");
+        debug!("ssh: routing kex msg {b}");
         self.route_kex(payload, rng)?;
         if self.runner.is_completed() {
           info!("ssh: kex completed");
@@ -406,11 +406,11 @@ impl SshSession {
     };
     let v_c = LOCAL_VERSION.as_bytes().to_vec();
     let v_s = self.v_s.clone();
-    info!("ssh: kex runner on_packet msg={msg} (crypto...)");
+    debug!("ssh: kex runner on_packet msg={msg} (crypto...)");
     let adv = self
       .runner
       .on_packet(rng, &mut self.codec, payload, None, verifier.as_deref(), &v_c, &v_s)?;
-    info!("ssh: kex runner returned {} outbound frames", adv.outbound.len());
+    debug!("ssh: kex runner returned {} outbound frames", adv.outbound.len());
     for p in adv.outbound {
       self.enqueue_payload(&p, rng)?;
     }

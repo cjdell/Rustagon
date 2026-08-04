@@ -1,13 +1,13 @@
 use crate::{
   alloc_ext::external_box,
-  apps::{AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{AppAction, AppError, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::{Platform, TcpEvent, TcpEventChannel, TcpHandle},
   ssh::{
     PlatformRng, SshEvent, SshSession,
     terminal::{DISPLAY_LINES, Terminal, hex_button_to_bytes, key_to_bytes},
   },
   types::*,
-  utils::sleep,
+  utils::select_timeout,
 };
 use alloc::{
   boxed::Box,
@@ -16,9 +16,13 @@ use alloc::{
   vec,
   vec::Vec,
 };
-use embassy_futures::select::{Either, select};
-use log::{error, info};
+use log::{debug, error, info};
 use puressh::key::PrivateKey;
+
+/// Max time to wait for the TCP connection to establish.
+const CONNECT_TIMEOUT_MS: u64 = 15_000;
+/// Max time to wait for any single handshake packet before giving up.
+const HANDSHAKE_TIMEOUT_MS: u64 = 15_000;
 
 /// A connect-screen input field.
 struct Field {
@@ -137,14 +141,13 @@ impl<P: Platform> SshApp<P> {
 
   /// Establish the TCP connection, perform the SSH handshake, authenticate and
   /// open the interactive shell.
-  async fn connect(&mut self) {
+  async fn connect(&mut self) -> Result<(), AppError> {
     self.screen = Screen::Connecting;
     self.status = "Connecting...".to_string();
     self.ctx.update_lcd(self.render());
 
     let Some(tcp) = self.ctx.platform.tcp_client() else {
-      self.fail("No TCP support on this platform");
-      return;
+      return Err(AppError::Unsupported("No TCP support on this platform".into()));
     };
     let host = self.fields[0].value.trim().to_string();
     let user = self.fields[1].value.trim().to_string();
@@ -152,8 +155,7 @@ impl<P: Platform> SshApp<P> {
     let port: u16 = self.fields[3].value.trim().parse().unwrap_or(22);
 
     if host.is_empty() || user.is_empty() {
-      self.fail("Host and user required");
-      return;
+      return Err(AppError::Message("Host and user required".into()));
     }
 
     // The background TCP pump needs a `'static` channel; leak one per session.
@@ -162,22 +164,17 @@ impl<P: Platform> SshApp<P> {
     tcp.connect(host, port, channel).await;
 
     // Wait for the connection to establish (or fail).
-    let mut outcome = None;
-    while outcome.is_none() {
-      match select(channel.receive(), sleep(15_000)).await {
-        Either::First(TcpEvent::Connected) => outcome = Some(Ok(())),
-        Either::First(TcpEvent::Error | TcpEvent::Closed) => outcome = Some(Err(())),
+    let established = loop {
+      match select_timeout(channel.receive(), CONNECT_TIMEOUT_MS).await {
+        Some(TcpEvent::Connected) => break true,
+        Some(TcpEvent::Error | TcpEvent::Closed) => break false,
         // Any other event (e.g. stray data) before Connected: keep waiting.
-        Either::First(_) => {}
-        Either::Second(_) => {
-          self.fail("Connection timed out");
-          return;
-        }
+        Some(_) => {}
+        None => return Err(AppError::Timeout),
       }
-    }
-    if outcome.unwrap().is_err() {
-      self.fail("Connection failed");
-      return;
+    };
+    if !established {
+      return Err(AppError::Network);
     }
 
     self.status = "Loading key...".to_string();
@@ -185,28 +182,18 @@ impl<P: Platform> SshApp<P> {
 
     let key_pem = match self.ctx.platform.storage_manager().read_text_file(key_path).await {
       Ok(pem) => pem,
-      Err(_) => {
-        self.fail("Key not found");
-        return;
-      }
+      Err(_) => return Err(AppError::NotFound("Key not found".into())),
     };
     let private_key = match PrivateKey::parse_openssh_pem(&key_pem, None) {
       Ok(k) => k,
-      Err(err) => {
-        self.fail(format!("Bad key: {err:?}"));
-        return;
-      }
+      Err(err) => return Err(AppError::Message(format!("Bad key: {err:?}"))),
     };
     if private_key.algorithm() != "ssh-ed25519" {
-      self.fail("Only ed25519 keys are supported");
-      return;
+      return Err(AppError::Message("Only ed25519 keys are supported".into()));
     }
     let host_key = match private_key.into_host_key() {
       Ok(h) => h,
-      Err(err) => {
-        self.fail(format!("Key unusable: {err:?}"));
-        return;
-      }
+      Err(err) => return Err(AppError::Message(format!("Key unusable: {err:?}"))),
     };
 
     self.status = "Handshake...".to_string();
@@ -217,34 +204,28 @@ impl<P: Platform> SshApp<P> {
     let mut rng = PlatformRng { platform: &platform };
     let mut session = external_box(SshSession::new(user, host_key, &mut rng));
     if let Err(err) = session.start(&mut rng) {
-      self.fail(format!("Handshake failed: {err:?}"));
-      return;
+      return Err(AppError::Message(format!("Handshake failed: {err:?}")));
     }
     info!("SshApp: session started, flushing {} outbound frames", session.outbox_len());
     Self::flush(&tcp, &mut session).await;
-    info!("SshApp: flushed initial frames");
+    debug!("SshApp: flushed initial frames");
 
     // Pump the handshake + auth until the shell is open or the session fails.
     loop {
-      let result = select(channel.receive(), sleep(15_000)).await;
-      let event = match result {
-        Either::First(ev) => ev,
-        Either::Second(_) => {
-          self.fail("Handshake timed out");
-          return;
-        }
+      let event = match select_timeout(channel.receive(), HANDSHAKE_TIMEOUT_MS).await {
+        Some(ev) => ev,
+        None => return Err(AppError::Timeout),
       };
-      info!("SshApp: handshake event: {event:?}");
+      debug!("SshApp: handshake event: {event:?}");
       match event {
         TcpEvent::Data(bytes) => {
-          info!("SshApp: feeding {} bytes to session", bytes.len());
+          debug!("SshApp: feeding {} bytes to session", bytes.len());
           if let Err(err) = session.handle_input(&bytes, &mut rng) {
-            self.fail(format!("Protocol error: {err:?}"));
-            return;
+            return Err(AppError::Message(format!("Protocol error: {err:?}")));
           }
           Self::flush(&tcp, &mut session).await;
           while let Some(ev) = session.poll_event() {
-            info!("SshApp: session event: {ev:?}");
+            debug!("SshApp: session event: {ev:?}");
             match ev {
               SshEvent::Ready => {
                 self.session = Some(session);
@@ -254,28 +235,16 @@ impl<P: Platform> SshApp<P> {
                 self.status = String::new();
                 self.terminal = Terminal::new();
                 self.ctx.update_lcd(self.terminal.render());
-                return;
+                return Ok(());
               }
-              SshEvent::AuthFailed => {
-                self.fail("Authentication failed");
-                return;
-              }
-              SshEvent::Closed => {
-                self.fail("Connection closed");
-                return;
-              }
-              SshEvent::Error(msg) => {
-                self.fail(msg);
-                return;
-              }
+              SshEvent::AuthFailed => return Err(AppError::Message("Authentication failed".into())),
+              SshEvent::Closed => return Err(AppError::Message("Connection closed".into())),
+              SshEvent::Error(msg) => return Err(AppError::Message(msg)),
               _ => {}
             }
           }
         }
-        TcpEvent::Closed | TcpEvent::Error => {
-          self.fail("Connection lost");
-          return;
-        }
+        TcpEvent::Closed | TcpEvent::Error => return Err(AppError::Network),
         _ => {}
       }
     }
@@ -400,7 +369,9 @@ impl<P: Platform> MenuApp for SshApp<P> {
             AppAction::Continue
           }
           HexButton::Fire if self.active == self.fields.len() => {
-            self.connect().await;
+            if let Err(err) = self.connect().await {
+              self.fail(err.to_display());
+            }
             AppAction::Continue
           }
           _ => AppAction::Continue,
@@ -466,5 +437,17 @@ impl<P: Platform> MenuApp for SshApp<P> {
       }
       Screen::Connecting => {}
     }
+  }
+
+  /// Drain inbound TCP data on the menu's background cadence, so shell output
+  /// appears without the user pressing anything.
+  async fn tick(&mut self) {
+    self.pump_session().await;
+  }
+
+  /// Always close the socket on pop, not just when `Stop` arrives — the boot
+  /// button pops us without a Stop, and without this the TCP pump leaks.
+  async fn on_stop(&mut self) {
+    self.disconnect().await;
   }
 }
