@@ -8,6 +8,7 @@ extern crate alloc;
 pub mod apps;
 #[cfg(feature = "http-server")]
 pub mod http;
+pub mod keys;
 pub mod menu;
 pub mod native;
 pub mod platform;

@@ -198,12 +198,14 @@ fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
 
 /// Map a minifb key to the app's `KeyCode`, mimicking the KeebDeck keyboard
 /// hexpansion. Arrows/Enter/Backspace are intentionally unmapped — they mimic
-/// the badge's hex buttons and boot button instead. Modifier keys
-/// (Shift/Ctrl/Alt/CapsLock) are also unmapped: Ctrl is reserved for hex buttons
-/// and nothing consumes the rest.
+/// the badge's hex buttons and boot button instead. Shift is mapped so apps
+/// can track shift state (the app crate decides how to shift characters);
+/// Ctrl is reserved for hex buttons and the remaining modifiers
+/// (Alt/CapsLock) are unmapped — nothing consumes them.
 fn key_to_keycode(key: Key) -> Option<KeyCode> {
   use KeyCode::*;
   match key {
+    Key::LeftShift | Key::RightShift => Some(Shift),
     Key::A => Some(A),
     Key::B => Some(B),
     Key::C => Some(C),

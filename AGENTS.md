@@ -917,6 +917,16 @@ Tab→HexE; arrows/Enter never reach it. Apps must handle directions/Fire via
 `MenuAppInput::Button(..)` (the Editor does: `handle_nav_button`). WASM guests always
 received only `HexButton` over the wire, so they are unaffected.
 
+**Shift is app-side domain logic.** The platform only reports the raw
+`KeyCode::Shift` press/release (the `tca8418` driver maps both shift keys to
+`KeyCode::Shift`; `desktop/src/main.rs` maps `LeftShift`/`RightShift`). The app
+crate owns shifting via `KeyCode::to_char(shifted)` in `app/src/keys.rs`
+(letters uppercase, digits/punctuation shift per `SHIFTED_SYMBOL_MAP`, mirroring
+the KeebDeck `app.py`). Apps track shift state from `KeyCode::Shift` press/release
+events and pass it in — see `EditorApp::shifted`. Do **not** move the symbol map
+into the driver or desktop key mapping; that would duplicate it across two
+platforms.
+
 ### `AppEvent` — external events for MenuApps
 
 Apps receive external events via `handle_event(&mut self, event: AppEvent)` where
