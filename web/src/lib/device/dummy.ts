@@ -1,6 +1,14 @@
-import { DeviceFileSchema } from "@lib";
 import * as v from "valibot";
-import { DeviceApi, DeviceConfig, DeviceConfigSchema, DeviceFile, DeviceMessage, FrameBufferListener, WifiResult } from "./common.ts";
+import {
+  DeviceApi,
+  DeviceConfig,
+  DeviceConfigSchema,
+  DeviceFile,
+  DeviceFileSchema,
+  DeviceMessage,
+  FrameBufferListener,
+  WifiResult,
+} from "./common.ts";
 
 export class DummyDeviceApi implements DeviceApi {
   public schema = DeviceConfigSchema;

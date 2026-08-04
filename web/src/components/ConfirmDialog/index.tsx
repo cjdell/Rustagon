@@ -1,12 +1,6 @@
-import { Button, type Colour } from "@components";
-import {
-  createContext,
-  createSignal,
-  useContext,
-  type Component,
-  type JSX,
-  Show,
-} from "solid-js";
+import { Button } from "@components";
+import { type Component, createContext, createSignal, type JSX, Show, useContext } from "solid-js";
+import { Colour } from "@lib";
 
 export interface ConfirmOptions {
   title: string;

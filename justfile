@@ -226,6 +226,10 @@ upload_wasm file:
 # Web App
 # ============================================================
 
+# Enforce web import conventions (@lib self-imports, src/lib/core parent imports)
+check_web:
+    cd web && deno task check-imports
+
 # Build and deploy the web frontend to the remote server
 deploy_web:
     #!/usr/bin/env bash

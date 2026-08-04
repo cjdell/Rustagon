@@ -487,6 +487,35 @@ desktop/:
   ✓ Platform impl (DesktopPlatform, DesktopHttpClient)
 ```
 
+### Web App Import Conventions (`@lib`)
+
+`web/src/lib` is a single importable unit exposed via the `@lib` alias (see
+`web/deno.json`). The `@lib` alias must only be used by code **outside** `@lib`
+(the app itself: `web/src/App.tsx`, `components/`, `routes/`). Code **inside**
+`@lib` must never import from `@lib` — it creates a circular dependency on the
+barrel `web/src/lib/index.ts` and blurs the boundary between the library and its
+consumers.
+
+- Inside `@lib`, use relative imports to other `@lib` modules, e.g.
+  `import { sleep } from "../core/index.ts"` or `import { DeviceFileSchema } from "./common.ts"`.
+- The public surface is still re-exported from `web/src/lib/index.ts` for
+  consumers outside `@lib`.
+- If you find a `from "@lib"` inside `web/src/lib/`, rewrite it as a relative
+  import to the module that actually defines the symbol (check
+  `web/src/lib/{core,device,wasm}/index.ts` to find it).
+
+**Enforcement:** `cd web && deno task check-imports` (or `just check_web`) runs
+`web/tools/check_imports.ts`, which parses every file in `src/lib` with the
+TypeScript compiler API and fails (exit 1) on:
+
+- `no-lib-self-import` — any file in `src/lib` importing the `@lib` barrel.
+- `core-parent-import` — any file in `src/lib/core` importing outside
+  `src/lib/core` (relative escapes such as `../device/...` or local aliases like
+  `@components`). Bare specifiers that resolve to published npm modules
+  (via `deno.json` `imports`, e.g. `valibot`, `@solidjs/router`) are allowed.
+
+Run it after touching web imports; it is not yet wired into `deno task build`.
+
 ### Build
 
 See the **Build (use `just`)** section near the top of this document for the
@@ -515,6 +544,20 @@ rustfmt --edition 2021 --config skip_children=true <file>
 `skip_children=true` ensures only the edited file is formatted (crate roots
 won't drag in the rest of the crate). Do **not** use `cargo fmt` on the whole
 workspace — it reformats hundreds of unrelated files.
+
+**TypeScript/JavaScript (web/):** The IDE (Zed + Deno LSP) formats on save
+using `deno fmt` conventions (from `web/deno.json`: `lineWidth = 140`,
+`trailingCommas = onlyMultiLine`). `opencode.json` registers a `denofmt`
+formatter (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`) so opencode output
+matches the IDE and saving doesn't produce a huge reflow diff. After editing
+any `.ts`/`.tsx` file in `web/`, run as a backup:
+
+```sh
+cd web && deno fmt <file>
+```
+
+`deno fmt` resolves `web/deno.json` from the file's location, so the project
+settings apply regardless of the current working directory.
 
 ## How the Menu Moves Through Crates
 

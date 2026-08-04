@@ -1,6 +1,15 @@
-import { sleep, WifiResultSchema } from "@lib";
 import * as v from "valibot";
-import { DeviceApi, DeviceConfig, DeviceConfigSchema, DeviceFile, DeviceMessage, FrameBufferListener, WifiResult } from "./common.ts";
+import { sleep } from "../core/index.ts";
+import {
+  DeviceApi,
+  DeviceConfig,
+  DeviceConfigSchema,
+  DeviceFile,
+  DeviceMessage,
+  FrameBufferListener,
+  WifiResult,
+  WifiResultSchema,
+} from "./common.ts";
 
 export class BadgeDeviceApi implements DeviceApi {
   public schema = DeviceConfigSchema;
