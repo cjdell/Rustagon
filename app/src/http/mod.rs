@@ -5,6 +5,7 @@ pub mod delete_file;
 pub mod list_files;
 pub mod ota;
 pub mod read_file;
+pub mod reboot;
 pub mod receive_file;
 pub mod web_socket;
 pub mod wifi_join;
@@ -55,7 +56,10 @@ pub fn build_api_router<P: Platform + 'static>(
       "/receive",
       post_service(receive_file::ReceiveFileHandler::new(sender.clone())).options(async || cors_options_response()),
     )
-    .route("/reboot", post(async || "OK").options(async || cors_options_response()))
+    .route(
+      "/reboot",
+      post_service(reboot::RebootHandler::new(platform.clone())).options(async || cors_options_response()),
+    )
     .route(
       "/ota",
       post_service(ota::OtaUpdateHandler::new(platform)).options(async || cors_options_response()),
