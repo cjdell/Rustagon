@@ -1,8 +1,11 @@
+#![feature(thread_local)]
+
 extern crate alloc;
 
 #[macro_use]
 pub mod helper;
 pub mod allocator;
+pub mod gfx;
 pub mod graphics;
 pub mod http;
 pub mod panic;

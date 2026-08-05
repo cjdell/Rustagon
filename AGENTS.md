@@ -38,6 +38,27 @@ wasm_protocol/
 
 ### Build (use `just`)
 
+**You MUST run every build command inside the `nix develop` environment.** It
+provisions the pinned Rust nightly toolchain (with the `wasm32-unknown-unknown`
+target and rust-src), the ESP32-S3 Xtensa toolchain, `just`, and all other build
+tooling. The flake's `cargo` shim dispatches `cargo +nightly` to a stock nightly
+that has the wasm32 target installed and everything else to the ESP fork.
+
+Never run `cargo`, `just`, or `rustup` build commands from a shell that is not
+inside `nix develop`. Building from a bare shell (host rustup, the wrong
+toolchain, or missing targets) produces confusing failures — e.g.
+`error[E0463]: can't find crate for core` when `cargo +nightly` resolves to a
+nightly without the wasm32 target, or wrong build results when the host
+`rustup` override takes precedence.
+
+To enter the environment:
+
+```sh
+nix develop                          # drop into a shell with the correct toolchain
+nix develop --command bash -c "..."  # run a single command inside the environment
+nix develop --command bash -c "just" # e.g. list all build tasks
+```
+
 All build/deploy tasks live in the root `justfile`. The firmware recipes handle the
 Xtensa toolchain (`source ~/export-esp.sh`) and the `firmware/.env` file for you:
 
@@ -45,6 +66,7 @@ Xtensa toolchain (`source ~/export-esp.sh`) and the `firmware/.env` file for you
 just build_firmware        # ESP32-S3 firmware (release, bin rustagon)
 just run_firmware          # build + flash over USB (espflash)
 just build_sdk             # build all WASM apps -> sdk/wasm/*.wsm + manifest.json
+just build_wasm file       # build a single WASM app
 just build_manifest        # regenerate sdk/wasm/manifest.json from the .wsm files
 just emulate_wasm fetch    # build SDK + run an app in the desktop emulator
 just run_desktop_app fetch # run the desktop emulator, auto-starting a WASM app from sdk/wasm
