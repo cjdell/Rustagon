@@ -68,8 +68,8 @@ just run_firmware          # build + flash over USB (espflash)
 just build_sdk             # build all WASM apps -> sdk/wasm/*.wsm + manifest.json
 just build_wasm file       # build a single WASM app
 just build_manifest        # regenerate sdk/wasm/manifest.json from the .wsm files
-just emulate_wasm fetch    # build SDK + run an app in the desktop emulator
-just run_desktop_app fetch # run the desktop emulator, auto-starting a WASM app from sdk/wasm
+just emulate_wasm fetch    # DEPRECATED — legacy libs/emulator crate; use `just run_desktop_app <name>` instead
+just run_desktop_app fetch # run the desktop app, auto-starting a WASM app from sdk/wasm
 just run_wasm fetch        # build SDK + upload an app to the device over HTTP
 just upload_wasm fetch     # build SDK + upload an app as a file
 just deploy_firmware       # build + package merged.bin + deploy OTA firmware
@@ -468,7 +468,7 @@ rustagon/
 │   ├── display_renderer/             # LcdState, FrameBuffer trait, icon drawing
 │   ├── display_types/                # LcdScreen, Icon20/40, MenuLine, Image types
 │   ├── embedded_tools/               # LocalFsTrait, ConfigFileTrait (no_std)
-│   ├── emulator/                     # Legacy WASM emulator
+│   ├── emulator/                     # Legacy WASM emulator — deprecated; use the desktop app (`just run_desktop_app <name>`)
 │   ├── esp32s3_embedded_tools/       # ESP32-S3 flash driver
 │   ├── procmacros/                   # include_rgb565_icon!, partition_offset! macros
 │   └── wasm_protocol/                # Wire protocol types shared with the WASM SDK (no_std)
