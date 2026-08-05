@@ -1,5 +1,5 @@
 use crate::{
-  apps::{common::AppName, AppAction, MenuApp, MenuAppInput, MenuAppContext},
+  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::{Platform, WifiStatus},
   types::*,
   utils::sleep,
@@ -25,28 +25,30 @@ enum ConfigOption {
   Format,
 }
 
-const CONFIG_OPTIONS: &[ConfigOption] = &[
-  ConfigOption::WifiToggle,
-  ConfigOption::WifiMode,
-  ConfigOption::Format,
-];
+const CONFIG_OPTIONS: &[ConfigOption] = &[ConfigOption::WifiToggle, ConfigOption::WifiMode, ConfigOption::Format];
 
 struct AppState {
   cursor: usize,
   wifi_status: WifiStatus,
   free_space: u32,
-  message: Option<String>,
 }
 
 impl AppState {
   fn new() -> Self {
-    Self { cursor: 0, wifi_status: WifiStatus::Offline, free_space: 0, message: None }
+    Self {
+      cursor: 0,
+      wifi_status: WifiStatus::Offline,
+      free_space: 0,
+    }
   }
 }
 
 impl<P: Platform> ConfigApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
-    Self { ctx, state: AppState::new() }
+    Self {
+      ctx,
+      state: AppState::new(),
+    }
   }
 
   async fn refresh_status(&mut self) {
@@ -58,22 +60,15 @@ impl<P: Platform> ConfigApp<P> {
     self.state.wifi_status = wifi_status;
   }
 
-  async fn set_message(&mut self, msg: &str) {
-    self.state.message = Some(msg.to_string());
-    self.ctx.update_lcd(self.render());
-    sleep(2_000).await;
-    self.state.message = None;
-  }
-
   async fn toggle_wifi(&mut self) {
     match self.state.wifi_status {
       WifiStatus::Offline | WifiStatus::NoNetworksFound | WifiStatus::Interrupted => {
         self.ctx.platform.wifi_manager().set_desired_state(WifiDesiredState::Online).await;
-        self.set_message("WiFi enabled").await;
+        self.ctx.notify("WiFi enabled", Icon40::Info).await;
       }
       _ => {
         self.ctx.platform.wifi_manager().set_desired_state(WifiDesiredState::Offline).await;
-        self.set_message("WiFi disabled").await;
+        self.ctx.notify("WiFi disabled", Icon40::Info).await;
       }
     }
   }
@@ -85,7 +80,7 @@ impl<P: Platform> ConfigApp<P> {
         cfg.wifi_mode = crate::types::WifiMode::AccessPoint;
         self.ctx.platform.config_manager().set_data(cfg).await;
         self.ctx.platform.config_manager().save().await.unwrap();
-        self.set_message("Switching to AP mode...").await;
+        self.ctx.notify("Switching to AP mode...", Icon40::Info).await;
         sleep(1_000).await;
         self.ctx.platform.software_reset().await;
       }
@@ -93,7 +88,7 @@ impl<P: Platform> ConfigApp<P> {
         cfg.wifi_mode = crate::types::WifiMode::Station;
         self.ctx.platform.config_manager().set_data(cfg).await;
         self.ctx.platform.config_manager().save().await.unwrap();
-        self.set_message("Switching to STA mode...").await;
+        self.ctx.notify("Switching to STA mode...", Icon40::Info).await;
         sleep(1_000).await;
         self.ctx.platform.software_reset().await;
       }
@@ -105,13 +100,13 @@ impl<P: Platform> ConfigApp<P> {
     match self.ctx.platform.format_storage().await {
       Ok(()) => {
         warn!("Filesystem formatted! Rebooting...");
-        self.ctx.update_lcd(LcdScreen::Headline(Icon40::Info, "Format Complete!".to_string()));
+        self.ctx.notify("Format Complete!", Icon40::Info).await;
         sleep(2_000).await;
         self.ctx.platform.software_reset().await;
       }
       Err(err) => {
         warn!("Format Error: {err:?}");
-        self.set_message("Format failed!").await;
+        self.ctx.notify("Format failed!", Icon40::Error).await;
       }
     }
   }
@@ -119,10 +114,6 @@ impl<P: Platform> ConfigApp<P> {
 
 impl<P: Platform> MenuApp for ConfigApp<P> {
   fn render(&self) -> LcdScreen {
-    if let Some(ref msg) = self.state.message {
-      return LcdScreen::Headline(Icon40::Info, msg.clone());
-    }
-
     let ip_str: String = match self.state.wifi_status {
       WifiStatus::Connected(ip) => format!("IP: {ip}"),
       WifiStatus::AccessPoint => "AP Mode".to_string(),
@@ -154,8 +145,16 @@ impl<P: Platform> MenuApp for ConfigApp<P> {
       MenuAppInput::Button(hex) => {
         let max = CONFIG_OPTIONS.len() + 1;
         match hex {
-          HexButton::Up => { if self.state.cursor > 2 { self.state.cursor -= 1; } }
-          HexButton::Down => { if self.state.cursor + 1 < max + 2 { self.state.cursor += 1; } }
+          HexButton::Up => {
+            if self.state.cursor > 2 {
+              self.state.cursor -= 1;
+            }
+          }
+          HexButton::Down => {
+            if self.state.cursor + 1 < max + 2 {
+              self.state.cursor += 1;
+            }
+          }
           HexButton::Fire => {
             let action_idx = self.state.cursor.checked_sub(2);
             match action_idx {

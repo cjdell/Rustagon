@@ -3,7 +3,6 @@ use crate::{
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
-  utils::sleep,
 };
 use alloc::{
   format,
@@ -216,10 +215,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
                 }
                 Err(()) => {
                   self.state.screen = Screen::Welcome;
-                  self
-                    .ctx
-                    .update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
-                  sleep(1_000).await;
+                  self.ctx.notify("Manifest Error!", Icon40::Error).await;
                 }
               }
             }
@@ -240,10 +236,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
                 }
                 Err(()) => {
                   self.state.screen = Screen::AppList;
-                  self
-                    .ctx
-                    .update_lcd(LcdScreen::Headline(Icon40::Error, "Manifest Error!".to_string()));
-                  sleep(1_000).await;
+                  self.ctx.notify("Manifest Error!", Icon40::Error).await;
                 }
               }
             }
@@ -267,10 +260,7 @@ impl<P: Platform> MenuApp for AppStoreApp<P> {
               let current_app = self.state.current_app().unwrap().clone();
               if self.state.cursor == 0 {
                 if let Err(()) = self.download(&current_app).await {
-                  self
-                    .ctx
-                    .update_lcd(LcdScreen::Headline(Icon40::Error, "Download Error!".to_string()));
-                  sleep(1_000).await;
+                  self.ctx.notify("Download Error!", Icon40::Error).await;
                 }
               } else {
                 self.state.screen = Screen::AppList;

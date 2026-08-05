@@ -30,6 +30,15 @@ pub enum LcdScreen {
   Notification(Icon40, String),
 }
 
+/// Timing of the `LcdScreen::Notification` overlay, in ms. Single source of
+/// truth for the notification card: the renderer (`display_renderer`) derives
+/// its animation timing from these, and the app layer (`ctx.notify`) uses the
+/// total as the toast duration.
+pub const NOTIFICATION_SLIDE_IN_MS: u64 = 350;
+pub const NOTIFICATION_HOLD_MS: u64 = 2_000;
+pub const NOTIFICATION_SLIDE_OUT_MS: u64 = 350;
+pub const NOTIFICATION_TOTAL_MS: u64 = NOTIFICATION_SLIDE_IN_MS + NOTIFICATION_HOLD_MS + NOTIFICATION_SLIDE_OUT_MS;
+
 /// Slide-in animation for a `LcdScreen::Menu`.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub enum MenuAnimation {

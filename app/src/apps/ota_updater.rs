@@ -1,11 +1,10 @@
 use crate::{
-  apps::{common::AppName, AppAction, MenuApp, MenuAppContext, MenuAppInput},
+  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
-  utils::sleep,
 };
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{format, vec::Vec};
 use embassy_futures::join::join;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -91,6 +90,7 @@ impl<P: Platform> OtaUpdaterApp<P> {
     let mut bytes_written = 0u32;
     let platform = self.ctx.platform.clone();
     let display = self.ctx.platform.display_manager();
+    let ctx = self.ctx.clone();
 
     let listen = async {
       loop {
@@ -105,15 +105,13 @@ impl<P: Platform> OtaUpdaterApp<P> {
           HttpEvent::Done => {
             if bytes_written == version_info.size {
               info!("Firmware download complete");
-              let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Update complete".to_string()));
               let _ = platform.ota_commit().await;
-              sleep(1_000).await;
+              ctx.notify("Update complete", Icon40::Info).await;
               platform.software_reset().await;
               return Ok(());
             } else {
               error!("Size mismatch: got {bytes_written}, expected {}", version_info.size);
-              let _ = display.signal(LcdScreen::Headline(Icon40::Error, "Size mismatch!".to_string()));
-              sleep(1_000).await;
+              ctx.notify("Size mismatch!", Icon40::Error).await;
               return Err(());
             }
           }
@@ -151,10 +149,7 @@ impl<P: Platform> MenuApp for OtaUpdaterApp<P> {
               let version = match self.download_manifest().await {
                 Ok(version) => version,
                 Err(()) => {
-                  self
-                    .ctx
-                    .update_lcd(LcdScreen::Headline(Icon40::Error, "Connection Error!".to_string()));
-                  sleep(1_000).await;
+                  self.ctx.notify("Connection Error!", Icon40::Error).await;
                   return AppAction::Continue;
                 }
               };

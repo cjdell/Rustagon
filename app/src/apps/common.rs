@@ -11,12 +11,19 @@
 //!   packets, button key handling). Filtered at runtime via `ESP_LOG`.
 //! - `error!`/`warn!` — recoverable failures the user may see.
 
-use crate::platform::{Platform, display::DisplayHandle};
+use crate::platform::{display::DisplayHandle, Platform};
 use crate::protocol::HostIpcSender;
 use crate::types::{DeviceEvent, HexButton, HexpansionEvent, Icon40};
+use crate::utils::sleep;
 use alloc::string::{String, ToString};
 use core::fmt;
 use display_types::LcdScreen;
+
+/// How long a `ctx.notify` toast stays up. Sourced from `display_types` (the
+/// single source of truth for the `LcdScreen::Notification` timing, also used
+/// by `display_renderer` to draw the card), so the toast lifetime always
+/// matches the rendering code — no duplicated magic number.
+pub use display_types::NOTIFICATION_TOTAL_MS as NOTIFICATION_MS;
 
 pub trait AppName {
   fn app_name() -> &'static str;
@@ -94,11 +101,17 @@ impl<P: Platform> MenuAppContext<P> {
     let _ = self.display.signal(screen);
   }
 
-  /// Render a status/error message on the LCD (as a headline). This overwrites
-  /// the app's screen; the app should restore its UI afterwards with
-  /// `update_lcd(self.render())` (e.g. after a short delay for a toast).
-  pub fn notify(&self, msg: impl Into<String>) {
-    let _ = self.display.signal(LcdScreen::Headline(Icon40::Info, msg.into()));
+  /// Render a transient toast on the LCD using the renderer's shared
+  /// notification overlay (`LcdScreen::Notification`): a card that slides in,
+  /// holds ~2 s, slides out, and auto-restores the previous screen.
+  ///
+  /// This awaits for the toast duration so the menu loop doesn't re-render the
+  /// app's screen over the notification before it has been seen. Callers can
+  /// restore their own screen afterwards with `update_lcd(self.render())` if
+  /// needed.
+  pub async fn notify(&self, msg: impl Into<String>, icon: Icon40) {
+    let _ = self.display.signal(LcdScreen::Notification(icon, msg.into()));
+    sleep(NOTIFICATION_MS).await;
   }
 }
 

@@ -2,9 +2,8 @@ use crate::{
   apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::Platform,
   types::*,
-  utils::sleep,
 };
-use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+use alloc::{format, string::ToString, vec, vec::Vec};
 use embedded_tools::local_fs::DirEntry;
 use log::{info, warn};
 
@@ -29,7 +28,6 @@ struct AppState {
   files: Vec<DirEntry>,
   cursor: usize,
   selected_file: Option<DirEntry>,
-  message: Option<String>,
   /// True after navigating back from FileDetail to FileList, so the list
   /// slides in from the left (back direction) instead of from the right.
   back_nav: bool,
@@ -42,7 +40,6 @@ impl AppState {
       files: Vec::new(),
       cursor: 0,
       selected_file: None,
-      message: None,
       back_nav: false,
     }
   }
@@ -82,20 +79,10 @@ impl<P: Platform> FilesApp<P> {
   async fn refresh_files(&mut self) {
     self.state.files = self.ctx.platform.storage_manager().list_files().await.unwrap_or_default();
   }
-
-  async fn set_message(&mut self, msg: &str) {
-    self.state.message = Some(msg.to_string());
-    self.ctx.update_lcd(self.render());
-    sleep(2_000).await;
-    self.state.message = None;
-  }
 }
 
 impl<P: Platform> MenuApp for FilesApp<P> {
   fn render(&self) -> LcdScreen {
-    if let Some(ref msg) = self.state.message {
-      return LcdScreen::Headline(Icon40::Info, msg.clone());
-    }
     match &self.state.screen {
       Screen::FileList => {
         let mut menu: Vec<MenuLine> = self
@@ -205,7 +192,7 @@ impl<P: Platform> FilesApp<P> {
             }
             Err(err) => {
               warn!("Delete error: {err:?}");
-              self.set_message("Delete failed!").await;
+              self.ctx.notify("Delete failed!", Icon40::Error).await;
             }
           }
           return AppAction::Continue;

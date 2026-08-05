@@ -5,12 +5,12 @@ extern crate alloc;
 use alloc::format;
 use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine, TextBufferLine};
 use embedded_graphics::{
-  Drawable as _,
-  mono_font::{MonoTextStyle, ascii::FONT_10X20},
+  mono_font::{ascii::FONT_10X20, MonoTextStyle},
   pixelcolor::{Rgb565, Rgb888},
   prelude::{Angle, DrawTarget, DrawTargetExt, Point, RgbColor, Size},
   primitives::{Arc, PrimitiveStyle, Rectangle, RoundedRectangle, StyledDrawable},
   text::{Baseline, Text},
+  Drawable as _,
 };
 use micromath::F32Ext;
 
@@ -151,16 +151,18 @@ const OVERFLOW_LINES: i32 = MARGIN / LINE_HEIGHT;
 const ICON_WIDTH: i32 = 20;
 const ICON_HEIGHT: i32 = 20;
 
-// Notification card constants (GC9A01 is circular — card centred, not a top bar)
+// Notification card constants (GC9A01 is circular — card centred, not a top bar).
+// Timing is derived from `display_types` so it stays in sync with the app layer
+// (`ctx.notify`'s toast duration).
 const NOTIF_CARD_W: i32 = 190;
 const NOTIF_CARD_H: i32 = 70;
 const NOTIF_CARD_X: i32 = (SCREEN_WIDTH as i32 - NOTIF_CARD_W) / 2;
 const NOTIF_CARD_Y: i32 = 75;
 const NOTIF_CARD_RADIUS: i32 = 16;
 const NOTIF_SLIDE_DIST: i32 = 100;
-const NOTIF_SLIDE_IN_MS: i32 = 350;
-const NOTIF_HOLD_MS: i32 = 2_000;
-const NOTIF_SLIDE_OUT_MS: i32 = 350;
+const NOTIF_SLIDE_IN_MS: i32 = display_types::NOTIFICATION_SLIDE_IN_MS as i32;
+const NOTIF_HOLD_MS: i32 = display_types::NOTIFICATION_HOLD_MS as i32;
+const NOTIF_SLIDE_OUT_MS: i32 = display_types::NOTIFICATION_SLIDE_OUT_MS as i32;
 const NOTIF_TOTAL_MS: i32 = NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS + NOTIF_SLIDE_OUT_MS;
 
 // Text buffer constants (LcdScreen::TextBuffer) — a centred 160x160 frame that
@@ -700,7 +702,7 @@ mod tests {
 
     assert_eq!(pixel_at(&fb, 0, 0), [2, 3]); // src (1, 0)
     assert_eq!(pixel_at(&fb, 0, 1), [6, 7]); // src (1, 1)
-    // The rest of the framebuffer is untouched.
+                                             // The rest of the framebuffer is untouched.
     assert_eq!(pixel_at(&fb, 1, 0), [0, 0]);
   }
 
