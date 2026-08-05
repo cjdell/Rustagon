@@ -1,42 +1,46 @@
-use crate::lib::protocol::{
-  extern_get_millis, extern_read_host_ipc_message, extern_set_gpio, extern_set_lcd_buffer, extern_write_stdout,
-  extern_write_wasm_ipc_message, HostIpcMessage, WasmIpcMessage,
+use crate::protocol::{
+  HostIpcMessage, WasmIpcMessage, extern_get_millis, extern_read_host_ipc_message, extern_set_gpio, extern_set_lcd_buffer,
+  extern_write_stdout, extern_write_wasm_ipc_message,
 };
 use alloc::vec;
 
+#[macro_export]
 macro_rules! println {
-    () => {
-        print_line("\n");
-    };
+  () => {
+    $crate::helper::print_line("\n");
+  };
 
-    ($($arg:tt)*) => {
-        crate::lib::helper::print_line(&alloc::format!("{}\n", format_args!($($arg)*)));
-    };
+  ($($arg:tt)*) => {
+    $crate::helper::print_line(&alloc::format!("{}\n", format_args!($($arg)*)));
+  };
 }
 
 // Compiles out in release builds — use for high-frequency runtime diagnostics.
+#[macro_export]
 macro_rules! debug_print {
-    ($($arg:tt)*) => {
-        #[cfg(debug_assertions)]
-        crate::lib::helper::print_line(&alloc::format!("{}\n", format_args!($($arg)*)));
-    };
+  ($($arg:tt)*) => {
+    #[cfg(debug_assertions)]
+    $crate::helper::print_line(&alloc::format!("{}\n", format_args!($($arg)*)));
+  };
 }
 
+#[macro_export]
 macro_rules! print_and_panic {
-    () => {
-        print_reachable("\n");
-    };
+  () => {
+    $crate::helper::print_reachable("\n");
+  };
 
-    ($($arg:tt)*) => {
-        crate::lib::helper::print_reachable(&alloc::format!("{}\n", format_args!($($arg)*)))
-    };
+  ($($arg:tt)*) => {
+    $crate::helper::print_reachable(&alloc::format!("{}\n", format_args!($($arg)*)))
+  };
 }
 
+#[macro_export]
 macro_rules! log_error {
   ($invoke:expr, $msg:expr) => {
     match $invoke {
       Ok(res) => res,
-      Err(err) => print_and_panic!("{}: {:?}", $msg, err),
+      Err(err) => $crate::print_and_panic!("{}: {:?}", $msg, err),
     }
   };
 }

@@ -1,13 +1,14 @@
-use crate::lib::helper::receive_host_ipc_message;
-use crate::lib::protocol::HostIpcMessage;
+use crate::helper::receive_host_ipc_message;
+use crate::protocol::HostIpcMessage;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{RefCell, UnsafeCell};
 use core::future::Future;
+use core::ops::Deref;
 use core::pin::Pin;
 use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel, Subscriber};
+use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
 
 extern crate alloc;
 extern crate core;
@@ -15,13 +16,32 @@ extern crate core;
 type BoxFuture = Pin<Box<dyn Future<Output = ()>>>;
 
 type HostIpcChannel = PubSubChannel<NoopRawMutex, (u32, HostIpcMessage), 10, 3, 1>;
-type HostIpcSubscriber = Subscriber<'static, NoopRawMutex, (u32, HostIpcMessage), 10, 3, 1>;
 
-#[thread_local]
-static TASK_QUEUE: RefCell<Option<TaskQueue>> = RefCell::new(None);
+/// Single-threaded `static` wrapper. wasm32-unknown-unknown runs on exactly
+/// one thread, so `!Sync` inner types (RefCell, the NoopRawMutex pubsub
+/// channel) are sound behind a plain `static`. All access goes through the
+/// `Deref` impl; `get` is only reachable from single-threaded code.
+pub struct SyncUnsafe<T>(UnsafeCell<T>);
 
-#[thread_local]
-pub static HOST_IPC_CHANNEL: HostIpcChannel = HostIpcChannel::new();
+unsafe impl<T> Sync for SyncUnsafe<T> {}
+
+impl<T> SyncUnsafe<T> {
+  pub const fn new(value: T) -> Self {
+    SyncUnsafe(UnsafeCell::new(value))
+  }
+}
+
+impl<T> Deref for SyncUnsafe<T> {
+  type Target = T;
+
+  fn deref(&self) -> &T {
+    unsafe { &*self.0.get() }
+  }
+}
+
+static TASK_QUEUE: SyncUnsafe<RefCell<Option<TaskQueue>>> = SyncUnsafe::new(RefCell::new(None));
+
+pub static HOST_IPC_CHANNEL: SyncUnsafe<HostIpcChannel> = SyncUnsafe::new(HostIpcChannel::new());
 
 /// Simple fixed-capacity FIFO queue (ring buffer) for spawned tasks.
 struct TaskQueue {
@@ -87,8 +107,12 @@ where
 
 /// Execute one round of polling all pending tasks
 /// Returns true if there are no more tasks to run
-#[unsafe(no_mangle)]
-pub extern "C" fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+///
+/// Exported as `tick` by each app binary (`#[no_mangle] fn tick`), which
+/// either calls this directly or provides its own minimal tick. Kept
+/// non-`no_mangle` so apps that define a custom tick (e.g. `barefill`) don't
+/// collide with this symbol.
+pub fn runtime_tick(host_msg_id: u32, host_msg_size: u32) -> bool {
   // println!("tick: {host_msg_id} {host_msg_size}");
 
   if host_msg_size != 0 {

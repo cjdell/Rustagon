@@ -155,7 +155,7 @@ build_sdk:
 
     rm -rf target/wasm32-unknown-unknown/release-lto/*.wasm
 
-    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true -C strip=symbols" cargo +nightly build --profile release-lto -p sdk --target wasm32-unknown-unknown
+    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true -C strip=symbols" cargo +stable build --profile release-lto -p sdk --target wasm32-unknown-unknown
 
     rm -rf sdk/wasm/*.wsm
 
@@ -173,7 +173,7 @@ build_wasm file:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true -C strip=symbols" cargo +nightly build --profile release-lto -p sdk --target wasm32-unknown-unknown --bin {{file}}
+    RUSTFLAGS="-C link-args=-z -C link-args=stack-size=32768 -Clink-arg=--initial-memory=65536 -C opt-level=z -C lto=true -C strip=symbols" cargo +stable build --profile release-lto -p sdk --target wasm32-unknown-unknown --bin {{file}}
 
     cp target/wasm32-unknown-unknown/release-lto/{{file}}.wasm sdk/wasm/{{file}}.wsm
 

@@ -2,28 +2,20 @@
 
 #![no_std]
 #![no_main]
-#![feature(thread_local)]
 
-#[path = "../lib/mod.rs"]
-#[macro_use]
-mod lib;
+use sdk as lib;
 
 extern crate alloc;
 
 use crate::lib::{
-  graphics::{BufferTarget, SCREEN_HEIGHT, SCREEN_WIDTH},
+  gfx::{Canvas, Point, Rgb565, SCREEN_HEIGHT, SCREEN_WIDTH},
   helper::get_millis,
   protocol::extern_set_lcd_buffer,
   tasks::{spawn, yield_now},
+  trig::{fast_cos, fast_sin},
 };
 use alloc::boxed::Box;
 use core::f32::consts::PI;
-use embedded_graphics::{
-  pixelcolor::Rgb565,
-  prelude::{Point, Primitive as _, RgbColor},
-  primitives::{Line, PrimitiveStyle},
-  Drawable as _,
-};
 
 // Define a 3D point
 #[derive(Clone, Copy)]
@@ -31,19 +23,6 @@ struct Point3D {
   x: f32,
   y: f32,
   z: f32,
-}
-
-// Define a 2D point for display
-#[derive(Clone, Copy)]
-struct Point2D {
-  x: i32,
-  y: i32,
-}
-
-impl Point2D {
-  fn new(x: i32, y: i32) -> Self {
-    Point2D { x, y }
-  }
 }
 
 // Define a cube with 8 vertices
@@ -99,8 +78,8 @@ fn create_cube_points() -> [Point3D; 8] {
 
 // Rotate a 3D point around the X axis
 fn rotate_x(point: Point3D, angle: f32) -> Point3D {
-  let cos_a = crate::lib::trig::fast_cos(angle);
-  let sin_a = crate::lib::trig::fast_sin(angle);
+  let cos_a = fast_cos(angle);
+  let sin_a = fast_sin(angle);
   Point3D {
     x: point.x,
     y: point.y * cos_a - point.z * sin_a,
@@ -110,8 +89,8 @@ fn rotate_x(point: Point3D, angle: f32) -> Point3D {
 
 // Rotate a 3D point around the Y axis
 fn rotate_y(point: Point3D, angle: f32) -> Point3D {
-  let cos_a = crate::lib::trig::fast_cos(angle);
-  let sin_a = crate::lib::trig::fast_sin(angle);
+  let cos_a = fast_cos(angle);
+  let sin_a = fast_sin(angle);
   Point3D {
     x: point.x * cos_a + point.z * sin_a,
     y: point.y,
@@ -121,8 +100,8 @@ fn rotate_y(point: Point3D, angle: f32) -> Point3D {
 
 // Rotate a 3D point around the Z axis
 fn rotate_z(point: Point3D, angle: f32) -> Point3D {
-  let cos_a = crate::lib::trig::fast_cos(angle);
-  let sin_a = crate::lib::trig::fast_sin(angle);
+  let cos_a = fast_cos(angle);
+  let sin_a = fast_sin(angle);
   Point3D {
     x: point.x * cos_a - point.y * sin_a,
     y: point.x * sin_a + point.y * cos_a,
@@ -131,11 +110,9 @@ fn rotate_z(point: Point3D, angle: f32) -> Point3D {
 }
 
 // Project a 3D point to 2D with perspective
-fn project_3d_to_2d(point: Point3D, distance: f32) -> Point2D {
+fn project_3d_to_2d(point: Point3D, distance: f32) -> Point {
   let scale = distance / (distance + point.z);
-  let x = (point.x * scale) as i32;
-  let y = (point.y * scale) as i32;
-  Point2D::new(CUBE_CENTER_X + x, CUBE_CENTER_Y + y)
+  Point::new(CUBE_CENTER_X + (point.x * scale) as i32, CUBE_CENTER_Y + (point.y * scale) as i32)
 }
 
 // Define the edges of the cube (connections between vertices)
@@ -157,30 +134,24 @@ const CUBE_EDGES: [(usize, usize); 12] = [
 static ANIMATION_DURATION: usize = 10_000; // 10 seconds for a full rotation
 
 #[unsafe(no_mangle)]
+fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+  lib::tasks::runtime_tick(host_msg_id, host_msg_size)
+}
+
+#[unsafe(no_mangle)]
 fn wasm_main() {
   spawn((async || {
-    let buf = Box::new([0x00u8; SCREEN_WIDTH * SCREEN_HEIGHT * 2]);
+    let mut buf = Box::new([0x00u8; SCREEN_WIDTH * SCREEN_HEIGHT * 2]);
+    let mut canvas = Canvas::new(&mut buf[..], SCREEN_WIDTH, SCREEN_HEIGHT);
 
-    let mut display = BufferTarget::new(buf);
-
-    let line_style = PrimitiveStyle::with_stroke(Rgb565::WHITE, 1);
     let start = get_millis();
-    let mut last_tick = start;
 
     // Initialize cube points
     let cube_points = create_cube_points();
 
     loop {
       let now = get_millis();
-      let delta = now - last_tick;
       let elapsed = now - start;
-
-      last_tick = now;
-
-      // // Stop after animation duration
-      // if now - start > ANIMATION_DURATION as u32 {
-      //   break;
-      // }
 
       // Calculate rotation angles based on elapsed time
       // Rotate around X, Y, and Z axes simultaneously for a more interesting effect
@@ -200,24 +171,18 @@ fn wasm_main() {
       }
 
       // Project to 2D
-      let projected_points: [Point2D; 8] = rotated_points.map(|p| project_3d_to_2d(p, 200.0));
+      let projected_points: [Point; 8] = rotated_points.map(|p| project_3d_to_2d(p, 200.0));
 
       // Clear display
-      display.clear();
+      canvas.clear(Rgb565::BLACK);
 
       // Draw all edges of the cube
       for &(start_idx, end_idx) in CUBE_EDGES.iter() {
-        let start_point = projected_points[start_idx];
-        let end_point = projected_points[end_idx];
-
-        Line::new(Point::new(start_point.x, start_point.y), Point::new(end_point.x, end_point.y))
-          .into_styled(line_style)
-          .draw(&mut display)
-          .unwrap();
+        canvas.draw_line(projected_points[start_idx], projected_points[end_idx], Rgb565::WHITE);
       }
 
       // Update the display
-      unsafe { extern_set_lcd_buffer(display.get_buffer_ptr()) };
+      unsafe { extern_set_lcd_buffer(canvas.as_ptr()) };
 
       // Yield to allow other tasks to run
       yield_now().await;

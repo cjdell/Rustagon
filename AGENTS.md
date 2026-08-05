@@ -39,16 +39,16 @@ wasm_protocol/
 ### Build (use `just`)
 
 **You MUST run every build command inside the `nix develop` environment.** It
-provisions the pinned Rust nightly toolchain (with the `wasm32-unknown-unknown`
+provisions the pinned Rust stable toolchain (with the `wasm32-unknown-unknown`
 target and rust-src), the ESP32-S3 Xtensa toolchain, `just`, and all other build
-tooling. The flake's `cargo` shim dispatches `cargo +nightly` to a stock nightly
+tooling. The flake's `cargo` shim dispatches `cargo +stable` to a stock stable
 that has the wasm32 target installed and everything else to the ESP fork.
 
 Never run `cargo`, `just`, or `rustup` build commands from a shell that is not
 inside `nix develop`. Building from a bare shell (host rustup, the wrong
 toolchain, or missing targets) produces confusing failures — e.g.
-`error[E0463]: can't find crate for core` when `cargo +nightly` resolves to a
-nightly without the wasm32 target, or wrong build results when the host
+`error[E0463]: can't find crate for core` when `cargo +stable` resolves to a
+stable without the wasm32 target, or wrong build results when the host
 `rustup` override takes precedence.
 
 To enter the environment:
@@ -132,23 +132,32 @@ guest. Rules that keep it out:
 - **Minimal `sdk/Cargo.toml` deps.** Every entry links into *every* bin target
   (even if the app never uses it). An unused std-based crate (e.g. `wasi`,
   `pasts`, `anyhow`) drags `std` into all apps. Only list what the shared lib
-  (`sdk/src/lib/`) actually uses.
+  (`sdk/src/`) actually uses.
 - **`serde` must not enable its default `std` feature** — always
   `default-features = false, features = ["derive", "alloc"]`. Same for any dep
   with a `std` default feature.
 - **No std-only dependencies.** If a dep needs `std` (e.g. `fixed_deque` wraps
   `std::collections::VecDeque`), replace it with a small hand-rolled equivalent
-  (see the `TaskQueue` ring buffer in `sdk/src/lib/tasks.rs`).
-- **Every bin must define `#[global_allocator]` and `#[panic_handler]`** so std's
-  dlmalloc allocator and panic machinery are never the link-time fallback. The
-  shared lib provides both via `allocator.rs` (lol_alloc) and `panic.rs`
-  (non-formatting). Bins that only `#[path]`-include part of the lib
-  (`barecube`, `barefill`) must include those two modules explicitly.
-- **`f32::cos()`/`f32::sin()` will NOT compile once `std` is gone.** Use
-  `libm::cosf`/`libm::sinf`, or the SDK's compact `fast_sin`/`fast_cos`
-  (`sdk/src/lib/trig.rs`, ~3.7 KB smaller than libm because it skips
-  `rem_pio2f`). Don't re-add a `std`-pulling dep to make inherent float methods
-  resolve.
+  (see the `TaskQueue` ring buffer in `sdk/src/tasks.rs`).
+- **The lib crate provides `#[global_allocator]` (lol_alloc) and
+  `#[panic_handler]`** (non-formatting), so std's dlmalloc allocator and panic
+  machinery are never the link-time fallback. Every bin links the `sdk` lib
+  crate, so this is automatic.
+- **`f32::cos()`/`f32::sin()` will NOT compile once `std` is gone.** Use the
+  SDK's compact `fast_sin`/`fast_cos`/`fast_sqrt` (`sdk/src/trig.rs`; the trig
+  approx is ~3.7 KB smaller than libm because it skips `rem_pio2f`). `libm` is
+  no longer a dependency — don't re-add a `std`-pulling dep to make inherent
+  float methods resolve.
+
+- **`tick` is exported by each app binary.** Most delegate to
+  `sdk::tasks::runtime_tick`; apps with a custom `tick` (`barefill`,
+  `barecube`) return `1` immediately so the runtime's message parsing and task
+  queue never get linked into them.
+
+- **The SDK uses no nightly features** (no `#[thread_local]` — the task
+  statics are `SyncUnsafe` wrappers, sound because wasm32 is single-threaded),
+  so the flake pins a stock *stable* Rust; the `cargo +stable` shim is how the
+  justfile builds the SDK.
 - **Do NOT change the wire protocol to binary.** The host↔guest IPC is
   serde_json / serde-json-core JSON, and the JavaScript runtime in `web`
   implements the same format. Any protocol change must stay JSON-compatible.
@@ -236,7 +245,7 @@ shared crate, `libs/wasm_protocol` (`no_std`, serde + alloc only). It contains o
 - `HostIpcMessage` (host → guest wire): `HexButton`, `HttpError`, `HttpResponseMeta`,
   `HttpResponseBody(Vec<u8>)`, `HttpResponseComplete`.
 
-**The SDK never sees lifecycle messages.** `sdk/src/lib/protocol.rs` re-exports
+**The SDK never sees lifecycle messages.** `sdk/src/protocol.rs` re-exports
 `wasm_protocol::*` next to its `extern "C"` host-function block. The start/stop and
 display-sync variants that the runtime uses internally live only in the app crate,
 wrapped around the wire enums so the wire format stays byte-identical:
@@ -472,10 +481,19 @@ rustagon/
 │   ├── esp32s3_embedded_tools/       # ESP32-S3 flash driver
 │   ├── procmacros/                   # include_rgb565_icon!, partition_offset! macros
 │   └── wasm_protocol/                # Wire protocol types shared with the WASM SDK (no_std)
-├── sdk/                              # WASM SDK for emulator programs
-│   └── src/lib/
-│       ├── protocol.rs               #   extern "C" host functions + re-export of wasm_protocol::*
-│       └── ...                       #   http, tasks, helper, graphics, etc.
+├── sdk/                              # WASM SDK for badge apps (lib crate + bins)
+│   ├── src/
+│   │   ├── lib.rs                    #   crate root: modules + mk_static!
+│   │   ├── gfx/                      #   zero-dependency drawing: Canvas, Rgb565, 5x7 font
+│   │   ├── fmt.rs                    #   integer formatting without alloc::format!
+│   │   ├── tasks.rs                  #   async runtime: spawn, yield_now, runtime_tick, HOST_IPC_CHANNEL
+│   │   ├── trig.rs                   #   fast_sin / fast_cos / fast_sqrt
+│   │   ├── http.rs                   #   make_http_request
+│   │   ├── helper.rs                 #   host calls + println!/log_error! macros
+│   │   ├── protocol.rs               #   extern "C" host fns + re-export of wasm_protocol::*
+│   │   ├── sleep.rs / allocator.rs / panic.rs
+│   │   └── bin/                      #   the apps (one .wsm each)
+│   └── wasm/                         #   built .wsm files + manifest.json
 ├── web/                              # Web app for device management
 │   ├── src/                          # Source code (Solid.js, TypeScript)
 │   ├── public/                       # Static assets
@@ -1003,7 +1021,7 @@ consumer operation. No channel, no multiple receivers, no race.
 - **Menu state/stack:** `app/src/menu/state.rs`
 - **Menu types:** `app/src/menu/types.rs`
 - **Menu apps:** `app/src/apps/mod.rs` (enum + list/load), `app/src/apps/*.rs`
-- **Protocol types:** `app/src/protocol.rs` (runtime supersets), `libs/wasm_protocol/src/lib.rs` (wire types), `sdk/src/lib/protocol.rs` (SDK re-export + host functions)
+- **Protocol types:** `app/src/protocol.rs` (runtime supersets), `libs/wasm_protocol/src/lib.rs` (wire types), `sdk/src/protocol.rs` (SDK re-export + host functions)
 - **Domain types:** `app/src/types.rs`
 - **Firmware entry point:** `firmware/src/bin/rustagon.rs`
 - **Firmware platform:** `firmware/src/platform/hardware.rs`

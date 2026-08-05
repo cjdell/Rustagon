@@ -2,47 +2,36 @@
 
 #![no_std]
 #![no_main]
-#![feature(thread_local)]
 
-#[path = "../lib/mod.rs"]
-#[macro_use]
-mod lib;
+use sdk as lib;
 
 extern crate alloc;
 
-use crate::lib::graphics::BufferTarget;
-use crate::lib::helper::set_lcd_buffer;
-use crate::lib::http::make_http_request;
-use crate::lib::protocol::HttpRequest;
-use crate::lib::sleep::sleep;
-use crate::lib::tasks::spawn;
-use alloc::boxed::Box;
-use alloc::string::ToString;
-use embedded_graphics::Drawable as _;
-use embedded_graphics::mono_font::MonoTextStyle;
-use embedded_graphics::mono_font::ascii::FONT_10X20;
-use embedded_graphics::pixelcolor::Rgb565;
-use embedded_graphics::prelude::Point;
-use embedded_graphics::prelude::RgbColor;
-use embedded_graphics::text::Baseline;
-use embedded_graphics::text::Text;
+use crate::lib::{
+  gfx::{Canvas, Rgb565},
+  http::make_http_request,
+  protocol::{HttpRequest, extern_set_lcd_buffer},
+  sleep::sleep,
+  tasks::spawn,
+};
+use alloc::{boxed::Box, string::ToString};
+
+#[unsafe(no_mangle)]
+fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+  lib::tasks::runtime_tick(host_msg_id, host_msg_size)
+}
 
 #[unsafe(no_mangle)]
 fn wasm_main() {
   spawn((async || {
-    let buf = Box::new([0x00u8; 240 * 240 * 2]);
-
-    let mut display = BufferTarget::new(buf);
-
-    let text_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+    let mut buf = Box::new([0x00u8; 240 * 240 * 2]);
+    let mut canvas = Canvas::new(&mut buf[..], 240, 240);
 
     let resp = make_http_request(HttpRequest::new("http://firmware.rustagon.chrisdell.info".to_string())).await;
 
-    let mut text = Text::new(&resp.body, Point::new(0, 0), text_style);
-    text.text_style.baseline = Baseline::Top;
-    text.draw(&mut display).unwrap();
+    canvas.draw_text(&resp.body, 0, 0, Rgb565::WHITE, 1);
 
-    set_lcd_buffer(display.get_buffer_ptr());
+    unsafe { extern_set_lcd_buffer(canvas.as_ptr()) };
 
     sleep(2_000).await;
   })());

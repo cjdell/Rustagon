@@ -1,3 +1,6 @@
+# The SDK uses no nightly features; this pins the toolchain for anyone using
+# rustup directly. The flake's `cargo +stable` shim is the canonical way to
+# build (see ../flake.nix).
 [toolchain]
-channel    = "nightly"
+channel    = "stable"
 components = ["rust-src"]

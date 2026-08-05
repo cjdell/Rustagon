@@ -2,31 +2,24 @@
 
 #![no_std]
 #![no_main]
-#![feature(thread_local)]
 
-#[path = "../lib/mod.rs"]
-#[macro_use]
-mod lib;
+use sdk as lib;
 
 extern crate alloc;
 
 use crate::lib::{
-  graphics::{BufferTarget, SCREEN_HEIGHT, SCREEN_WIDTH},
+  gfx::{Canvas, Point, Rgb565, SCREEN_HEIGHT, SCREEN_WIDTH},
   helper::get_millis,
   protocol::extern_set_lcd_buffer,
   tasks::{spawn, yield_now},
+  trig::{fast_cos, fast_sin, fast_sqrt},
 };
 use alloc::boxed::Box;
-use embedded_graphics::{
-  Drawable as _,
-  pixelcolor::Rgb565,
-  prelude::{Point, Primitive as _, RgbColor},
-  primitives::{Line, PrimitiveStyle, Triangle},
-};
 
 static ANIMATION_DURATION: usize = 10_000;
 
 // 3D vector operations
+#[derive(Clone, Copy)]
 struct Vec3 {
   x: f32,
   y: f32,
@@ -39,24 +32,20 @@ impl Vec3 {
   }
 
   fn rotate_x(&self, angle: f32) -> Vec3 {
-    let cos_a = crate::lib::trig::fast_cos(angle);
-    let sin_a = crate::lib::trig::fast_sin(angle);
+    let cos_a = fast_cos(angle);
+    let sin_a = fast_sin(angle);
     Vec3::new(self.x, self.y * cos_a - self.z * sin_a, self.y * sin_a + self.z * cos_a)
   }
 
   fn rotate_y(&self, angle: f32) -> Vec3 {
-    let cos_a = crate::lib::trig::fast_cos(angle);
-    let sin_a = crate::lib::trig::fast_sin(angle);
-    Vec3::new(
-      self.x * cos_a + self.z * sin_a,
-      self.y,
-      -self.x * sin_a + self.z * cos_a,
-    )
+    let cos_a = fast_cos(angle);
+    let sin_a = fast_sin(angle);
+    Vec3::new(self.x * cos_a + self.z * sin_a, self.y, -self.x * sin_a + self.z * cos_a)
   }
 
   fn rotate_z(&self, angle: f32) -> Vec3 {
-    let cos_a = crate::lib::trig::fast_cos(angle);
-    let sin_a = crate::lib::trig::fast_sin(angle);
+    let cos_a = fast_cos(angle);
+    let sin_a = fast_sin(angle);
     Vec3::new(self.x * cos_a - self.y * sin_a, self.x * sin_a + self.y * cos_a, self.z)
   }
 
@@ -93,7 +82,7 @@ fn calculate_intensity(v0: &Vec3, v1: &Vec3, v2: &Vec3) -> f32 {
   let nz = ux * vy - uy * vx;
 
   // Normalize
-  let len = libm::sqrtf(nx * nx + ny * ny + nz * nz);
+  let len = fast_sqrt(nx * nx + ny * ny + nz * nz);
   if len < 0.001 {
     return 0.5;
   }
@@ -106,27 +95,32 @@ fn calculate_intensity(v0: &Vec3, v1: &Vec3, v2: &Vec3) -> f32 {
   let lx = 0.5f32;
   let ly = -0.5f32;
   let lz = -1.0f32;
-  let llen = libm::sqrtf(lx * lx + ly * ly + lz * lz);
+  let llen = fast_sqrt(lx * lx + ly * ly + lz * lz);
 
   // Dot product with light direction
   let intensity = (nx * lx + ny * ly + nz * lz) / llen;
 
   // Clamp between 0.2 and 1.0 for ambient + diffuse
-  libm::fmaxf(0.2, libm::fminf(1.0, intensity))
+  intensity.clamp(0.2, 1.0)
 }
 
 fn color_from_intensity(intensity: f32, base_color: Rgb565) -> Rgb565 {
-  let r = ((base_color.r() as f32 * intensity) as u8).min(31);
-  let g = ((base_color.g() as f32 * intensity) as u8).min(63);
-  let b = ((base_color.b() as f32 * intensity) as u8).min(31);
+  let r = ((base_color.r5() as f32 * intensity) as u8).min(31);
+  let g = ((base_color.g6() as f32 * intensity) as u8).min(63);
+  let b = ((base_color.b5() as f32 * intensity) as u8).min(31);
   Rgb565::new(r, g, b)
+}
+
+#[unsafe(no_mangle)]
+fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+  lib::tasks::runtime_tick(host_msg_id, host_msg_size)
 }
 
 #[unsafe(no_mangle)]
 fn wasm_main() {
   spawn((async || {
-    let buf = Box::new([0x00u8; SCREEN_WIDTH * SCREEN_HEIGHT * 2]);
-    let mut display = BufferTarget::new(buf);
+    let mut buf = Box::new([0x00u8; SCREEN_WIDTH * SCREEN_HEIGHT * 2]);
+    let mut canvas = Canvas::new(&mut buf[..], SCREEN_WIDTH, SCREEN_HEIGHT);
 
     let center_x = SCREEN_WIDTH as f32 / 2.0;
     let center_y = SCREEN_HEIGHT as f32 / 2.0;
@@ -177,7 +171,7 @@ fn wasm_main() {
         break;
       }
 
-      display.clear();
+      canvas.clear(Rgb565::BLACK);
 
       // Calculate rotation angles
       let t = elapsed as f32 / 1000.0;
@@ -186,17 +180,8 @@ fn wasm_main() {
       let angle_z = t * 0.5;
 
       // Rotate and project vertices
-      let mut projected: [Point; 8] = [Point::zero(); 8];
-      let mut rotated: [Vec3; 8] = [
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 0.0),
-      ];
+      let mut projected: [Point; 8] = [Point::new(0, 0); 8];
+      let mut rotated: [Vec3; 8] = [Vec3::new(0.0, 0.0, 0.0); 8];
 
       for i in 0..8 {
         rotated[i] = cube_verts[i].rotate_x(angle_x).rotate_y(angle_y).rotate_z(angle_z);
@@ -217,10 +202,7 @@ fn wasm_main() {
         let intensity = calculate_intensity(v0, v1, v2) * 2.;
         let color = color_from_intensity(intensity, *base_color);
 
-        Triangle::new(projected[*v0_idx], projected[*v1_idx], projected[*v2_idx])
-          .into_styled(PrimitiveStyle::with_fill(color))
-          .draw(&mut display)
-          .unwrap();
+        canvas.fill_triangle(projected[*v0_idx], projected[*v1_idx], projected[*v2_idx], color);
       }
 
       // Draw edges
@@ -239,15 +221,11 @@ fn wasm_main() {
         (3, 7), // Connecting edges
       ];
 
-      let edge_style = PrimitiveStyle::with_stroke(Rgb565::WHITE, 1);
       for (start_idx, end_idx) in edges.iter() {
-        Line::new(projected[*start_idx], projected[*end_idx])
-          .into_styled(edge_style)
-          .draw(&mut display)
-          .unwrap();
+        canvas.draw_line(projected[*start_idx], projected[*end_idx], Rgb565::WHITE);
       }
 
-      unsafe { extern_set_lcd_buffer(display.get_buffer_ptr()) };
+      unsafe { extern_set_lcd_buffer(canvas.as_ptr()) };
       yield_now().await;
     }
   })());

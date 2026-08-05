@@ -23,5 +23,5 @@
 mod canvas;
 mod font;
 
-pub use canvas::{Canvas, Point, Rect, Rgb565};
+pub use canvas::{Canvas, Point, Rect, Rgb565, SCREEN_HEIGHT, SCREEN_WIDTH};
 pub use font::{text_height, text_width};

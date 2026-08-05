@@ -1,4 +1,4 @@
-use crate::lib::protocol::{extern_check_timer, extern_register_timer};
+use crate::protocol::{extern_check_timer, extern_register_timer};
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};

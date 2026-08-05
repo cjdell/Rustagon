@@ -1,20 +1,12 @@
 #![no_std]
 #![no_main]
 
-use crate::protocol::extern_set_lcd_buffer;
-use alloc::boxed::Box;
-
-#[path = "../lib/protocol.rs"]
-#[macro_use]
-mod protocol;
-
-#[path = "../lib/allocator.rs"]
-mod allocator;
-
-#[path = "../lib/panic.rs"]
-mod panic;
+use sdk as lib;
 
 extern crate alloc;
+
+use alloc::boxed::Box;
+use lib::protocol::extern_set_lcd_buffer;
 
 #[unsafe(no_mangle)]
 fn wasm_main() {

@@ -30,3 +30,16 @@ pub fn fast_sin(x: f32) -> f32 {
 pub fn fast_cos(x: f32) -> f32 {
   fast_sin(x + HALF_PI)
 }
+
+/// Compact square root via two Newton-Raphson iterations from a classic
+/// bit-level initial guess. Error < ~1e-4 for the range used by the demos.
+pub fn fast_sqrt(x: f32) -> f32 {
+  if x <= 0.0 {
+    return 0.0;
+  }
+  let bits = x.to_bits();
+  let mut y = f32::from_bits(0x5F37_5A86 + (bits >> 1));
+  y = 0.5 * (y + x / y);
+  y = 0.5 * (y + x / y);
+  y
+}

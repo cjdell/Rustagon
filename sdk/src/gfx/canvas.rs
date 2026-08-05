@@ -3,8 +3,13 @@
 //!
 //! Only `core` is used — no `embedded_graphics`, no `libm`, no `alloc`. The
 //! framebuffer layout matches what the host LCD expects (RGB565, big-endian
-//! bytes — the same layout `graphics::BufferTarget` writes), so a canvas can
-//! be handed straight to `extern_set_lcd_buffer`.
+//! bytes — the same layout the host LCD uses), so a canvas can be handed
+//! straight to `extern_set_lcd_buffer`.
+
+/// Logical screen width in pixels.
+pub const SCREEN_WIDTH: usize = 240;
+/// Logical screen height in pixels.
+pub const SCREEN_HEIGHT: usize = 240;
 
 /// 16-bit RGB565 color.
 ///
@@ -41,6 +46,21 @@ impl Rgb565 {
   /// The raw 16-bit RGB565 value.
   pub const fn raw(self) -> u16 {
     self.0
+  }
+
+  /// 5-bit red component (0-31).
+  pub const fn r5(self) -> u8 {
+    (self.0 >> 11) as u8
+  }
+
+  /// 6-bit green component (0-63).
+  pub const fn g6(self) -> u8 {
+    ((self.0 >> 5) & 0x3F) as u8
+  }
+
+  /// 5-bit blue component (0-31).
+  pub const fn b5(self) -> u8 {
+    (self.0 & 0x1F) as u8
   }
 }
 

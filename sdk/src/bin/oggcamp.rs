@@ -2,42 +2,32 @@
 
 #![no_std]
 #![no_main]
-#![feature(thread_local)]
 
-#[path = "../lib/mod.rs"]
-#[macro_use]
-mod lib;
+use sdk as lib;
 
 extern crate alloc;
 
 use crate::lib::{
-  graphics::{BufferTarget, SCREEN_HEIGHT, SCREEN_WIDTH},
-  helper::get_millis,
+  fmt::{print_str, print_u32},
+  gfx::{Canvas, Point, Rgb565, SCREEN_HEIGHT, SCREEN_WIDTH},
+  helper::{get_millis, print_line},
   protocol::extern_set_lcd_buffer,
   tasks::{spawn, yield_now},
 };
 use alloc::boxed::Box;
-use embedded_graphics::{
-  Drawable as _,
-  mono_font::{MonoTextStyle, ascii::FONT_10X20},
-  pixelcolor::Rgb565,
-  prelude::{Point, Primitive as _, RgbColor, WebColors as _},
-  primitives::{Line, PrimitiveStyle},
-  text::Text,
-};
 
 static ANIMATION_DURATION: usize = 5_000;
 
 #[unsafe(no_mangle)]
+fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+  lib::tasks::runtime_tick(host_msg_id, host_msg_size)
+}
+
+#[unsafe(no_mangle)]
 fn wasm_main() {
   spawn((async || {
-    let buf = Box::new([0x00u8; SCREEN_WIDTH * SCREEN_HEIGHT * 2]);
-
-    let mut display = BufferTarget::new(buf);
-
-    let text_style = MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_WHITE);
-
-    let line_style = PrimitiveStyle::with_stroke(Rgb565::WHITE, 1);
+    let mut buf = Box::new([0x00u8; SCREEN_WIDTH * SCREEN_HEIGHT * 2]);
+    let mut canvas = Canvas::new(&mut buf[..], SCREEN_WIDTH, SCREEN_HEIGHT);
 
     let start = get_millis();
     let mut last_tick = start;
@@ -57,25 +47,16 @@ fn wasm_main() {
 
       let i = (elapsed as i32) / (ANIMATION_DURATION / SCREEN_WIDTH) as i32;
 
-      println!("delta: {delta}");
+      print_str("delta: ");
+      print_u32(delta);
+      print_line("\n");
 
-      display.clear();
+      canvas.clear(Rgb565::BLACK);
 
-      Line::new(Point::new(0, i), Point::new(SCREEN_WIDTH as i32 - 1, i))
-        .into_styled(line_style)
-        .draw(&mut display)
-        .unwrap();
+      canvas.draw_line(Point::new(0, i), Point::new(SCREEN_WIDTH as i32 - 1, i), Rgb565::WHITE);
+      canvas.draw_text("Hello Oggcamp 2026", 0, i - 10, Rgb565::WHITE, 2);
 
-      Text::new("Hello Oggcamp 2026", Point::new(0, i - 10), text_style)
-        .draw(&mut display)
-        .unwrap();
-
-      // Line::new(Point::new(i, 0), Point::new(i, SCREEN_HEIGHT as i32 - 1))
-      //   .into_styled(line_style)
-      //   .draw(&mut display)
-      //   .unwrap();
-
-      unsafe { extern_set_lcd_buffer(display.get_buffer_ptr()) };
+      unsafe { extern_set_lcd_buffer(canvas.as_ptr()) };
 
       yield_now().await;
     }

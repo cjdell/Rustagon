@@ -2,26 +2,32 @@
 
 #![no_std]
 #![no_main]
-#![feature(thread_local)]
 
 use crate::lib::{
-  graphics::{SCREEN_HEIGHT, SCREEN_WIDTH},
-  helper::set_lcd_buffer,
+  fmt::{print_str, print_u32},
+  gfx::{SCREEN_HEIGHT, SCREEN_WIDTH},
+  helper::print_line,
+  protocol::extern_set_lcd_buffer,
   sleep::sleep,
   tasks::spawn,
 };
 use alloc::boxed::Box;
 
-#[path = "../lib/mod.rs"]
 #[macro_use]
-mod lib;
+extern crate sdk;
+use sdk as lib;
 
 extern crate alloc;
 
 #[unsafe(no_mangle)]
+fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+  lib::tasks::runtime_tick(host_msg_id, host_msg_size)
+}
+
+#[unsafe(no_mangle)]
 fn wasm_main() {
   spawn((async || {
-    println!("About to write to LCD...");
+    print_line("About to write to LCD...\n");
 
     let file = include_bytes!("../../assets/leigh.jpg");
 
@@ -33,7 +39,9 @@ fn wasm_main() {
 
     let (image_width, image_height) = decoder.dimensions().unwrap();
 
-    println!("Image Size: {}", image.len()); // 37800
+    print_str("Image Size: ");
+    print_u32(image.len() as u32);
+    print_line("\n"); // 37800
 
     let buf = buf.as_mut_ptr();
     let image = image.as_ptr();
@@ -67,9 +75,9 @@ fn wasm_main() {
       }
     }
 
-    set_lcd_buffer(buf);
+    unsafe { extern_set_lcd_buffer(buf) };
 
-    println!("Done writing to LCD");
+    print_line("Done writing to LCD");
 
     sleep(3000).await;
   })());

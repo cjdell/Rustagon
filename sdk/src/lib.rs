@@ -1,12 +1,12 @@
-#![feature(thread_local)]
+#![no_std]
 
 extern crate alloc;
 
 #[macro_use]
 pub mod helper;
 pub mod allocator;
+pub mod fmt;
 pub mod gfx;
-pub mod graphics;
 pub mod http;
 pub mod panic;
 pub mod protocol;

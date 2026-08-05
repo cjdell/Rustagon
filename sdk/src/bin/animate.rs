@@ -2,44 +2,34 @@
 
 #![no_std]
 #![no_main]
-#![feature(thread_local)]
 
-#[path = "../lib/mod.rs"]
 #[macro_use]
-mod lib;
+extern crate sdk;
+use sdk as lib;
 
 extern crate alloc;
 
 use crate::lib::{
-  graphics::BufferTarget,
-  helper::get_millis,
+  fmt::{print_str, print_u32},
+  gfx::{Canvas, Point, Rect, Rgb565},
+  helper::{get_millis, print_line},
   protocol::extern_set_lcd_buffer,
   tasks::{HOST_IPC_CHANNEL, spawn, yield_now},
 };
 use alloc::{boxed::Box, format, string::ToString};
-use embedded_graphics::{
-  Drawable as _,
-  mono_font::{MonoTextStyle, iso_8859_3::FONT_10X20},
-  pixelcolor::Rgb565,
-  prelude::{Point, Primitive as _, RgbColor, Size},
-  primitives::{Circle, Line, PrimitiveStyle, Rectangle},
-  text::Text,
-};
+
+#[unsafe(no_mangle)]
+fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+  lib::tasks::runtime_tick(host_msg_id, host_msg_size)
+}
 
 #[unsafe(no_mangle)]
 fn wasm_main() {
   spawn((async || {
-    let buf = Box::new([0x00u8; 240 * 240 * 2]);
+    let mut buf = Box::new([0x00u8; 240 * 240 * 2]);
+    let mut canvas = Canvas::new(&mut buf[..], 240, 240);
 
-    println!("Buffer created");
-
-    let mut display = BufferTarget::new(buf);
-
-    let line_style = PrimitiveStyle::with_stroke(Rgb565::BLUE, 1);
-    let fill_style = PrimitiveStyle::with_fill(Rgb565::YELLOW);
-    let text_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-
-    println!("Drawing shapes...");
+    print_line("Buffer created\n");
 
     let mut str = "Hello World!".to_string();
 
@@ -66,44 +56,24 @@ fn wasm_main() {
       }
 
       let i = (elapsed as i32) / 30;
-      println!("delta: {delta}");
+      print_str("delta: ");
+      print_u32(delta);
+      print_line("\n");
 
-      display.clear();
+      canvas.clear(Rgb565::BLACK);
 
-      Circle::new(Point::new(i, 140), 48)
-        .into_styled(fill_style)
-        .draw(&mut display)
-        .unwrap();
+      canvas.fill_circle(Point::new(i, 140), 48, Rgb565::YELLOW);
+      canvas.draw_circle(Point::new(72, 8 + i), 48, Rgb565::BLUE);
+      canvas.draw_line(Point::new(48, 16 + i), Point::new(8, 16 + i), Rgb565::BLUE);
+      canvas.draw_line(Point::new(48, 16 + i), Point::new(64, 32 + i), Rgb565::BLUE);
+      canvas.draw_rect(Rect::new(79, 15 + i, 34, 34), Rgb565::BLUE);
+      canvas.draw_text(&str, 6, 5 + i, Rgb565::WHITE, 2);
 
-      Circle::new(Point::new(72, 8 + i), 48)
-        .into_styled(line_style)
-        .draw(&mut display)
-        .unwrap();
-
-      Line::new(Point::new(48, 16 + i), Point::new(8, 16 + i))
-        .into_styled(line_style)
-        .draw(&mut display)
-        .unwrap();
-
-      Line::new(Point::new(48, 16 + i), Point::new(64, 32 + i))
-        .into_styled(line_style)
-        .draw(&mut display)
-        .unwrap();
-
-      Rectangle::new(Point::new(79, 15 + i), Size::new(34, 34))
-        .into_styled(line_style)
-        .draw(&mut display)
-        .unwrap();
-
-      Text::new(&str, Point::new(5 + 1, 5 + i), text_style)
-        .draw(&mut display)
-        .unwrap();
-
-      unsafe { extern_set_lcd_buffer(display.get_buffer_ptr()) };
+      unsafe { extern_set_lcd_buffer(canvas.as_ptr()) };
 
       yield_now().await;
     }
 
-    println!("Done writing to LCD");
+    print_line("Done writing to LCD");
   })());
 }

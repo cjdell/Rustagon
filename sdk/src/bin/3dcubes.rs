@@ -1,153 +1,145 @@
+// Three rotating cubes with a directional light, rendered with the
+// zero-dependency gfx library.
+//
+// Port of the embedded-3dgfx "3dcubes" sample: a fixed camera at (0, 3, 10)
+// looking at the origin. Use Up/Down/Right to steer the light, Fire to toggle
+// auto-rotation, any other button to exit. No embedded-graphics, embedded-3dgfx
+// or nalgebra.
+
 #![no_std]
 #![no_main]
-#![feature(thread_local)]
 
-#[path = "../lib/mod.rs"]
 #[macro_use]
-mod lib;
+extern crate sdk;
+use sdk as lib;
 
 extern crate alloc;
 
 use crate::lib::{
-  graphics::{BufferTarget, SCREEN_HEIGHT, SCREEN_WIDTH},
+  fmt,
+  gfx::{Canvas, Point, Rgb565, SCREEN_HEIGHT, SCREEN_WIDTH},
   helper::get_millis,
-  protocol::{extern_set_lcd_buffer, HexButton, HostIpcMessage},
-  tasks::{spawn, yield_now, HOST_IPC_CHANNEL},
+  protocol::{HexButton, HostIpcMessage, extern_set_lcd_buffer},
+  tasks::{HOST_IPC_CHANNEL, spawn, yield_now},
+  trig::{fast_cos, fast_sin, fast_sqrt},
 };
-use alloc::{boxed::Box, vec::Vec};
-use alloc::{format, vec};
-use core::iter::once;
-use embedded_3dgfx::{
-  draw::draw_zbuffered,
-  mesh::{Geometry, K3dMesh, RenderMode},
-  K3dengine,
-};
-use embedded_graphics::{
-  mono_font::{ascii::FONT_6X10, MonoTextStyle},
-  pixelcolor::Rgb565,
-  prelude::{DrawTarget as _, Point, WebColors},
-  text::Text,
-  Drawable as _, Pixel,
-};
-use nalgebra::{Point3, Vector3};
+use alloc::boxed::Box;
 
-fn calculate_face_normal(v0: &[f32; 3], v1: &[f32; 3], v2: &[f32; 3]) -> [f32; 3] {
-  let edge1 = Vector3::new(v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]);
-  let edge2 = Vector3::new(v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]);
-  let normal = edge1.cross(&edge2).normalize();
-  [normal.x, normal.y, normal.z]
+// Cube vertices (front face first) and the 12 triangle faces.
+const VERTICES: [[f32; 3]; 8] = [
+  [-1.0, -1.0, 1.0],
+  [1.0, -1.0, 1.0],
+  [1.0, 1.0, 1.0],
+  [-1.0, 1.0, 1.0],
+  [-1.0, -1.0, -1.0],
+  [1.0, -1.0, -1.0],
+  [1.0, 1.0, -1.0],
+  [-1.0, 1.0, -1.0],
+];
+
+const FACES: [[usize; 3]; 12] = [
+  [0, 1, 2],
+  [0, 2, 3], // front
+  [5, 4, 7],
+  [5, 7, 6], // back
+  [3, 2, 6],
+  [3, 6, 7], // top
+  [4, 5, 1],
+  [4, 1, 0], // bottom
+  [1, 5, 6],
+  [1, 6, 2], // right
+  [4, 0, 3],
+  [4, 3, 7], // left
+];
+
+// Camera at (0, 3, 10) looking at the origin. Precomputed basis (scaled by
+// 1/sqrt(109) and folded into FOCAL).
+const FOCAL: f32 = 280.0;
+const INV_SQRT109: f32 = 0.09578262665741734;
+
+struct Cube {
+  pos: [f32; 3],
+  color: Rgb565,
+  rates: [f32; 3], // yaw, pitch, roll per second
 }
 
-fn make_cube() -> (Vec<[f32; 3]>, Vec<[usize; 3]>, Vec<[f32; 3]>) {
-  let vertices = vec![
-    [-1.0, -1.0, 1.0],
-    [1.0, -1.0, 1.0],
-    [1.0, 1.0, 1.0],
-    [-1.0, 1.0, 1.0],
-    [-1.0, -1.0, -1.0],
-    [1.0, -1.0, -1.0],
-    [1.0, 1.0, -1.0],
-    [-1.0, 1.0, -1.0],
-  ];
+const CUBES: [Cube; 3] = [
+  Cube {
+    pos: [-3.0, 0.0, 0.0],
+    color: Rgb565::new(31, 0, 0),
+    rates: [0.3, 0.5, 0.2],
+  },
+  Cube {
+    pos: [0.0, 0.0, 0.0],
+    color: Rgb565::new(0, 63, 0),
+    rates: [0.4, 0.3, 0.6],
+  },
+  Cube {
+    pos: [3.0, 0.0, 0.0],
+    color: Rgb565::new(0, 0, 31),
+    rates: [0.5, 0.4, 0.3],
+  },
+];
 
-  let faces = vec![
-    [0, 1, 2],
-    [0, 2, 3], // Front
-    [5, 4, 7],
-    [5, 7, 6], // Back
-    [3, 2, 6],
-    [3, 6, 7], // Top
-    [4, 5, 1],
-    [4, 1, 0], // Bottom
-    [1, 5, 6],
-    [1, 6, 2], // Right
-    [4, 0, 3],
-    [4, 3, 7], // Left
-  ];
+fn rotate_y(x: f32, y: f32, z: f32, a: f32) -> (f32, f32, f32) {
+  let (c, s) = (fast_cos(a), fast_sin(a));
+  (x * c + z * s, y, -x * s + z * c)
+}
 
-  // Calculate per-face normals
-  let mut normals = Vec::new();
-  for face in &faces {
-    let v0 = &vertices[face[0]];
-    let v1 = &vertices[face[1]];
-    let v2 = &vertices[face[2]];
-    normals.push(calculate_face_normal(v0, v1, v2));
-  }
+fn rotate_x(x: f32, y: f32, z: f32, a: f32) -> (f32, f32, f32) {
+  let (c, s) = (fast_cos(a), fast_sin(a));
+  (x, y * c - z * s, y * s + z * c)
+}
 
-  (vertices, faces, normals)
+fn rotate_z(x: f32, y: f32, z: f32, a: f32) -> (f32, f32, f32) {
+  let (c, s) = (fast_cos(a), fast_sin(a));
+  (x * c - y * s, x * s + y * c, z)
+}
+
+/// Camera-space coordinates (y = up, z = forward).
+fn to_camera(v: [f32; 3]) -> [f32; 3] {
+  let dy = ((v[1] - 3.0) * 10.0 - (v[2] - 10.0) * 3.0) * INV_SQRT109;
+  let dz = (-(v[1] - 3.0) * 3.0 - (v[2] - 10.0) * 10.0) * INV_SQRT109;
+  [v[0], dy, dz]
+}
+
+/// Project a camera-space vertex to the screen.
+fn project(cam: [f32; 3]) -> Point {
+  Point::new(
+    (cam[0] * FOCAL / cam[2] + SCREEN_WIDTH as f32 / 2.0) as i32,
+    (-cam[1] * FOCAL / cam[2] + SCREEN_HEIGHT as f32 / 2.0) as i32,
+  )
+}
+
+fn shade(base: Rgb565, intensity: f32) -> Rgb565 {
+  Rgb565::new(
+    (base.r5() as f32 * intensity) as u8,
+    (base.g6() as f32 * intensity) as u8,
+    (base.b5() as f32 * intensity) as u8,
+  )
+}
+
+// (depth, color, a, b, c) — painter's-algorithm draw list.
+type Face = (f32, Rgb565, Point, Point, Point);
+
+#[unsafe(no_mangle)]
+fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+  lib::tasks::runtime_tick(host_msg_id, host_msg_size)
 }
 
 #[unsafe(no_mangle)]
 fn wasm_main() {
   spawn((async || {
-    let buf = Box::new([0x00u8; SCREEN_WIDTH * SCREEN_HEIGHT * 2]);
-
-    let mut display = BufferTarget::new(buf);
-
-    // Create 3D engine
-    let mut engine = K3dengine::new(SCREEN_WIDTH as u16, SCREEN_HEIGHT as u16);
-    engine.camera.set_position(Point3::new(0.0, 3.0, 10.0));
-    engine.camera.set_target(Point3::new(0.0, 0.0, 0.0));
-
-    // Create three cubes - this makes lighting super obvious
-    let (cube_verts, cube_faces, cube_normals) = make_cube();
-
-    let cube_geometry = Geometry {
-      vertices: &cube_verts,
-      faces: &cube_faces,
-      colors: &[],
-      lines: &[],
-      normals: &cube_normals,
-      uvs: &[],
-      texture_id: None,
-    };
-
-    let mut cube1 = K3dMesh::new(cube_geometry);
-    cube1.set_color(Rgb565::new(31, 0, 0)); // Bright red
-    cube1.set_position(-3.0, 0.0, 0.0);
-
-    let cube_geometry2 = Geometry {
-      vertices: &cube_verts,
-      faces: &cube_faces,
-      colors: &[],
-      lines: &[],
-      normals: &cube_normals,
-      uvs: &[],
-      texture_id: None,
-    };
-
-    let mut cube2 = K3dMesh::new(cube_geometry2);
-    cube2.set_color(Rgb565::new(0, 63, 0)); // Bright green
-    cube2.set_position(0.0, 0.0, 0.0);
-
-    let cube_geometry3 = Geometry {
-      vertices: &cube_verts,
-      faces: &cube_faces,
-      colors: &[],
-      lines: &[],
-      normals: &cube_normals,
-      uvs: &[],
-      texture_id: None,
-    };
-
-    let mut cube3 = K3dMesh::new(cube_geometry3);
-    cube3.set_color(Rgb565::new(0, 0, 31)); // Bright blue
-    cube3.set_position(3.0, 0.0, 0.0);
-
-    let text_style = MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_WHITE);
-
-    // Create Z-buffer (using u32 for better embedded performance)
-    // u32::MAX represents infinity (furthest distance)
-    let mut zbuffer = vec![u32::MAX; SCREEN_WIDTH * SCREEN_WIDTH];
+    let mut buf = Box::new([0x00u8; SCREEN_WIDTH * SCREEN_HEIGHT * 2]);
+    let mut canvas = Canvas::new(&mut buf[..], SCREEN_WIDTH, SCREEN_HEIGHT);
 
     let start_time = get_millis();
     let mut auto_rotate = true;
-    let mut manual_light_angle_h = 0.0f32; // horizontal
-    let mut manual_light_angle_v = 0.0f32; // vertical
+    let mut manual_light_angle_h = 0.0f32;
+    let mut manual_light_angle_v = 0.0f32;
 
-    display.clear();
-
-    unsafe { extern_set_lcd_buffer(display.get_buffer_ptr()) };
+    canvas.clear(Rgb565::BLACK);
+    unsafe { extern_set_lcd_buffer(canvas.as_ptr()) };
 
     let mut subscriber = log_error!(HOST_IPC_CHANNEL.subscriber(), "subscriber");
 
@@ -158,18 +150,17 @@ fn wasm_main() {
           HostIpcMessage::HexButton(hex_button) => match hex_button {
             HexButton::Up => {
               manual_light_angle_v += 0.1;
-              println!("Light height: {:.1}", manual_light_angle_v);
+              println_light(&manual_light_angle_v);
             }
             HexButton::Right => {
               manual_light_angle_h += 0.2;
             }
             HexButton::Fire => {
               auto_rotate = !auto_rotate;
-              println!("Auto-rotate: {}", if auto_rotate { "ON" } else { "OFF" });
             }
             HexButton::Down => {
               manual_light_angle_v -= 0.1;
-              println!("Light height: {:.1}", manual_light_angle_v);
+              println_light(&manual_light_angle_v);
             }
             HexButton::Left => {
               manual_light_angle_h -= 0.2;
@@ -180,84 +171,116 @@ fn wasm_main() {
         }
       }
 
-      // Calculate light direction
-      let time = (get_millis() - start_time) as f32 / 1_000.;
-      let light_angle_h = if auto_rotate { time * 1.0 } else { manual_light_angle_h };
-      let light_angle_v = if auto_rotate {
-        crate::lib::trig::fast_sin(time * 0.5) * 0.3
+      // Light direction
+      let time = (get_millis() - start_time) as f32 / 1_000.0;
+      let light_h = if auto_rotate { time * 1.0 } else { manual_light_angle_h };
+      let light_v = if auto_rotate {
+        fast_sin(time * 0.5) * 0.3
       } else {
         manual_light_angle_v
       };
+      let (lx, ly, lz) = (fast_cos(light_h), light_v, fast_sin(light_h));
+      let llen = fast_sqrt(lx * lx + ly * ly + lz * lz);
 
-      // Create light direction vector
-      let light_dir = Vector3::new(crate::lib::trig::fast_cos(light_angle_h), light_angle_v, crate::lib::trig::fast_sin(light_angle_h)).normalize();
-
-      // Rotate cubes for dynamic lighting demonstration
-      cube1.set_attitude(time * 0.3, time * 0.5, time * 0.2);
-      cube2.set_attitude(time * 0.4, time * 0.3, time * 0.6);
-      cube3.set_attitude(time * 0.5, time * 0.4, time * 0.3);
-
-      // Update all cubes with the same lighting
-      cube1.set_render_mode(RenderMode::SolidLightDir(light_dir));
-      cube2.set_render_mode(RenderMode::SolidLightDir(light_dir));
-      cube3.set_render_mode(RenderMode::SolidLightDir(light_dir));
-
-      // Clear display and Z-buffer
-      display.clear();
-      zbuffer.fill(u32::MAX);
-
-      // Render all cubes with Z-buffering
-      engine.render([&cube1, &cube2, &cube3].iter().copied(), |prim| {
-        draw_zbuffered(prim, &mut display, &mut zbuffer, SCREEN_WIDTH);
-      });
-
-      // Display info
-      let info_text = format!(
-        "Light: [{:.2}, {:.2}, {:.2}]\nAuto: {} | Use Arrow Keys to move light",
-        light_dir.x,
-        light_dir.y,
-        light_dir.z,
-        if auto_rotate { "ON" } else { "OFF" }
-      );
-      Text::new(&info_text, Point::new(10, 20), text_style).draw(&mut display).unwrap();
-
-      // Draw lighting status at bottom
-      let status_text = "Watch the cube faces - they should change brightness as light moves!";
-      Text::new(status_text, Point::new(10, 580), text_style).draw(&mut display).unwrap();
-
-      // Draw light direction indicator (top-right corner)
-      let indicator_x = 750;
-      let indicator_y = 50;
-      let indicator_radius = 30.0;
-
-      // Draw background circle
-      for angle in 0..360 {
-        let rad = (angle as f32).to_radians();
-        let px = (indicator_x as f32 + crate::lib::trig::fast_cos(rad) * indicator_radius) as i32;
-        let py = (indicator_y as f32 + crate::lib::trig::fast_sin(rad) * indicator_radius) as i32;
-        if px >= 0 && px < 800 && py >= 0 && py < 600 {
-          display.draw_iter(once(Pixel(Point::new(px, py), Rgb565::new(5, 5, 5)))).ok();
+      // Transform + project every cube
+      let mut world = [[[0f32; 3]; 8]; 3];
+      let mut cam = [[[0f32; 3]; 8]; 3];
+      let mut proj = [[Point::new(0, 0); 8]; 3];
+      for (ci, cube) in CUBES.iter().enumerate() {
+        for i in 0..8 {
+          let [x, y, z] = VERTICES[i];
+          let (x, y, z) = rotate_y(x, y, z, time * cube.rates[0]);
+          let (x, y, z) = rotate_x(x, y, z, time * cube.rates[1]);
+          let (x, y, z) = rotate_z(x, y, z, time * cube.rates[2]);
+          let w = [x + cube.pos[0], y + cube.pos[1], z + cube.pos[2]];
+          world[ci][i] = w;
+          cam[ci][i] = to_camera(w);
+          proj[ci][i] = project(cam[ci][i]);
         }
       }
 
-      // Draw light direction as a cross
-      let light_x = indicator_x as f32 + light_dir.x * indicator_radius;
-      let light_y = indicator_y as f32 - light_dir.z * indicator_radius;
+      // Collect visible, shaded faces
+      let mut faces: [Face; 36] = [(0.0, Rgb565::BLACK, Point::new(0, 0), Point::new(0, 0), Point::new(0, 0)); 36];
+      let mut n_faces = 0;
+      for (ci, cube) in CUBES.iter().enumerate() {
+        for face in FACES {
+          let (a, b, c) = (proj[ci][face[0]], proj[ci][face[1]], proj[ci][face[2]]);
+          // Backface cull (screen-space signed area; front faces wind < 0
+          // with the y-flipped projection)
+          let area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+          if area >= 0 {
+            continue;
+          }
 
-      for i in -3..=3 {
-        let px = (light_x as i32 + i).clamp(0, 799);
-        let py = (light_y as i32).clamp(0, 599);
-        display.draw_iter(once(Pixel(Point::new(px, py), Rgb565::CSS_YELLOW))).ok();
+          // World-space normal for lighting
+          let (v0, v1, v2) = (world[ci][face[0]], world[ci][face[1]], world[ci][face[2]]);
+          let (ux, uy, uz) = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]);
+          let (vx, vy, vz) = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]);
+          let (nx, ny, nz) = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+          let len = fast_sqrt(nx * nx + ny * ny + nz * nz);
+          let intensity = if len > 0.0 {
+            (nx * lx + ny * ly + nz * lz) / (len * llen)
+          } else {
+            0.0
+          };
+          let intensity = (0.15 + 0.85 * intensity.max(0.0)).clamp(0.15, 1.0);
 
-        let px = (light_x as i32).clamp(0, 799);
-        let py = (light_y as i32 + i).clamp(0, 599);
-        display.draw_iter(once(Pixel(Point::new(px, py), Rgb565::CSS_YELLOW))).ok();
+          let depth = (cam[ci][face[0]][2] + cam[ci][face[1]][2] + cam[ci][face[2]][2]) / 3.0;
+          faces[n_faces] = (depth, shade(cube.color, intensity), a, b, c);
+          n_faces += 1;
+        }
       }
 
-      // Update window
-      unsafe { extern_set_lcd_buffer(display.get_buffer_ptr()) };
+      // Painter's sort: far faces first (insertion sort, descending depth)
+      for i in 1..n_faces {
+        let key = faces[i];
+        let mut j = i;
+        while j > 0 && faces[j - 1].0 < key.0 {
+          faces[j] = faces[j - 1];
+          j -= 1;
+        }
+        faces[j] = key;
+      }
+
+      canvas.clear(Rgb565::BLACK);
+
+      for i in 0..n_faces {
+        let (_, color, a, b, c) = faces[i];
+        canvas.fill_triangle(a, b, c, color);
+      }
+
+      // HUD
+      let mut hud = [0u8; 40];
+      let mut len = 0;
+      fmt::append_str(&mut hud, &mut len, if auto_rotate { "AUTO ON" } else { "AUTO OFF" });
+      fmt::append_str(&mut hud, &mut len, " H:");
+      fmt::append_u32(&mut hud, &mut len, (light_h * 10.0) as i32 as u32);
+      fmt::append_str(&mut hud, &mut len, " V:");
+      fmt::append_u32(&mut hud, &mut len, (light_v * 10.0) as i32 as u32);
+      let hud = core::str::from_utf8(&hud[..len]).unwrap();
+      canvas.draw_text(hud, 4, 2, Rgb565::WHITE, 1);
+
+      // Light direction indicator (top-right)
+      let (icx, icy, ir) = (204, 30, 22);
+      canvas.draw_circle(Point::new(icx, icy), ir, Rgb565::LIGHT_GRAY);
+      canvas.draw_line(Point::new(icx - 7, icy), Point::new(icx + 7, icy), Rgb565::DARK_GRAY);
+      canvas.draw_line(Point::new(icx, icy - 7), Point::new(icx, icy + 7), Rgb565::DARK_GRAY);
+      let px = icx + (lx / llen * ir as f32) as i32;
+      let py = icy - (lz / llen * ir as f32) as i32;
+      canvas.draw_line(Point::new(icx, icy), Point::new(px, py), Rgb565::YELLOW);
+
+      unsafe { extern_set_lcd_buffer(canvas.as_ptr()) };
 
       yield_now().await;
     }
   })());
+}
+
+fn println_light(angle_v: &f32) {
+  let mut buf = [0u8; 16];
+  fmt::print_str("Light height: ");
+  let mut len = 0;
+  fmt::append_u32(&mut buf, &mut len, (*angle_v * 10.0) as i32 as u32);
+  crate::lib::helper::print_line(core::str::from_utf8(&buf[..len]).unwrap());
+  crate::lib::helper::print_line("\n");
 }

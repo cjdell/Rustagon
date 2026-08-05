@@ -1,5 +1,5 @@
 {
-  description = "Rustagon dev shell: ESP32-S3 (xtensa) Rust toolchain + WASM SDK nightly + desktop/web tooling";
+  description = "Rustagon dev shell: ESP32-S3 (xtensa) Rust toolchain + WASM SDK stable + desktop/web tooling";
 
   # ============================================================
   # Inputs
@@ -134,7 +134,7 @@
               cp -r rust-src/lib/rustlib/src $out/lib/rustlib/
 
               # Expose the fork's cargo under a non-conflicting name; the `cargo`
-              # shim on PATH (see below) dispatches to it for all non-`+nightly`
+              # shim on PATH (see below) dispatches to it for all non-`+stable`
               # invocations.
               mv $out/bin/cargo $out/bin/cargo-esp
 
@@ -224,32 +224,32 @@
               '';
 
           # ============================================================
-          # Stock nightly for the WASM SDK
+          # Stock stable for the WASM SDK
           # ============================================================
-          # The SDK bins use `#![feature(thread_local)]` and the justfile invokes
-          # `cargo +nightly` (build_sdk/build_wasm). Needs the wasm32 target std
-          # plus rust-src (sdk/rust-toolchain.toml). `nightly.latest` is resolved
-          # from the locked rust-overlay revision, so it stays reproducible.
-          nightly = pkgs.rust-bin.fromRustupToolchainFile (
-            pkgs.writeText "rust-toolchain-nightly.toml" ''
+          # The SDK uses no nightly features, but still needs a toolchain with
+          # the wasm32-unknown-unknown target std (the ESP fork only ships
+          # Xtensa targets). `stable.latest` is resolved from the locked
+          # rust-overlay revision, so it stays reproducible.
+          stable = pkgs.rust-bin.fromRustupToolchainFile (
+            pkgs.writeText "rust-toolchain-stable.toml" ''
               [toolchain]
-              channel = "nightly"
+              channel = "stable"
               components = ["rust-src"]
               targets = ["wasm32-unknown-unknown"]
             ''
           );
 
-          # `cargo` shim: `cargo +nightly ...` → stock nightly (WASM SDK);
+          # `cargo` shim: `cargo +stable ...` → stock stable (WASM SDK);
           # everything else → the ESP toolchain's cargo (firmware/desktop/tools).
           # Each branch pins RUSTC/RUSTDOC to its own toolchain: cargo resolves
           # rustc via $RUSTC/PATH, and the shell's rustc is the ESP fork, which
           # has no wasm32-unknown-unknown std.
           cargo = pkgs.writeShellScriptBin "cargo" ''
-            if [[ "$1" == "+nightly" ]]; then
+            if [[ "$1" == "+stable" ]]; then
               shift
-              export RUSTC="${nightly}/bin/rustc"
-              export RUSTDOC="${nightly}/bin/rustdoc"
-              exec "${nightly}/bin/cargo" "$@"
+              export RUSTC="${stable}/bin/rustc"
+              export RUSTDOC="${stable}/bin/rustdoc"
+              exec "${stable}/bin/cargo" "$@"
             fi
             export RUSTC="${espRust}/bin/rustc"
             export RUSTDOC="${espRust}/bin/rustdoc"
@@ -306,7 +306,7 @@
             shellHook = ''
               echo "Rustagon dev shell"
               echo "  firmware : just build_firmware   (esp rustc ${espRustVersion} + xtensa gcc)"
-              echo "  sdk      : just build_sdk        (cargo +nightly → stock nightly)"
+              echo "  sdk      : just build_sdk        (cargo +stable → stock stable)"
               echo "  desktop  : just build_desktop"
               rustc --version
             '';
@@ -318,7 +318,7 @@
             espRust
             espGcc
             espGccAliases
-            nightly
+            stable
             cargo
             ;
         };
@@ -332,7 +332,7 @@
           espRust
           espGcc
           espGccAliases
-          nightly
+          stable
           cargo
           ;
       });

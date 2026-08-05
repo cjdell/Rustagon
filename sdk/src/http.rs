@@ -1,8 +1,8 @@
 extern crate alloc;
 
-use crate::lib::helper::send_wasm_ipc_message;
-use crate::lib::protocol::{HostIpcMessage, HttpRequest, HttpResponseMeta, WasmIpcMessage};
-use crate::lib::tasks::get_next_host_message;
+use crate::helper::send_wasm_ipc_message;
+use crate::protocol::{HostIpcMessage, HttpRequest, HttpResponseMeta, WasmIpcMessage};
+use crate::tasks::get_next_host_message;
 use alloc::string::{String, ToString as _};
 use alloc::vec::Vec;
 use core::str::from_utf8;
@@ -53,8 +53,8 @@ pub async fn make_http_request(req: HttpRequest) -> HttpResponse {
           },
         };
       }
-      (res_id, other) => {
-        debug_print!("make_http_request: got unexpected message res_id={res_id}: {other:?}");
+      (_res_id, _other) => {
+        debug_print!("make_http_request: got unexpected message res_id={_res_id}: {_other:?}");
       }
     }
   }

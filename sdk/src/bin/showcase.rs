@@ -11,21 +11,21 @@
 
 #![no_std]
 #![no_main]
-#![feature(thread_local)]
 
-#[path = "../lib/mod.rs"]
 #[macro_use]
-mod lib;
+extern crate sdk;
+use sdk as lib;
 
 extern crate alloc;
 
 use crate::lib::{
+  fmt,
   gfx::{Canvas, Point, Rect, Rgb565, text_height, text_width},
   helper::get_millis,
   protocol::{HexButton, HostIpcMessage, extern_set_lcd_buffer},
   tasks::{HOST_IPC_CHANNEL, spawn, yield_now},
 };
-use alloc::{boxed::Box, format};
+use alloc::boxed::Box;
 
 const SCREEN_W: usize = 240;
 const SCREEN_H: usize = 240;
@@ -55,6 +55,18 @@ const SCENES: [Scene; 7] = [
   Scene::Text,
   Scene::All,
 ];
+
+fn scene_name(scene: Scene) -> &'static str {
+  match scene {
+    Scene::Palette => "Palette",
+    Scene::Lines => "Lines",
+    Scene::Rects => "Rects",
+    Scene::Circles => "Circles",
+    Scene::Triangles => "Triangles",
+    Scene::Text => "Text",
+    Scene::All => "All",
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Tiny deterministic PRNG for scene randomness
@@ -88,6 +100,11 @@ impl XorShift64 {
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+fn tick(host_msg_id: u32, host_msg_size: u32) -> bool {
+  lib::tasks::runtime_tick(host_msg_id, host_msg_size)
+}
 
 #[unsafe(no_mangle)]
 fn wasm_main() {
@@ -145,16 +162,21 @@ fn wasm_main() {
         fps_start = now;
       }
 
-      // Status bar
-      let status = format!(
-        "{:?} f{} {}fps{}",
-        SCENES[scene_idx],
-        frame,
-        fps,
-        if paused { " PAUSED" } else { "" }
-      );
+      // Status bar (built without any formatting machinery)
+      let mut status = [0u8; 40];
+      let mut len = 0;
+      fmt::append_str(&mut status, &mut len, scene_name(SCENES[scene_idx]));
+      fmt::append_str(&mut status, &mut len, " f");
+      fmt::append_u32(&mut status, &mut len, frame);
+      fmt::append_str(&mut status, &mut len, " ");
+      fmt::append_u32(&mut status, &mut len, fps);
+      fmt::append_str(&mut status, &mut len, "fps");
+      if paused {
+        fmt::append_str(&mut status, &mut len, " PAUSED");
+      }
+      let status = core::str::from_utf8(&status[..len]).unwrap();
       canvas.fill_rect(Rect::new(0, canvas.height() as i32 - 12, canvas.width() as i32, 12), Rgb565::BLACK);
-      canvas.draw_text(&status, 4, canvas.height() as i32 - 11, Rgb565::WHITE, 1);
+      canvas.draw_text(status, 4, canvas.height() as i32 - 11, Rgb565::WHITE, 1);
 
       unsafe { extern_set_lcd_buffer(canvas.as_ptr()) };
       yield_now().await;
@@ -481,8 +503,9 @@ fn draw_all(canvas: &mut Canvas, frame: u32) {
 
   // read_pixel demo: sample the orange circle center, show its raw value
   if let Some(p) = canvas.read_pixel(120, 120) {
-    let raw = format!("{:04X}", p.raw());
-    canvas.draw_text(&raw, 8, 216, Rgb565::WHITE, 1);
+    let mut raw_buf = [0u8; 8];
+    let raw = fmt::u32_to_hex(p.raw() as u32, &mut raw_buf);
+    canvas.draw_text(raw, 8, 216, Rgb565::WHITE, 1);
   }
 
   // blit demo: 8x8 checker tile repeated
