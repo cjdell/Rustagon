@@ -23,7 +23,9 @@ build_firmware:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    source ~/export-esp.sh
+    if ! command -v xtensa-esp32s3-elf-gcc >/dev/null 2>&1 && [[ -f ~/export-esp.sh ]]; then
+        source ~/export-esp.sh
+    fi
 
     cd firmware
 
@@ -38,7 +40,9 @@ run_firmware:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    source ~/export-esp.sh
+    if ! command -v xtensa-esp32s3-elf-gcc >/dev/null 2>&1 && [[ -f ~/export-esp.sh ]]; then
+        source ~/export-esp.sh
+    fi
 
     cd firmware
 
@@ -55,7 +59,9 @@ deploy_firmware:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    source ~/export-esp.sh
+    if ! command -v xtensa-esp32s3-elf-gcc >/dev/null 2>&1 && [[ -f ~/export-esp.sh ]]; then
+        source ~/export-esp.sh
+    fi
 
     cd firmware
 
