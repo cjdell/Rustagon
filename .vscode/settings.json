@@ -2,5 +2,8 @@
 	"git.openRepositoryInParentFolders": "always",
 	"editor.formatOnSave": true,
 	"rust-analyzer.cargo.target": "xtensa-esp32s3-none-elf",
-	"rust-analyzer.cargo.allTargets": false
+	"rust-analyzer.cargo.allTargets": false,
+	"[html]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	}
 }
