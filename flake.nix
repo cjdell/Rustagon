@@ -294,6 +294,9 @@
             pkgs.pkg-config
             pkgs.git
             pkgs.nixpkgs-fmt
+            # Loads the devShell env into the IDE/shell via `.envrc` (see
+            # https://direnv.net). Keep in sync with the brew-installed copy.
+            pkgs.direnv
           ]
           ++ lib.optionals pkgs.stdenv.isLinux x11Libs;
         in

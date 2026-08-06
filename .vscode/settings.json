@@ -3,6 +3,13 @@
 	"editor.formatOnSave": true,
 	"rust-analyzer.cargo.target": "xtensa-esp32s3-none-elf",
 	"rust-analyzer.cargo.allTargets": false,
+	"direnv.path.executable": "/opt/homebrew/bin/direnv",
+	"terminal.integrated.profiles.osx": {
+		"nix develop": {
+			"path": "${workspaceFolder}/.vscode/nix-dev-shell.sh"
+		}
+	},
+	"terminal.integrated.defaultProfile.osx": "nix develop",
 	"[html]": {
 		"editor.defaultFormatter": "esbenp.prettier-vscode"
 	}
