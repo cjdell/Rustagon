@@ -197,7 +197,12 @@
             installPhase = ''
               cp -r . $out
             '';
-            darwinDontCodeSign = pkgs.stdenv.isDarwin;
+            # NOTE: no `darwinDontCodeSign` here. On Apple Silicon the
+            # toolchain's `ld` must dlopen the `xtensa_esp32s3.so` dynconfig
+            # library, and that only works when the upstream ad-hoc signatures
+            # are re-signed so `ld` and the `.so` share a team ID. Skipping the
+            # hook makes every firmware link fail with "different Team IDs".
+            # Only ~2.6k files, so signing is a few seconds (unlike espRust).
           };
 
           # Per-chip `xtensa-esp32s3-elf-*` aliases for the unified toolchain.
