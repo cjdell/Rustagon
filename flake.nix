@@ -157,6 +157,13 @@
 
             # Stripping on darwin destroys the .rmeta sections in the bundled rlibs.
             dontStrip = pkgs.stdenv.isDarwin;
+            # Skip nixpkgs' autoSignDarwinBinariesHook. The esp-rs prebuilt
+            # binaries are already ad-hoc code-signed and dontStrip preserves
+            # those signatures, so re-signing is redundant. The hook spawns a
+            # `sigtool` subprocess per file — 106k files in this tarball makes
+            # fixupPhase look like a hang on macOS (~20-40 min of churning,
+            # zero output).
+            darwinDontCodeSign = pkgs.stdenv.isDarwin;
             meta.mainProgram = "rustc";
           };
 
@@ -190,6 +197,7 @@
             installPhase = ''
               cp -r . $out
             '';
+            darwinDontCodeSign = pkgs.stdenv.isDarwin;
           };
 
           # Per-chip `xtensa-esp32s3-elf-*` aliases for the unified toolchain.
