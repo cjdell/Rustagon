@@ -1012,6 +1012,24 @@ atomic `store` and wakes the waiter via `signal()`. The `receive()` (async) and
 `try_receive()` (sync) methods consume the event via atomic `swap(NONE)` — a single-
 consumer operation. No channel, no multiple receivers, no race.
 
+### LCD raw-frame path — the SPI bus is the bottleneck (see `DMA.md`)
+
+**TL;DR:** the fastest WASM→LCD frame path is a single **blocking** SPI write
+from core 1, straight from the guest's buffer — no queues, no DMA, no copies.
+`DisplayManager::signal_raw_frame` (`app/src/platform/display.rs`) owns the
+write on each platform; `HardwareWasmHost`/`DesktopWasmHost` just call it.
+
+- Never busy-wait a blocking SPI flush on core 0: it couples WASM rendering to
+  the menu/wifi/net/HTTP/hexpansion tasks and caused ~half-second stalls every
+  few seconds.
+- Async DMA (`SpiDmaBus::write_async`) was ~5 fps: it pays an interrupt
+  round-trip per 32,736-byte chunk (7 command writes + 8 pixel chunks per
+  frame). A single contiguous DMA transfer per frame would be the only viable
+  async shape.
+- The ~87 fps ceiling is the SPI bus itself (115,200 bytes @ 80 MHz ≈ 11.5 ms).
+- Full writeup, measurements, and esp-hal API notes: **`DMA.md`** (repo root).
+  Read it before touching the display path again.
+
 ## Related Files
 
 - **Platform trait:** `app/src/platform/traits.rs`

@@ -19,9 +19,8 @@ use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::rwlock::RwLock;
-use embedded_tools::config::storage::LocalFsConfigFileStorage;
 use embedded_tools::config::ConfigFile;
-use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
+use embedded_tools::config::storage::LocalFsConfigFileStorage;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
 use esp_hal::{
@@ -32,15 +31,16 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage as EspFlashStorage;
+use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
 use firmware::d_i2c::*;
-use firmware::platform::drivers::{tca8418::tca8418_driver_factory, DriverEntry};
-use firmware::platform::{
-  display::{lcd_task, HardwareDisplayManager, LcdSignal},
-  system::{HardwareSystemManager, SystemHandle},
-};
+use firmware::platform::drivers::{DriverEntry, tca8418::tca8418_driver_factory};
 use firmware::platform::{
   ConfigHandle, HardwareHexpansionManager, HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager,
   HardwareStorageManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle, WiFiHandle,
+};
+use firmware::platform::{
+  display::{HardwareDisplayManager, LcdSignal, lcd_task},
+  system::{HardwareSystemManager, SystemHandle},
 };
 use firmware::tasks::*;
 use firmware::types::*;
@@ -252,6 +252,7 @@ async fn main(spawner: Spawner) {
   ];
 
   let display_for_hx = display.clone();
+  let display_2nd_core = display.clone();
   let hexpansion = HexpansionHandle::new(Arc::new(HardwareHexpansionManager::new(
     spawner,
     hx_buses,
@@ -288,7 +289,9 @@ async fn main(spawner: Spawner) {
     let executor = EXECUTOR.init(esp_rtos::embassy::Executor::new());
 
     executor.run(|spawner| {
-      spawner.spawn(second_core_task(storage_2nd_core, wasm_sender, host_receiver)).ok();
+      spawner
+        .spawn(second_core_task(storage_2nd_core, display_2nd_core, wasm_sender, host_receiver))
+        .ok();
     });
   });
 

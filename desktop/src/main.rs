@@ -140,7 +140,7 @@ fn main() {
     let now = now_ms();
 
     // Check if the WASM has pushed a raw framebuffer
-    let wasm_buffer = tasks::wasm::LCD_BUFFER.lock().unwrap().clone();
+    let wasm_buffer = platform::display::LCD_BUFFER.lock().unwrap().clone();
 
     let rgb565: &[u8] = if let Some(raw) = &wasm_buffer {
       // Render raw WASM framebuffer (RGB565 LE) directly
@@ -189,11 +189,7 @@ fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
     return Some(path);
   }
   let with_ext = path.with_extension("wsm");
-  if with_ext.is_file() {
-    Some(with_ext)
-  } else {
-    None
-  }
+  if with_ext.is_file() { Some(with_ext) } else { None }
 }
 
 /// Map a minifb key to the app's `KeyCode`, mimicking the KeebDeck keyboard

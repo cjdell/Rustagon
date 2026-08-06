@@ -1,10 +1,16 @@
+use app::platform::display::DisplayHandle;
 use app::wasm::host::WasmHost;
-use std::sync::Mutex;
-
-pub static LCD_BUFFER: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
 #[derive(Debug)]
-pub struct DesktopWasmHost;
+pub struct DesktopWasmHost {
+  display: DisplayHandle,
+}
+
+impl DesktopWasmHost {
+  pub fn new(display: DisplayHandle) -> Self {
+    Self { display }
+  }
+}
 
 impl WasmHost for DesktopWasmHost {
   fn write_stdout(&mut self, text: &str) {
@@ -19,9 +25,9 @@ impl WasmHost for DesktopWasmHost {
   }
 
   fn set_lcd_buffer(&mut self, buffer: &[u8]) {
-    if let Ok(mut lcd) = LCD_BUFFER.lock() {
-      *lcd = Some(buffer.to_vec());
-    }
+    // The display manager stores the frame in LCD_BUFFER, which the render
+    // loop picks up next frame — no blocking on the WASM side.
+    let _ = self.display.signal_raw_frame(buffer);
   }
 
   fn set_gpio(&mut self, pin_number: u32, state: u32) {

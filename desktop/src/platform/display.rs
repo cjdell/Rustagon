@@ -1,4 +1,4 @@
-use app::platform::display::{DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayError, DisplayManager};
+use app::platform::display::{DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayError, DisplayManager, FRAME_BYTES};
 use core::fmt;
 use display_types::LcdScreen;
 use std::sync::Mutex;
@@ -9,6 +9,11 @@ use std::sync::Mutex;
 /// and read by the WebSocket handler to stream the current screen — mirroring the
 /// firmware's raw-pointer `BUFFER`.
 pub static FRAMEBUFFER: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+
+/// Latest raw RGB565 frame submitted via [`DisplayManager::signal_raw_frame`]
+/// (e.g. by a WASM guest). While `Some`, the render loop renders this instead
+/// of the menu screen; it is cleared when a WASM session ends.
+pub static LCD_BUFFER: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
 struct Inner {
   screen: LcdScreen,
@@ -71,6 +76,16 @@ impl DisplayManager for DesktopDisplayManager {
       // the DisplayManager contract documents this as a best-effort snapshot.
       unsafe { &*(buf as *const [u8]) }
     })
+  }
+
+  fn signal_raw_frame(&self, buffer: &[u8]) -> Result<(), DisplayError> {
+    if buffer.len() != FRAME_BYTES {
+      return Err(DisplayError::InvalidFrame);
+    }
+    if let Ok(mut lcd) = LCD_BUFFER.lock() {
+      *lcd = Some(buffer.to_vec());
+    }
+    Ok(())
   }
 }
 

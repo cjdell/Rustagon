@@ -3,7 +3,7 @@ pub mod context;
 pub use context::*;
 
 use app::menu::state::{StackEntryType, StackEvent, StackEventHandle};
-use app::platform::{display::DisplayHandle, HttpClientHandle};
+use app::platform::{HttpClientHandle, display::DisplayHandle};
 use app::protocol::*;
 use app::wasm::wasmi_runner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -102,7 +102,7 @@ async fn run_program(
   debug!("run_program: starting wasmi_runner ({} bytes)", wasm_buffer.len());
 
   let ipc_sender = wasm_sender.clone();
-  let wasm_future = wasmi_runner(DesktopWasmHost, wasm_sender, host_receiver, wasm_buffer);
+  let wasm_future = wasmi_runner(DesktopWasmHost::new(display.clone()), wasm_sender, host_receiver, wasm_buffer);
 
   let ipc_future = async {
     ipc_sender.try_send((0, WasmIpcMessage::Started)).ok();
@@ -160,7 +160,7 @@ async fn run_program(
   join(wasm_future, ipc_future).await;
   debug!("run_program: join completed, cleaning up");
 
-  *LCD_BUFFER.lock().unwrap() = None;
+  *crate::platform::display::LCD_BUFFER.lock().unwrap() = None;
   stack_event_handle.send(StackEvent::Popped);
   info!("run_program: session complete");
 }
