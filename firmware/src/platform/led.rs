@@ -1,16 +1,17 @@
 pub use app::platform::led::{LedError, LedHandle, LedManager};
-pub use crate::platform::effects::{
-  BreatheEffect, ChaseEffect, FireEffect, LedEffect, OffEffect, RainbowEffect, SolidEffect,
-  SparkleEffect, TheaterChaseEffect,
-};
 
-use aw9523b::Pin;
 use crate::d_i2c::*;
 use crate::types::LedRequest;
-use crate::utils::{led_service::LedState, Aw9523bOutputPin, MaskedI2cBus};
-use alloc::{boxed::Box, sync::Arc, vec};
+use crate::utils::{Aw9523bOutputPin, MaskedI2cBus};
+use alloc::vec;
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use app::types::LedState;
+use aw9523b::Pin;
 use core::fmt;
 use core::sync::atomic::{AtomicBool, Ordering};
+use display_renderer::led_effects::{
+  BreatheEffect, ChaseEffect, FireEffect, LedEffect, OffEffect, RainbowEffect, SolidEffect, SparkleEffect, TheaterChaseEffect,
+};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
@@ -37,13 +38,18 @@ impl HardwareLedManager {
 
     spawner.spawn(led_work_loop_task(sys_bus, request_receiver, initialized_clone)).ok();
 
-    Self { request_sender, initialized }
+    Self {
+      request_sender,
+      initialized,
+    }
   }
 }
 
 impl fmt::Debug for HardwareLedManager {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("HardwareLedManager").field("initialized", &self.initialized.load(Ordering::Acquire)).finish()
+    f.debug_struct("HardwareLedManager")
+      .field("initialized", &self.initialized.load(Ordering::Acquire))
+      .finish()
   }
 }
 
@@ -66,7 +72,9 @@ async fn led_work_loop_task(
 
   let mut led_service = crate::utils::led_service::LedService::new();
 
-  let mut current_effect: Box<dyn LedEffect> = Box::new(SolidEffect { colour: LedState { r: 255, g: 0, b: 0 } });
+  let mut current_effect: Box<dyn LedEffect> = Box::new(SolidEffect {
+    colour: display_types::LedState::new(255, 0, 0),
+  });
   let mut counter = 0;
 
   initialized.store(true, Ordering::Release);
@@ -75,12 +83,29 @@ async fn led_work_loop_task(
     if let Ok(new_request) = led_receiver.try_receive() {
       current_effect = match new_request {
         LedRequest::Off => Box::new(OffEffect),
-        LedRequest::Solid(led_state) => Box::new(SolidEffect { colour: led_state }),
+        LedRequest::Solid(led_state) => Box::new(SolidEffect {
+          colour: display_types::LedState::new(led_state.r, led_state.g, led_state.b),
+        }),
         LedRequest::Rainbow => Box::new(RainbowEffect::new(0.1)),
-        LedRequest::Breathe(led_state) => Box::new(BreatheEffect::new(led_state, 0.001)),
-        LedRequest::Chase(led_state) => Box::new(ChaseEffect::new(led_state, 5, 50)),
-        LedRequest::Sparkle(led_state) => Box::new(SparkleEffect::new(led_state, 0.3, 100)),
-        LedRequest::TheaterChase(led_state) => Box::new(TheaterChaseEffect::new(led_state, 3, 100)),
+        LedRequest::Breathe(led_state) => Box::new(BreatheEffect::new(
+          display_types::LedState::new(led_state.r, led_state.g, led_state.b),
+          0.001,
+        )),
+        LedRequest::Chase(led_state) => Box::new(ChaseEffect::new(
+          display_types::LedState::new(led_state.r, led_state.g, led_state.b),
+          5,
+          50,
+        )),
+        LedRequest::Sparkle(led_state) => Box::new(SparkleEffect::new(
+          display_types::LedState::new(led_state.r, led_state.g, led_state.b),
+          0.3,
+          100,
+        )),
+        LedRequest::TheaterChase(led_state) => Box::new(TheaterChaseEffect::new(
+          display_types::LedState::new(led_state.r, led_state.g, led_state.b),
+          3,
+          100,
+        )),
         LedRequest::Fire => Box::new(FireEffect::new(55, 120, 30)),
       };
     }
@@ -88,8 +113,19 @@ async fn led_work_loop_task(
     let now_ms: u64 = Instant::now().duration_since_epoch().as_millis();
     let states = current_effect.update_and_render(now_ms);
 
-    let internal_led = if counter % 2 == 0 { LedState::new(255, 0, 0) } else { LedState::new(0, 0, 255) };
-    let states = vec![[internal_led].to_vec(), states.to_vec()].concat();
+    let internal_led = if counter % 2 == 0 {
+      LedState::new(255, 0, 0)
+    } else {
+      LedState::new(0, 0, 255)
+    };
+    let mut converted_states: Vec<LedState> = Vec::with_capacity(states.len());
+    for led_state in states.iter() {
+      converted_states.push(LedState::new(led_state.r, led_state.g, led_state.b));
+    }
+    let mut states_vec = Vec::new();
+    states_vec.push(vec![internal_led]);
+    states_vec.push(converted_states);
+    let states = states_vec.concat();
 
     led_service.send(&states).await;
 

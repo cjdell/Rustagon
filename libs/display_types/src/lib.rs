@@ -91,3 +91,32 @@ pub enum Icon40 {
 pub enum Image {
   RustLogo,
 }
+
+// ================================ LED ================================
+
+pub const NUM_LEDS: usize = 12;
+
+#[derive(Debug, Clone, Copy)]
+pub enum LedRequest {
+  Off,
+  Solid(LedState),
+  Rainbow,
+  Breathe(LedState),
+  Chase(LedState),
+  Sparkle(LedState),
+  TheaterChase(LedState),
+  Fire,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LedState {
+  pub r: u8,
+  pub g: u8,
+  pub b: u8,
+}
+
+impl LedState {
+  pub const fn new(r: u8, g: u8, b: u8) -> Self {
+    Self { r, g, b }
+  }
+}

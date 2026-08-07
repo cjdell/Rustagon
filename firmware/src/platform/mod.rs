@@ -1,6 +1,5 @@
 pub mod display;
 pub mod drivers;
-pub mod effects;
 pub mod hardware;
 pub mod hexpansion;
 pub mod http;
@@ -14,14 +13,11 @@ pub mod tcp;
 pub mod traits;
 pub mod wifi;
 
-pub use display::{DisplayError, DisplayHandle, DisplayManager, HardwareDisplayManager, LcdSignal, lcd_task};
+pub use display::{lcd_task, DisplayError, DisplayHandle, DisplayManager, HardwareDisplayManager, LcdSignal};
 pub use hardware::HardwarePlatform;
 pub use hexpansion::HardwareHexpansionManager;
 pub use input::{HardwareInputManager, InputHandle, InputManager};
-pub use led::{
-  BreatheEffect, ChaseEffect, FireEffect, HardwareLedManager, LedEffect, LedHandle, LedManager, OffEffect, RainbowEffect, SolidEffect,
-  SparkleEffect, TheaterChaseEffect,
-};
+pub use led::{HardwareLedManager, LedHandle, LedManager};
 pub use mdns::{mdns_runner, mdns_task};
 pub use power::{HardwarePowerManager, PowerError, PowerHandle, PowerManager};
 pub use storage::{ConfigHandle, HardwareStorageManager, StateError, StorageHandle};

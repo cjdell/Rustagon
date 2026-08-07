@@ -3,7 +3,7 @@
 extern crate alloc;
 
 use alloc::format;
-use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine, TextBufferLine};
+use display_types::{Icon20, Icon40, Image, LcdScreen, LedRequest, LedState, MenuAnimation, MenuLine, TextBufferLine, NUM_LEDS};
 use embedded_graphics::{
   mono_font::{ascii::FONT_10X20, MonoTextStyle},
   pixelcolor::{Rgb565, Rgb888},
@@ -13,6 +13,8 @@ use embedded_graphics::{
   Drawable as _,
 };
 use micromath::F32Ext;
+
+pub mod led_effects;
 
 // ============================== FrameBuffer trait ==============================
 

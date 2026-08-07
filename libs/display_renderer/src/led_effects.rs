@@ -1,6 +1,6 @@
-use crate::utils::led_service::LedState;
-use crate::types::NUM_LEDS;
-use esp_hal::time::Instant;
+#![no_std]
+
+use display_types::{LedRequest, LedState, NUM_LEDS};
 
 /// Trait for LED effects
 /// Implementations define how to update and render LED states over time
@@ -316,11 +316,7 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     _ => (c, 0.0, x),
   };
 
-  (
-    ((r + m) * 255.0) as u8,
-    ((g + m) * 255.0) as u8,
-    ((b + m) * 255.0) as u8,
-  )
+  (((r + m) * 255.0) as u8, ((g + m) * 255.0) as u8, ((b + m) * 255.0) as u8)
 }
 
 fn heat_color(temperature: u8) -> LedState {
