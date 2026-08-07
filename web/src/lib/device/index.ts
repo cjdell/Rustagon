@@ -12,7 +12,7 @@ export function getDeviceApi(): DeviceApi {
 
   // return new BadgeDeviceApi("http://192.168.49.143"); // FOR TESTING
 
-  if (hostname === "127.0.0.1" || hostname === "localhost" || hostname === "demo.rustagon.chrisdell.info") {
+  if (hostname === "127.0.0.1" || hostname === "localhost" || hostname === "demo.rustagon.chrisdell.info" || hostname === "demo.rustagon.com") {
     return new DummyDeviceApi();
   } else {
     return new BadgeDeviceApi();
