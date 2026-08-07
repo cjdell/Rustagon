@@ -113,6 +113,11 @@ build_desktop:
     source firmware/.env
     set +a
 
+    # minifb's build.rs pins -mmacosx-version-min=10.10, but its Metal code needs
+    # 10.11+; modern clang errors on the unguarded availability. The cc crate
+    # appends CFLAGS *after* the crate's own flags, so a later version-min wins.
+    export CFLAGS="${CFLAGS:-} -mmacosx-version-min=13.0"
+
     cargo build -r -p desktop
 
 # Build and run the desktop emulator (pick a data dir with fzf)
@@ -129,6 +134,8 @@ run_desktop:
     source firmware/.env
     set +a
 
+    export CFLAGS="${CFLAGS:-} -mmacosx-version-min=13.0"
+
     cargo run -r -p desktop -- "$data_dir"
 
 # Run the desktop emulator, auto-starting a WASM app from sdk/wasm
@@ -141,6 +148,8 @@ run_desktop_app file:
     set -a
     source firmware/.env
     set +a
+
+    export CFLAGS="${CFLAGS:-} -mmacosx-version-min=13.0"
 
     cargo run -r -p desktop -- sdk/wasm/{{file}}.wsm
 
