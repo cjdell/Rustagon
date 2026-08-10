@@ -18,10 +18,10 @@ use picoserve::{
 pub const HTTP_PORT: u16 = 80;
 
 static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
-  start_read_request: Some(picoserve::time::Duration::from_secs(300)),
-  persistent_start_read_request: Some(picoserve::time::Duration::from_secs(300)),
-  read_request: Some(picoserve::time::Duration::from_secs(300)),
-  write: Some(picoserve::time::Duration::from_secs(300)),
+  start_read_request: picoserve::time::Duration::from_secs(300),
+  persistent_start_read_request: picoserve::time::Duration::from_secs(300),
+  read_request: picoserve::time::Duration::from_secs(300),
+  write: picoserve::time::Duration::from_secs(300),
 });
 
 struct AppProps {

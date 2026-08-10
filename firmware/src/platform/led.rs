@@ -36,7 +36,7 @@ impl HardwareLedManager {
     let request_sender = channel.sender();
     let request_receiver = channel.receiver();
 
-    spawner.spawn(led_work_loop_task(sys_bus, request_receiver, initialized_clone)).ok();
+    spawner.spawn(led_work_loop_task(sys_bus, request_receiver, initialized_clone).expect("spawn led_work_loop_task"));
 
     Self {
       request_sender,

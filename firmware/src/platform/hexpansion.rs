@@ -1,5 +1,5 @@
-use crate::platform::drivers::{ButtonEventQueue, DeviceEventQueue, DriverEntry, DEVICE_EVENT_QUEUE_DEPTH};
 use crate::platform::DisplayHandle;
+use crate::platform::drivers::{ButtonEventQueue, DEVICE_EVENT_QUEUE_DEPTH, DeviceEventQueue, DriverEntry};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
@@ -12,8 +12,8 @@ use core::fmt;
 use core::future::Future;
 use core::pin::Pin;
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Timer};
 use embedded_hal::i2c::{I2c, Operation};
 use log::{debug, info};
@@ -91,8 +91,8 @@ impl HardwareHexpansionManager {
     let events = HexpansionEventQueue::new();
     let device_events = DeviceEventQueue::new();
     let state: SharedState = Arc::new(Mutex::new(RefCell::new(Default::default())));
-    spawner
-      .spawn(hexpansion_poll_task(
+    spawner.spawn(
+      hexpansion_poll_task(
         hx_buses,
         events.clone(),
         state.clone(),
@@ -101,8 +101,9 @@ impl HardwareHexpansionManager {
         button_events,
         driver_table,
         spawner,
-      ))
-      .ok();
+      )
+      .expect("spawn hexpansion_poll_task"),
+    );
     Self {
       events,
       device_events,

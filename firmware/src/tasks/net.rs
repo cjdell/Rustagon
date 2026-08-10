@@ -8,13 +8,13 @@ use edge_nal::UdpBind;
 use edge_nal_embassy::{Udp, UdpBuffers};
 use embassy_net::{ConfigV4, Ipv4Cidr, Runner, Stack, StaticConfigV4};
 use embassy_time::{Duration, Timer};
-use esp_radio::wifi::WifiDevice;
 use esp_println::println;
+use esp_radio::wifi::Interface;
 use log::info;
 
 // A background task, to process network events - when new packets, they need to processed, embassy-net, wraps smoltcp
 #[embassy_executor::task]
-pub async fn net_task(mut runner: Runner<'static, WifiDevice<'static>>) {
+pub async fn net_task(mut runner: Runner<'static, Interface<'static>>) {
   runner.run().await
 }
 
@@ -57,10 +57,7 @@ pub async fn dhcp_task(stack: Stack<'static>, ap_ip: Ipv4Addr) {
   let buffers = UdpBuffers::<3, 1024, 1024, 10>::new();
   let unbound_socket = Udp::new(stack, &buffers);
   let mut bound_socket = unbound_socket
-    .bind(SocketAddr::V4(SocketAddrV4::new(
-      Ipv4Addr::UNSPECIFIED,
-      DEFAULT_SERVER_PORT,
-    )))
+    .bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, DEFAULT_SERVER_PORT)))
     .await
     .unwrap();
 

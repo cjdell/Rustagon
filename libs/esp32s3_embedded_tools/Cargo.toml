@@ -12,6 +12,6 @@ littlefs-rust = "0.1.0"
 
 embedded-tools = { path = "../embedded_tools" }
 
-embassy-sync = { version = "0.7.2" }
-esp-storage = { git = "https://github.com/esp-rs/esp-hal.git", features = ["esp32s3"] }
+embassy-sync = { version = "0.8.0" }
+esp-storage = { git = "https://github.com/esp-rs/esp-hal.git", tag = "esp-hal-v1.1.2", features = ["esp32s3"] }
 embedded-storage = "0.3.1"

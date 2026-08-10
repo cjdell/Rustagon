@@ -86,7 +86,11 @@ fn key_number_to_keycode(key: u8) -> Option<KeyCode> {
 }
 
 pub fn tca8418_driver_factory(io: DeviceIo, queue: DeviceEventQueue, buttons: ButtonEventQueue, spawner: Spawner) {
-  spawner.spawn(tca8418_task(io, queue, buttons)).ok();
+  // A stale task from a previous insertion may still be winding down, in which
+  // case spawning fails with Busy — that's fine, just drop the new one.
+  if let Ok(token) = tca8418_task(io, queue, buttons) {
+    spawner.spawn(token);
+  }
 }
 
 #[embassy_executor::task]

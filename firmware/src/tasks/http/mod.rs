@@ -1,9 +1,7 @@
-use crate::{
-  platform::Platform,
-  platform::StorageHandle,
-  types::*,
-};
+use crate::{platform::Platform, platform::StorageHandle, types::*};
 use alloc::{boxed::Box, vec::Vec};
+use app::http::common::{CustomNotFound, cors_options_response, html_app_response};
+use app::http::picoserve;
 use embassy_executor::Spawner;
 use embassy_net::Stack;
 use embassy_time::Duration;
@@ -14,14 +12,12 @@ use picoserve::{
   response::StatusCode,
   routing::{PathRouter, get},
 };
-use app::http::common::{cors_options_response, html_app_response, CustomNotFound};
-use app::http::picoserve;
 
 static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
-  start_read_request: Some(Duration::from_secs(300)),
-  persistent_start_read_request: Some(Duration::from_secs(300)),
-  read_request: Some(Duration::from_secs(300)),
-  write: Some(Duration::from_secs(300)),
+  start_read_request: Duration::from_secs(300),
+  persistent_start_read_request: Duration::from_secs(300),
+  read_request: Duration::from_secs(300),
+  write: Duration::from_secs(300),
 });
 
 struct AppProps {
@@ -33,8 +29,7 @@ struct AppProps {
 }
 
 fn redirect_home_response() -> impl picoserve::response::IntoResponse {
-  picoserve::response::Response::new(StatusCode::TEMPORARY_REDIRECT, "")
-    .with_headers([("Location", "/")])
+  picoserve::response::Response::new(StatusCode::TEMPORARY_REDIRECT, "").with_headers([("Location", "/")])
 }
 
 impl AppBuilder for AppProps {
@@ -110,6 +105,6 @@ pub fn start_http(
   );
 
   for id in 0..WEB_TASK_POOL_SIZE {
-    spawner.must_spawn(web_task(id, stack, app));
+    spawner.spawn(web_task(id, stack, app).expect("spawn web_task"));
   }
 }

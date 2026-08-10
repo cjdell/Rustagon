@@ -24,8 +24,8 @@ impl HardwareInputManager {
   pub fn new(spawner: Spawner, sys_bus: MaskedI2cBus, top_bus: MaskedI2cBus) -> Self {
     let events = ButtonEventQueue::new();
     let touch_bus = top_bus.clone();
-    spawner.spawn(button_monitoring_task(sys_bus, top_bus, events.clone())).ok();
-    spawner.spawn(touch_monitoring_task(touch_bus, events.clone())).ok();
+    spawner.spawn(button_monitoring_task(sys_bus, top_bus, events.clone()).expect("spawn button_monitoring_task"));
+    spawner.spawn(touch_monitoring_task(touch_bus, events.clone()).expect("spawn touch_monitoring_task"));
     Self { events }
   }
 

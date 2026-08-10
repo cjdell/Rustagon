@@ -114,7 +114,7 @@ async fn main(spawner: Spawner) {
 
   let _i2c_publisher = i2c_channel.publisher().unwrap();
 
-  spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal)).ok();
+  spawner.spawn(lcd_task(sys_bus.clone(), lcd_signal).expect("spawn lcd_task"));
 
   let display_manager = alloc::sync::Arc::new(HardwareDisplayManager::new(lcd_signal));
   let display = firmware::platform::display::DisplayHandle::new(display_manager.clone());
@@ -208,11 +208,11 @@ async fn main(spawner: Spawner) {
   let wifi_manager = HardwareWifiManager::new();
   wifi_manager.spawn_connection_task(spawner, config_handle.clone(), controller, stack, ap_ip);
 
-  spawner.spawn(net_task(runner)).ok();
+  spawner.spawn(net_task(runner).expect("spawn net_task"));
 
   if let firmware::types::WifiMode::AccessPoint = wifi_mode {
-    spawner.spawn(dhcp_task(stack, ap_ip)).ok();
-    spawner.spawn(captive_task(stack, ap_ip)).ok();
+    spawner.spawn(dhcp_task(stack, ap_ip).expect("spawn dhcp_task"));
+    spawner.spawn(captive_task(stack, ap_ip).expect("spawn captive_task"));
   }
 
   print_memory_info();
@@ -289,9 +289,7 @@ async fn main(spawner: Spawner) {
     let executor = EXECUTOR.init(esp_rtos::embassy::Executor::new());
 
     executor.run(|spawner| {
-      spawner
-        .spawn(second_core_task(storage_2nd_core, display_2nd_core, wasm_sender, host_receiver))
-        .ok();
+      spawner.spawn(second_core_task(storage_2nd_core, display_2nd_core, wasm_sender, host_receiver).expect("spawn second_core_task"))
     });
   });
 
@@ -329,27 +327,25 @@ async fn main(spawner: Spawner) {
   let platform_for_ws = platform.clone();
 
   // Spawn WiFi monitor task to handle status changes
-  spawner.spawn(wifi_monitor_task(platform)).ok();
+  spawner.spawn(wifi_monitor_task(platform).expect("spawn wifi_monitor_task"));
 
   // Spawn IPC handler for WASM IPC and HTTP events
-  spawner
-    .spawn(ipc_handler_task(
+  spawner.spawn(
+    ipc_handler_task(
       wasm_ipc_channel,
       http_channel.receiver(),
       host_ipc_channel.sender(),
       stack_event_handle,
       platform_for_ws.clone(),
-    ))
-    .ok();
+    )
+    .expect("spawn ipc_handler_task"),
+  );
 
-  spawner.spawn(menu_task(runner_ctx)).ok();
+  spawner.spawn(menu_task(runner_ctx).expect("spawn menu_task"));
 
-  spawner
-    .spawn(websocket_input_forwarder_task(
-      web_socket_incoming_channel.receiver(),
-      platform_for_ws,
-    ))
-    .ok();
+  spawner.spawn(
+    websocket_input_forwarder_task(web_socket_incoming_channel.receiver(), platform_for_ws).expect("spawn websocket_input_forwarder_task"),
+  );
 
   loop {
     sleep(1_000).await;

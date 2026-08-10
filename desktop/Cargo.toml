@@ -12,9 +12,9 @@ display_renderer = { path = "../libs/display_renderer" }
 embedded-graphics = "0.8.1"
 minifb = "0.26.0"
 
-embassy-time = { version = "0.5.0", features = ["tick-hz-1_000_000", "generic-queue-32"] }
-embassy-net = { version = "0.8.0", features = ["std"] }
-embassy-sync = "0.7.2"
+embassy-time = { version = "0.5.1", features = ["tick-hz-1_000_000", "generic-queue-32"] }
+embassy-net = { version = "0.9.1", features = ["std"] }
+embassy-sync = "0.8.0"
 embassy-futures = "0.1.2"
 critical-section = { version = "1.2.0", features = ["std"] }
 futures = { version = "0.3", default-features = false, features = ["executor"] }

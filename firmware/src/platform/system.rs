@@ -23,7 +23,7 @@ pub struct HardwareSystemManager {
 impl HardwareSystemManager {
   pub fn new(spawner: Spawner, pin: GPIO0<'static>) -> Self {
     let events = SystemEventQueue::new();
-    spawner.spawn(button_monitoring_task(pin, events.clone())).ok();
+    spawner.spawn(button_monitoring_task(pin, events.clone()).expect("spawn button_monitoring_task"));
     Self { events }
   }
 }

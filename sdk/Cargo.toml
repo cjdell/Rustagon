@@ -8,6 +8,6 @@ wasm_protocol = { path = "../libs/wasm_protocol" }
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
 serde-json-core = "0.6.0"
 lol_alloc = "0.4.1"
-embassy-sync = "0.7.2"
+embassy-sync = "0.8.0"
 static_cell = "2.1.1"
 makepad-zune-jpeg = { version = "0.3.17", default-features = false }

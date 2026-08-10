@@ -3,10 +3,10 @@ use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use app::platform::{TcpClient, TcpEvent, TcpEventChannel};
 use core::{fmt, future::Future, net::SocketAddr, pin::Pin};
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net::{
-  tcp::client::{TcpClient as NetTcpClient, TcpClientState, TcpConnection},
   Stack,
+  tcp::client::{TcpClient as NetTcpClient, TcpClientState, TcpConnection},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex};
 use embedded_io_async::{Read, Write};
@@ -188,13 +188,13 @@ impl TcpClient for HardwareTcpClient {
       // ever called from an embassy task (the menu task), where
       // `for_current_executor` is sound.
       let spawner = unsafe { Spawner::for_current_executor() }.await;
-      if spawner
-        .spawn(tcp_pump_task(channel, cmd, connection, slot.clone(), generation))
-        .is_err()
-      {
-        warn!("tcp: failed to spawn pump task");
-        channel.send(TcpEvent::Error).await;
-        return;
+      match tcp_pump_task(channel, cmd, connection, slot.clone(), generation) {
+        Ok(token) => spawner.spawn(token),
+        Err(_) => {
+          warn!("tcp: failed to spawn pump task");
+          channel.send(TcpEvent::Error).await;
+          return;
+        }
       }
       info!("tcp: pump spawned");
       channel.send(TcpEvent::Connected).await;

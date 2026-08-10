@@ -9,7 +9,7 @@ use crate::{
     *,
   },
 };
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use aw9523b::Pin;
 use core::fmt;
 use core::ptr;
@@ -142,7 +142,11 @@ pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
 
   let mut spi = spi.with_sck(p.GPIO8).with_mosi(p.GPIO7);
 
-  let spi_device = SpiExclusiveDevice::new(&mut spi, cs);
+  // `Spi` now runs deinit on drop, so the display interface (which borrows it)
+  // must not outlive the bus. Leak it — the LCD task runs for the device's
+  // lifetime, so the memory is intentionally never reclaimed.
+  let spi = Box::leak(Box::new(spi));
+  let spi_device = SpiExclusiveDevice::new(spi, cs);
   let mut interface = SPIDisplayInterface::new(spi_device, dc);
 
   let mut buffer = Vec::new_in(ExternalMemory);
