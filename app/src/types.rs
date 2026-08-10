@@ -1,5 +1,5 @@
 // Re-export common display types
-pub use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine, TextBufferLine};
+pub use display_types::{Icon20, Icon40, Image, LcdScreen, LedState, MenuAnimation, MenuLine, TextBufferLine};
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -106,19 +106,6 @@ pub enum LedRequest {
   Sparkle(LedState),
   TheaterChase(LedState),
   Fire,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct LedState {
-  pub r: u8,
-  pub g: u8,
-  pub b: u8,
-}
-
-impl LedState {
-  pub const fn new(r: u8, g: u8, b: u8) -> Self {
-    Self { r, g, b }
-  }
 }
 
 // ================================ Input ================================

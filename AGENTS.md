@@ -51,6 +51,15 @@ toolchain, or missing targets) produces confusing failures — e.g.
 stable without the wasm32 target, or wrong build results when the host
 `rustup` override takes precedence.
 
+**If you see `critical-section` errors** (e.g.
+`error: You must set at most one of these Cargo features: restore-state-none,
+restore-state-bool, ...` or `RawRestoreStateInner redefined`), **you are definitely
+building outside `nix develop`.** The workspace's `Cargo.lock` pins
+`critical-section` with the correct feature configuration that only takes effect
+inside the nix flake. Running `cargo` directly from a host shell bypasses the
+flake's dependency resolution and hits a broken registry version. Re-enter
+`nix develop` and retry.
+
 To enter the environment:
 
 ```sh
