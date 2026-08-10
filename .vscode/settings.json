@@ -12,5 +12,6 @@
 	"terminal.integrated.defaultProfile.osx": "nix develop",
 	"[html]": {
 		"editor.defaultFormatter": "esbenp.prettier-vscode"
-	}
+	},
+	"pendant.showThinking": true
 }
