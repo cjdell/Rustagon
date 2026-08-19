@@ -6,7 +6,7 @@
 //! off the stack. On other targets these functions are thin wrappers over the
 //! default allocator.
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 
 /// Allocate a zeroed `Vec<u8>` whose backing store lives in external memory
 /// (PSRAM on the firmware). Falls back to the default heap elsewhere.
@@ -27,7 +27,7 @@ pub fn external_vec(size: usize) -> Vec<u8> {
   }
   #[cfg(not(feature = "extern-alloc"))]
   {
-    vec![0u8; size]
+    alloc::vec![0u8; size]
   }
 }
 

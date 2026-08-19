@@ -44,6 +44,16 @@ impl HexpansionHandle {
   }
 }
 
+/// Error type for `DeviceI2c` operations.
+#[derive(Debug)]
+pub struct DeviceI2cError;
+
+impl embedded_hal::i2c::Error for DeviceI2cError {
+  fn kind(&self) -> embedded_hal::i2c::ErrorKind {
+    embedded_hal::i2c::ErrorKind::Other
+  }
+}
+
 /// Opaque I2C bus handle given to device drivers for their port's I2C bus.
 #[derive(Clone, Debug)]
 pub struct DeviceI2c {
@@ -56,25 +66,25 @@ impl DeviceI2c {
   }
 
   /// Combined write-then-read transaction (REPEATED START between).
-  pub fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), ()> {
+  pub fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), DeviceI2cError> {
     self.inner.transaction(addr, write_data, read_data)
   }
 
   /// Write-only transaction.
-  pub fn write(&self, addr: u8, data: &[u8]) -> Result<(), ()> {
+  pub fn write(&self, addr: u8, data: &[u8]) -> Result<(), DeviceI2cError> {
     self.inner.write(addr, data)
   }
 
   /// Read-only transaction.
-  pub fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), ()> {
+  pub fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), DeviceI2cError> {
     self.inner.read(addr, data)
   }
 }
 
 pub trait DeviceI2cOps: Send + Sync + fmt::Debug {
-  fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), ()>;
-  fn write(&self, addr: u8, data: &[u8]) -> Result<(), ()>;
-  fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), ()>;
+  fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), DeviceI2cError>;
+  fn write(&self, addr: u8, data: &[u8]) -> Result<(), DeviceI2cError>;
+  fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), DeviceI2cError>;
 }
 
 /// Resources given to a device driver when it is spawned.
@@ -88,16 +98,6 @@ pub struct DeviceIo {
 
 // ============================== embedded-hal I2c for DeviceI2c ==============================
 
-/// Error type for DeviceI2c embedded-hal implementation.
-#[derive(Debug)]
-pub struct DeviceI2cError;
-
-impl embedded_hal::i2c::Error for DeviceI2cError {
-  fn kind(&self) -> embedded_hal::i2c::ErrorKind {
-    embedded_hal::i2c::ErrorKind::Other
-  }
-}
-
 impl ErrorType for DeviceI2c {
   type Error = DeviceI2cError;
 }
@@ -110,14 +110,14 @@ impl I2c for DeviceI2c {
       let w = &first[0];
       let r = &mut rest[0];
       if let (Operation::Write(w_data), Operation::Read(r_data)) = (w, r) {
-        return self.inner.transaction(address, w_data, r_data).map_err(|_| DeviceI2cError);
+        return self.inner.transaction(address, w_data, r_data);
       }
     }
     // Single operation or fallback fallthrough
     for op in operations {
       match op {
-        Operation::Read(buffer) => self.inner.read(address, buffer).map_err(|_| DeviceI2cError)?,
-        Operation::Write(buffer) => self.inner.write(address, buffer).map_err(|_| DeviceI2cError)?,
+        Operation::Read(buffer) => self.inner.read(address, buffer)?,
+        Operation::Write(buffer) => self.inner.write(address, buffer)?,
       }
     }
     Ok(())

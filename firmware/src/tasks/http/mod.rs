@@ -1,6 +1,6 @@
 use crate::{platform::Platform, platform::StorageHandle, types::*};
 use alloc::{boxed::Box, vec::Vec};
-use app::http::common::{CustomNotFound, cors_options_response, html_app_response};
+use app::http::common::{CustomNotFound, html_app_response};
 use app::http::picoserve;
 use embassy_executor::Spawner;
 use embassy_net::Stack;

@@ -118,15 +118,11 @@ impl<P: Platform> MenuApp for WifiScannerApp<P> {
         match &self.state.screen {
           Screen::Scanning => {}
           Screen::NetworkList => match hex {
-            HexButton::Up => {
-              if self.state.cursor > 0 {
-                self.state.cursor -= 1;
-              }
+            HexButton::Up if self.state.cursor > 0 => {
+              self.state.cursor -= 1;
             }
-            HexButton::Down => {
-              if self.state.cursor + 1 < self.state.networks.len() {
-                self.state.cursor += 1;
-              }
+            HexButton::Down if self.state.cursor + 1 < self.state.networks.len() => {
+              self.state.cursor += 1;
             }
             HexButton::Fire => {
               if let Some(name) = self.state.networks.get(self.state.cursor).map(|n| n.ssid.clone()) {

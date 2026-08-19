@@ -3,7 +3,7 @@ pub use app::types::*;
 
 // Firmware-specific channel type aliases
 use crate::protocol::{HostIpcMessage, WasmIpcMessage};
-use crate::utils::{led_service::LedState, spi::SpiExclusiveDevice};
+use crate::utils::spi::SpiExclusiveDevice;
 use display_interface_spi::SPIInterface;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};

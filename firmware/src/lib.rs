@@ -16,7 +16,7 @@ extern crate alloc;
 extern crate core;
 
 pub mod d_i2c;
-mod device;
+
 pub mod apps;
 pub mod platform;
 mod protocol;

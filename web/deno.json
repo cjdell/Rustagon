@@ -2,10 +2,11 @@
   "tasks": {
     "start": "vite",
     "dev": "vite",
-    "build": "vite build",
+    "build": "deno task lint && vite build",
     "serve": "vite preview",
     "compress": "deno run --allow-read --allow-write compress.ts",
-    "check-imports": "deno run --allow-read --allow-env tools/check_imports.ts"
+    "check-imports": "deno run --allow-read --allow-env tools/check_imports.ts",
+    "lint": "deno task check-imports"
   },
   "nodeModulesDir": "auto",
   "compilerOptions": {

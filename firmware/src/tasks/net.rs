@@ -6,7 +6,7 @@ use edge_dhcp::{
 };
 use edge_nal::UdpBind;
 use edge_nal_embassy::{Udp, UdpBuffers};
-use embassy_net::{ConfigV4, Ipv4Cidr, Runner, Stack, StaticConfigV4};
+use embassy_net::{Runner, Stack};
 use embassy_time::{Duration, Timer};
 use esp_println::println;
 use esp_radio::wifi::Interface;

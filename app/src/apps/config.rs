@@ -145,15 +145,11 @@ impl<P: Platform> MenuApp for ConfigApp<P> {
       MenuAppInput::Button(hex) => {
         let max = CONFIG_OPTIONS.len() + 1;
         match hex {
-          HexButton::Up => {
-            if self.state.cursor > 2 {
-              self.state.cursor -= 1;
-            }
+          HexButton::Up if self.state.cursor > 2 => {
+            self.state.cursor -= 1;
           }
-          HexButton::Down => {
-            if self.state.cursor + 1 < max + 2 {
-              self.state.cursor += 1;
-            }
+          HexButton::Down if self.state.cursor + 1 < max + 2 => {
+            self.state.cursor += 1;
           }
           HexButton::Fire => {
             let action_idx = self.state.cursor.checked_sub(2);

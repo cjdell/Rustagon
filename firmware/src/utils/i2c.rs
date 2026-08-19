@@ -20,6 +20,9 @@ impl MultiplexedI2cBus {
   pub const HX6_BUS: u8 = 0b01000000;
   pub const SYS_BUS: u8 = 0b10000000;
 
+  // The NoopRawMutex bus is !Send + !Sync, but all I2C access is serialized by
+  // the single-core executor, so the wrapper types may cross task boundaries.
+  #[allow(clippy::arc_with_non_send_sync)]
   pub fn new(i2c: esp_hal::i2c::master::I2c<'static, Blocking>) -> Self {
     Self {
       i2c: Arc::new(Mutex::new(RefCell::new(i2c))),

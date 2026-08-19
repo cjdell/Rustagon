@@ -1,12 +1,5 @@
-use super::common::*;
 use crate::platform::Platform;
-use alloc::vec::Vec;
-use picoserve::{
-  ResponseSent, io::Read,
-  request::Request,
-  response::IntoResponse,
-  routing::RequestHandlerService,
-};
+use picoserve::{io::Read, request::Request, response::IntoResponse, routing::RequestHandlerService};
 
 pub struct HandleWifiScan<P: Platform> {
   platform: P,

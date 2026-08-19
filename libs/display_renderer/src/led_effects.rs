@@ -1,6 +1,4 @@
-#![no_std]
-
-use display_types::{LedRequest, LedState, NUM_LEDS};
+use display_types::{LedState, NUM_LEDS};
 
 /// Trait for LED effects
 /// Implementations define how to update and render LED states over time
@@ -59,10 +57,10 @@ impl LedEffect for RainbowEffect {
     self.offset = (self.offset + self.speed * delta_ms as f32) % 360.0;
 
     let mut states = [LedState::new(0, 0, 0); NUM_LEDS];
-    for i in 0..NUM_LEDS {
+    for (i, state) in states.iter_mut().enumerate() {
       let hue = (self.offset + (i as f32 / NUM_LEDS as f32) * 360.0) % 360.0;
       let (r, g, b) = hsv_to_rgb(hue, 1.0, 1.0);
-      states[i] = LedState::new(r, g, b);
+      *state = LedState::new(r, g, b);
     }
     states
   }
@@ -235,9 +233,9 @@ impl LedEffect for TheaterChaseEffect {
     }
 
     let mut states = [LedState::new(0, 0, 0); NUM_LEDS];
-    for i in 0..NUM_LEDS {
+    for (i, state) in states.iter_mut().enumerate() {
       if (i + self.position) % (self.block_size * 2) < self.block_size {
-        states[i] = self.colour;
+        *state = self.colour;
       }
     }
     states
@@ -286,15 +284,15 @@ impl LedEffect for FireEffect {
       seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
       if (seed % 255) < self.sparking as u32 {
         let pos = (seed % 7) as usize;
-        self.heat[pos] = self.heat[pos].saturating_add(160).min(255);
+        self.heat[pos] = self.heat[pos].saturating_add(160);
       }
 
       self.last_update_ms = now_ms;
     }
 
     let mut states = [LedState::new(0, 0, 0); NUM_LEDS];
-    for i in 0..NUM_LEDS {
-      states[i] = heat_color(self.heat[i]);
+    for (i, state) in states.iter_mut().enumerate() {
+      *state = heat_color(self.heat[i]);
     }
     states
   }

@@ -84,7 +84,7 @@ impl DisplayManager for HardwareDisplayManager {
     unsafe {
       Some(from_raw_parts(
         BUFFER,
-        (app::platform::display::DISPLAY_WIDTH * app::platform::display::DISPLAY_HEIGHT * 2) as usize,
+        app::platform::display::DISPLAY_WIDTH * app::platform::display::DISPLAY_HEIGHT * 2,
       ))
     }
   }
@@ -104,7 +104,7 @@ impl DisplayManager for HardwareDisplayManager {
     // at `LcdScreen::Blank` (WASM sessions blank the screen before the guest
     // starts), so the two never write the LCD concurrently in practice — the
     // same pattern the original WASM host used.
-    let interface: &mut DisplayInterface = unsafe { core::mem::transmute(SPI_DISPLAY_INTERFACE) };
+    let interface: &mut DisplayInterface = unsafe { &mut *SPI_DISPLAY_INTERFACE.cast::<DisplayInterface>() };
 
     Command::ColumnAddressSet(0, SCREEN_WIDTH as u16 - 1).send(interface).ok();
     Command::RowAddressSet(0, SCREEN_HEIGHT as u16 - 1).send(interface).ok();
@@ -118,7 +118,7 @@ impl DisplayManager for HardwareDisplayManager {
     if now.wrapping_sub(last) > 250 {
       LAST_SCREEN_UPDATE.store(now, Ordering::Relaxed);
 
-      let raw_buffer = unsafe { from_raw_parts_mut(BUFFER, (SCREEN_WIDTH * SCREEN_HEIGHT * 2) as usize) };
+      let raw_buffer = unsafe { from_raw_parts_mut(BUFFER, SCREEN_WIDTH * SCREEN_HEIGHT * 2) };
       raw_buffer.copy_from_slice(buffer);
     }
 
@@ -140,7 +140,7 @@ pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
 
   let spi = Spi::new(p.SPI2, Config::default().with_frequency(Rate::from_mhz(80)).with_mode(Mode::_0)).unwrap();
 
-  let mut spi = spi.with_sck(p.GPIO8).with_mosi(p.GPIO7);
+  let spi = spi.with_sck(p.GPIO8).with_mosi(p.GPIO7);
 
   // `Spi` now runs deinit on drop, so the display interface (which borrows it)
   // must not outlive the bus. Leak it — the LCD task runs for the device's
@@ -150,7 +150,7 @@ pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
   let mut interface = SPIDisplayInterface::new(spi_device, dc);
 
   let mut buffer = Vec::new_in(ExternalMemory);
-  buffer.resize((SCREEN_WIDTH * SCREEN_HEIGHT * 2) as usize, 0u8);
+  buffer.resize(SCREEN_WIDTH * SCREEN_HEIGHT * 2, 0u8);
 
   unsafe {
     BUFFER = buffer.as_mut_ptr();
@@ -163,8 +163,8 @@ pub async fn lcd_task(sys_bus: MaskedI2cBus, signal: &'static LcdSignal) {
   display.init(&mut Delay).unwrap();
   display.clear().unwrap();
 
-  let raw_buffer = unsafe { from_raw_parts_mut(BUFFER, (SCREEN_WIDTH * SCREEN_HEIGHT * 2) as usize) };
-  let interface: &mut DisplayInterface = unsafe { core::mem::transmute(SPI_DISPLAY_INTERFACE) };
+  let raw_buffer = unsafe { from_raw_parts_mut(BUFFER, SCREEN_WIDTH * SCREEN_HEIGHT * 2) };
+  let interface: &mut DisplayInterface = unsafe { &mut *SPI_DISPLAY_INTERFACE.cast::<DisplayInterface>() };
 
   let mut target = BufferTarget::new(buffer);
 

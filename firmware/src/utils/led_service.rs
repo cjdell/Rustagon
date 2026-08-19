@@ -24,6 +24,12 @@ pub struct LedService<'a> {
   one: PulseCode,
 }
 
+impl Default for LedService<'_> {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl LedService<'_> {
   pub fn new() -> Self {
     let rmt = Rmt::new(unsafe { RMT::steal() }, Rate::from_mhz(80)).unwrap().into_async();

@@ -122,8 +122,7 @@ async fn led_work_loop_task(
     for led_state in states.iter() {
       converted_states.push(LedState::new(led_state.r, led_state.g, led_state.b));
     }
-    let mut states_vec = Vec::new();
-    states_vec.push(vec![internal_led]);
+    let mut states_vec = vec![vec![internal_led]];
     states_vec.push(converted_states);
     let states = states_vec.concat();
 

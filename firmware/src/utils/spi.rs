@@ -1,10 +1,5 @@
-use embassy_time::{Duration, Timer};
 use embedded_hal::spi::{Operation, SpiBus};
-use esp_hal::{
-  Async, Blocking,
-  gpio::Output,
-  spi::master::{Spi, SpiDma, SpiDmaBus},
-};
+use esp_hal::{Blocking, gpio::Output, spi::master::Spi};
 
 pub struct SpiExclusiveDevice<'a> {
   pub bus: &'a mut Spi<'a, Blocking>,
@@ -41,7 +36,7 @@ impl<'a> embedded_hal::spi::SpiDevice for SpiExclusiveDevice<'a> {
       .try_for_each(|op| match op {
         Operation::Read(buf) => self.bus.read(buf),
         Operation::Write(buf) => self.bus.write(buf),
-        Operation::Transfer(read, write) => Ok(()),
+        Operation::Transfer(_, _) => Ok(()),
         Operation::TransferInPlace(buf) => self.bus.transfer_in_place(buf),
         Operation::DelayNs(ns) => {
           embassy_time::block_for(embassy_time::Duration::from_nanos(*ns as _));

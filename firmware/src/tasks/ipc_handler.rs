@@ -1,3 +1,4 @@
+use crate::types::{HostIpcSender, WasmIpcChannel};
 use crate::{
   platform::{HardwarePlatform, Platform},
   protocol::*,
@@ -7,7 +8,7 @@ use app::menu::state::{StackEntryType, StackEvent, StackEventHandle};
 use app::platform::HttpEventChannel;
 use app::protocol::HttpEvent;
 use core::future::join;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use log::{debug, info};
 use wasm_protocol::{HostIpcMessage as WireHostIpcMessage, WasmIpcMessage as WireWasmIpcMessage};
 

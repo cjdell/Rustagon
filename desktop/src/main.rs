@@ -52,21 +52,20 @@ fn main() {
   let stack_event_for_http = stack_event_handle.clone();
 
   // App loader: sends StartWasm over IPC when user picks a WASM app.
-  let app_loader: Option<
-    fn(String, app::apps::MenuAppContext<platform::DesktopPlatform>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>,
-  > = Some(|name: String, ctx: app::apps::MenuAppContext<platform::DesktopPlatform>| {
-    Box::pin(async move {
-      log::info!("app_loader: sending StartWasm({name})");
-      let result = ctx
-        .host_ipc_sender
-        .try_send((0, app::protocol::HostIpcMessage::Runtime(HostRuntimeCommand::StartWasm(name))));
-      log::info!("app_loader: try_send result={result:?}");
-    })
-  });
+  let app_loader: Option<app::menu::AppLoader<platform::DesktopPlatform>> =
+    Some(|name: String, ctx: app::apps::MenuAppContext<platform::DesktopPlatform>| {
+      Box::pin(async move {
+        log::info!("app_loader: sending StartWasm({name})");
+        let result = ctx
+          .host_ipc_sender
+          .try_send((0, app::protocol::HostIpcMessage::Runtime(HostRuntimeCommand::StartWasm(name))));
+        log::info!("app_loader: try_send result={result:?}");
+      })
+    });
 
   let runner_ctx = MenuRunnerContext {
     platform: (*platform).clone(),
-    host_ipc_sender: host_sender.clone(),
+    host_ipc_sender: host_sender,
     stack_event_handle,
     app_loader,
     additional_apps: &[],
@@ -75,8 +74,8 @@ fn main() {
 
   // Spawn the WASM runner thread (analogous to firmware's second_core_task)
   tasks::wasm::spawn_wasm_runner(
-    host_receiver.clone(),
-    host_sender.clone(),
+    host_receiver,
+    host_sender,
     stack_event_for_wasm,
     platform.http_client().unwrap(),
     platform.display_manager(),
@@ -95,7 +94,7 @@ fn main() {
   tasks::http::start_http(http_sender, ws_incoming_sender, (*platform).clone());
 
   // Forward files received over the HTTP API into the WASM runtime (mirrors firmware's ipc_handler)
-  let http_forwarder_sender = host_sender.clone();
+  let http_forwarder_sender = host_sender;
   std::thread::spawn(move || {
     futures::executor::block_on(http_event_handler(http_receiver, http_forwarder_sender, stack_event_for_http));
   });
@@ -115,6 +114,8 @@ fn main() {
   // Minifb window on the main thread
   let mut window = Window::new("Rustagon", WIDTH, HEIGHT, WindowOptions::default()).unwrap_or_else(|e| panic!("{}", e));
 
+  // minifb 0.26 only exposes the deprecated name; `set_fps_target` lands in 0.27
+  #[allow(deprecated)]
   window.limit_update_rate(Some(std::time::Duration::from_millis(33)));
 
   let mut fb = vec![0u8; WIDTH * HEIGHT * 2];

@@ -548,13 +548,11 @@ impl SshSession {
           self.enqueue_payload(&p, rng)?;
         }
       }
-      ChannelEvent::Eof { channel } if Some(channel) == self.channel => {
-        if !self.eof_sent {
-          if let Ok(p) = self.conn.send_eof(channel) {
-            self.enqueue_payload(&p, rng)?;
-          }
-          self.eof_sent = true;
+      ChannelEvent::Eof { channel } if Some(channel) == self.channel && !self.eof_sent => {
+        if let Ok(p) = self.conn.send_eof(channel) {
+          self.enqueue_payload(&p, rng)?;
         }
+        self.eof_sent = true;
       }
       ChannelEvent::Close { channel } if Some(channel) == self.channel => {
         self.remote_close = true;

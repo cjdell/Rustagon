@@ -49,7 +49,7 @@ impl DesktopDisplayManager {
   /// `frame_buffer()` can expose it to the WebSocket remote-view handler.
   pub fn update_framebuffer(&self, pixels: &[u8]) {
     if let Ok(mut fb) = FRAMEBUFFER.lock() {
-      let buf = fb.get_or_insert_with(|| vec![0u8; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 2) as usize]);
+      let buf = fb.get_or_insert_with(|| vec![0u8; DISPLAY_WIDTH * DISPLAY_HEIGHT * 2]);
       buf.copy_from_slice(pixels);
     }
   }

@@ -1,4 +1,4 @@
-use crate::utils::{dns::DnsResolver, VecHelper};
+use crate::utils::{VecHelper, dns::DnsResolver};
 use alloc::{
   borrow::ToOwned as _,
   boxed::Box,
@@ -7,8 +7,8 @@ use alloc::{
 };
 use core::future::join;
 use embassy_net::{
-  tcp::client::{TcpClient, TcpClientState},
   Stack,
+  tcp::client::{TcpClient, TcpClientState},
 };
 use embassy_sync::{
   blocking_mutex::raw::NoopRawMutex,
@@ -72,9 +72,7 @@ pub async fn perform_http_request(stack: Stack<'static>, req: HttpRequest) -> Re
   };
 
   let (result, _) = join!(request, listen).await;
-  if let Err(err) = result {
-    return Err(err);
-  };
+  result?;
 
   Ok(HttpResponse::new(meta.unwrap(), VecHelper::to_global_vec(body)))
 }
@@ -86,7 +84,7 @@ pub async fn perform_http_request_channel<'a>(
 ) -> Result<(), ()> {
   let result = perform_http_request_streaming(
     stack,
-    &http_request,
+    http_request,
     |meta| sender.send(HttpEvent::Meta(meta)),
     |chunk| sender.send(HttpEvent::Chunk(chunk)),
   )

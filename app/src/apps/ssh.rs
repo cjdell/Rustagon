@@ -386,10 +386,10 @@ impl<P: Platform> MenuApp for SshApp<P> {
           self.disconnect().await;
           return AppAction::Stop;
         }
-        if let MenuAppInput::Button(hex) = input {
-          if let Some(bytes) = hex_button_to_bytes(hex) {
-            self.send_bytes(bytes).await;
-          }
+        if let MenuAppInput::Button(hex) = input
+          && let Some(bytes) = hex_button_to_bytes(hex)
+        {
+          self.send_bytes(bytes).await;
         }
         self.pump_session().await;
         AppAction::Continue

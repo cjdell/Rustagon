@@ -1,4 +1,7 @@
 #![no_std]
+// The register map documents the full BQ25895 address space; some registers
+// are defined ahead of any code that reads them.
+#![allow(dead_code)]
 
 extern crate alloc;
 
@@ -273,19 +276,34 @@ pub struct BqState {
   pub is_ico_optimized: bool,
 }
 
+/// Raw BQ25895 register readings, decoded into a [`BqState`] by `from_raw`.
+pub struct RawReadings {
+  pub status: u8,
+  pub fault: u8,
+  pub vbat: f32,
+  pub vsys: f32,
+  pub vbus: f32,
+  pub ichrg: f32,
+  pub vreg: f32,
+  pub boostv: f32,
+  pub ilim: f32,
+  pub ico_opt: bool,
+}
+
 impl BqState {
-  pub fn from_raw(
-    status: u8,
-    fault: u8,
-    vbat: f32,
-    vsys: f32,
-    vbus: f32,
-    ichrg: f32,
-    vreg: f32,
-    boostv: f32,
-    ilim: f32,
-    ico_opt: bool,
-  ) -> Self {
+  pub fn from_raw(r: &RawReadings) -> Self {
+    let RawReadings {
+      status,
+      fault,
+      vbat,
+      vsys,
+      vbus,
+      ichrg,
+      vreg,
+      boostv,
+      ilim,
+      ico_opt,
+    } = *r;
     // Decode CHRG_STAT (bits 4-3 of REG0B)
     let charge_status = match (status >> 3) & 0x03 {
       0 => ChargeStatus::NotCharging,
@@ -381,7 +399,8 @@ where
   fn read_registers(&mut self, start_reg: u8, count: usize) -> Result<Vec<u8>, &'static str> {
     use embedded_hal::i2c::Operation;
     let mut buf = vec![0u8; count];
-    self.i2c
+    self
+      .i2c
       .transaction(BQ25895_ADDR, &mut [Operation::Write(&[start_reg]), Operation::Read(&mut buf)])
       .map_err(|_| "I2C transaction failed")?;
     Ok(buf)
@@ -390,7 +409,8 @@ where
   fn read_register(&mut self, reg: u8) -> Result<u8, &'static str> {
     use embedded_hal::i2c::Operation;
     let mut buf = [0u8; 1];
-    self.i2c
+    self
+      .i2c
       .transaction(BQ25895_ADDR, &mut [Operation::Write(&[reg]), Operation::Read(&mut buf)])
       .map_err(|_| "I2C transaction failed")?;
     Ok(buf[0])
@@ -522,55 +542,106 @@ where
     log::info!("bq: update_state begin");
 
     let adc = match self.read_registers(0x0B, 8) {
-      Ok(v) => { log::info!("bq: burst read 0B..12 OK: {v:02x?}"); v }
-      Err(e) => { log::warn!("bq: burst read failed: {e}"); return Err(e) }
+      Ok(v) => {
+        log::info!("bq: burst read 0B..12 OK: {v:02x?}");
+        v
+      }
+      Err(e) => {
+        log::warn!("bq: burst read failed: {e}");
+        return Err(e);
+      }
     };
 
     let status = adc[0];
     let fault = adc[1];
 
-    let vbat = if (adc[3] & 0x7F) == 0 { 0.0 }
-               else { (adc[3] & 0x7F) as f32 * 0.020 + 2.304 };
+    let vbat = if (adc[3] & 0x7F) == 0 {
+      0.0
+    } else {
+      (adc[3] & 0x7F) as f32 * 0.020 + 2.304
+    };
     log::info!("bq: adc[3]=0x{:02x} vbat={vbat}V", adc[3]);
 
-    let vsys = if (adc[4] & 0x7F) == 0 { 0.0 }
-               else { (adc[4] & 0x7F) as f32 * 0.020 + 2.304 };
+    let vsys = if (adc[4] & 0x7F) == 0 {
+      0.0
+    } else {
+      (adc[4] & 0x7F) as f32 * 0.020 + 2.304
+    };
     log::info!("bq: adc[4]=0x{:02x} vsys={vsys}V", adc[4]);
 
-    let vbus = if (adc[6] & 0x7F) == 0 { 0.0 }
-               else { (adc[6] & 0x7F) as f32 * 0.100 + 2.600 };
+    let vbus = if (adc[6] & 0x7F) == 0 {
+      0.0
+    } else {
+      (adc[6] & 0x7F) as f32 * 0.100 + 2.600
+    };
     log::info!("bq: adc[6]=0x{:02x} vbus={vbus}V", adc[6]);
 
     let ichrg = (adc[7] & 0x7F) as f32 * 50.0;
     log::info!("bq: adc[7]=0x{:02x} ichrg={ichrg}mA", adc[7]);
 
     let vreg_val = match self.read_scaled(VREG) {
-      Ok(v) => { log::info!("bq: vreg raw={}", v); v / 1000.0 }
-      Err(e) => { log::warn!("bq: vreg read failed: {e}"); return Err(e) }
+      Ok(v) => {
+        log::info!("bq: vreg raw={}", v);
+        v / 1000.0
+      }
+      Err(e) => {
+        log::warn!("bq: vreg read failed: {e}");
+        return Err(e);
+      }
     };
 
     let boostv_val = match self.read_scaled(BOOSTV) {
-      Ok(v) => { log::info!("bq: boostv raw={v}"); v / 1000.0 }
-      Err(e) => { log::warn!("bq: boostv read failed: {e}"); return Err(e) }
+      Ok(v) => {
+        log::info!("bq: boostv raw={v}");
+        v / 1000.0
+      }
+      Err(e) => {
+        log::warn!("bq: boostv read failed: {e}");
+        return Err(e);
+      }
     };
 
     let ilim = match self.read_scaled(INPUT_ILIM) {
-      Ok(v) => { log::info!("bq: ilim={v}mA"); v }
-      Err(e) => { log::warn!("bq: ilim read failed: {e}"); return Err(e) }
+      Ok(v) => {
+        log::info!("bq: ilim={v}mA");
+        v
+      }
+      Err(e) => {
+        log::warn!("bq: ilim read failed: {e}");
+        return Err(e);
+      }
     };
 
     let ico_opt = match self.read_register(0x14) {
-      Ok(v) => { log::info!("bq: reg14=0x{v:02x}"); v }
-      Err(e) => { log::warn!("bq: reg14 read failed: {e}"); return Err(e) }
+      Ok(v) => {
+        log::info!("bq: reg14=0x{v:02x}");
+        v
+      }
+      Err(e) => {
+        log::warn!("bq: reg14 read failed: {e}");
+        return Err(e);
+      }
     };
     let ico_optimized = (ico_opt & 0x40) != 0;
 
-    log::info!("bq: status=0x{status:02x} fault=0x{fault:02x} vbus_stat={} chrg_stat={} vsys_stat={}",
-      (status >> 5) & 7, (status >> 3) & 3, (status >> 2) & 1);
+    log::info!(
+      "bq: status=0x{status:02x} fault=0x{fault:02x} vbus_stat={} chrg_stat={} vsys_stat={}",
+      (status >> 5) & 7,
+      (status >> 3) & 3,
+      (status >> 2) & 1
+    );
 
-    Ok(BqState::from_raw(
-      status, fault, vbat, vsys, vbus, ichrg,
-      vreg_val, boostv_val, ilim, ico_optimized,
-    ))
+    Ok(BqState::from_raw(&RawReadings {
+      status,
+      fault,
+      vbat,
+      vsys,
+      vbus,
+      ichrg,
+      vreg: vreg_val,
+      boostv: boostv_val,
+      ilim,
+      ico_opt: ico_optimized,
+    }))
   }
 }

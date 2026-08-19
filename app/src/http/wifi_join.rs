@@ -1,14 +1,8 @@
-use super::common::*;
-use crate::platform::Platform;
 use crate::platform::ConfigHandle;
+use crate::platform::Platform;
 use crate::types::{DeviceConfig, KnownWifiNetwork, WifiDesiredState, WifiMode};
-use alloc::{format, string::ToString, vec::Vec};
-use picoserve::{
-  ResponseSent, io::Read,
-  request::Request,
-  response::IntoResponse,
-  routing::RequestHandlerService,
-};
+use alloc::format;
+use picoserve::{io::Read, request::Request, response::IntoResponse, routing::RequestHandlerService};
 
 pub struct HandleWifiJoin<P: Platform> {
   config: ConfigHandle<DeviceConfig>,

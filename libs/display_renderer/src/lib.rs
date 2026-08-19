@@ -3,16 +3,15 @@
 extern crate alloc;
 
 use alloc::format;
-use display_types::{Icon20, Icon40, Image, LcdScreen, LedRequest, LedState, MenuAnimation, MenuLine, TextBufferLine, NUM_LEDS};
+use display_types::{Icon20, Icon40, Image, LcdScreen, MenuAnimation, MenuLine, TextBufferLine};
 use embedded_graphics::{
-  mono_font::{ascii::FONT_10X20, MonoTextStyle},
+  Drawable as _,
+  mono_font::{MonoTextStyle, ascii::FONT_10X20},
   pixelcolor::{Rgb565, Rgb888},
   prelude::{Angle, DrawTarget, DrawTargetExt, Point, RgbColor, Size},
   primitives::{Arc, PrimitiveStyle, Rectangle, RoundedRectangle, StyledDrawable},
   text::{Baseline, Text},
-  Drawable as _,
 };
-use micromath::F32Ext;
 
 pub mod led_effects;
 
@@ -223,13 +222,12 @@ impl LcdState {
   }
 
   pub fn notification_cleanup(&mut self, now_ms: i32) {
-    if let LcdScreen::Notification(..) = &self.screen {
-      if now_ms - self.start_time >= NOTIF_TOTAL_MS {
-        if let Some(underlying) = self.underlying.take() {
-          self.start_time = self.underlying_start_time;
-          self.screen = underlying;
-        }
-      }
+    if let LcdScreen::Notification(..) = &self.screen
+      && now_ms - self.start_time >= NOTIF_TOTAL_MS
+      && let Some(underlying) = self.underlying.take()
+    {
+      self.start_time = self.underlying_start_time;
+      self.screen = underlying;
     }
   }
 
@@ -259,7 +257,7 @@ impl LcdState {
 
         let text_width = headline.chars().count() as i32 * CHAR_WIDTH;
         let mut text = Text::new(
-          &headline,
+          headline,
           Point::new((SCREEN_WIDTH as i32 - text_width) / 2, (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2),
           style,
         );
@@ -279,7 +277,7 @@ impl LcdState {
 
         let text_width = msg.chars().count() as i32 * CHAR_WIDTH;
         let mut text = Text::new(
-          &msg,
+          msg,
           Point::new((SCREEN_WIDTH as i32 - text_width) / 2, (SCREEN_HEIGHT as i32 - LINE_HEIGHT) / 2),
           style,
         );
@@ -397,7 +395,8 @@ impl LcdState {
       draw_icon(display, Point::new(x, y), line.0);
 
       if i == selected_idx {
-        let s = (((now_ms as f32) / 500.).sin() + 1.) / 4. + 0.5;
+        // Fully-qualified so it works in both no_std (no inherent f32::sin) and std builds
+        let s = (micromath::F32Ext::sin(now_ms as f32 / 500.) + 1.) / 4. + 0.5;
         let b = (s * 255.) as u8;
         Rectangle::new(Point::new(text_x, y), Size::new(text_width as u32, ICON_HEIGHT as u32))
           .draw_styled(&PrimitiveStyle::with_fill(Rgb565::from(Rgb888::new(b, b, b))), display)
@@ -560,7 +559,7 @@ impl LcdState {
     t.text_style.baseline = Baseline::Top;
     t.draw(display).ok();
 
-    if elapsed < NOTIF_SLIDE_IN_MS || elapsed >= NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS {
+    if !(NOTIF_SLIDE_IN_MS..NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS).contains(&elapsed) {
       0
     } else {
       (NOTIF_SLIDE_IN_MS + NOTIF_HOLD_MS - elapsed).min(200)
@@ -704,7 +703,7 @@ mod tests {
 
     assert_eq!(pixel_at(&fb, 0, 0), [2, 3]); // src (1, 0)
     assert_eq!(pixel_at(&fb, 0, 1), [6, 7]); // src (1, 1)
-                                             // The rest of the framebuffer is untouched.
+    // The rest of the framebuffer is untouched.
     assert_eq!(pixel_at(&fb, 1, 0), [0, 0]);
   }
 

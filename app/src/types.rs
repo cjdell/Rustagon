@@ -16,14 +16,15 @@ pub enum SystemMessage {
 pub struct DeviceConfig {
   pub owner_name: String,
   /// mDNS hostname advertised as `<device_name>.local`
-  #[serde(default)]
+  #[serde(default = "DeviceConfig::default_device_name")]
   pub device_name: String,
   pub app_store_url: String,
   pub firmware_url: String,
   pub wifi_mode: WifiMode,
   pub ap_ssid: String,
-  #[serde(default)]
+  #[serde(default = "DeviceConfig::default_ap_password")]
   pub ap_password: String,
+  #[serde(default = "DeviceConfig::default_known_wifi_networks")]
   pub known_wifi_networks: Vec<KnownWifiNetwork>,
 }
 
@@ -31,14 +32,31 @@ impl Default for DeviceConfig {
   fn default() -> Self {
     Self {
       owner_name: "Rustacean".to_string(),
-      device_name: "rustagon".to_string(),
+      device_name: Self::default_device_name(),
       app_store_url: "http://apps.rustagon.chrisdell.info".to_string(),
       firmware_url: "http://firmware.rustagon.chrisdell.info".to_string(),
       wifi_mode: WifiMode::AccessPoint,
       ap_ssid: "Rustagon".to_string(),
-      ap_password: "rustagon".to_string(),
-      known_wifi_networks: Vec::new(),
+      ap_password: Self::default_ap_password(),
+      known_wifi_networks: Self::default_known_wifi_networks(),
     }
+  }
+}
+
+// serde field defaults: `#[serde(default)]` on a `String` field would fall
+// back to `String::default()` (""), not the intended device defaults, so the
+// defaults are named functions mirroring `DeviceConfig::default()`.
+impl DeviceConfig {
+  fn default_device_name() -> String {
+    "rustagon".to_string()
+  }
+
+  fn default_ap_password() -> String {
+    "rustagon".to_string()
+  }
+
+  fn default_known_wifi_networks() -> Vec<KnownWifiNetwork> {
+    Vec::new()
   }
 }
 
@@ -266,4 +284,40 @@ pub enum KeyCode {
   End,
   PageUp,
   PageDown,
+}
+
+#[cfg(test)]
+mod device_config_tests {
+  use super::*;
+
+  /// A config saved by firmware before `device_name`, `ap_password` and
+  /// `known_wifi_networks` existed must still deserialize (the fields fall
+  /// back to their `Default` values).
+  #[test]
+  fn legacy_minimal_config_deserializes() {
+    let json = r#"{
+      "owner_name": "Rustacean",
+      "app_store_url": "http://apps.rustagon.chrisdell.info",
+      "firmware_url": "http://firmware.rustagon.chrisdell.info",
+      "wifi_mode": "AccessPoint",
+      "ap_ssid": "Rustagon"
+    }"#;
+    let config: DeviceConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.device_name, "rustagon");
+    assert_eq!(config.ap_password, "rustagon");
+    assert!(config.known_wifi_networks.is_empty());
+  }
+
+  #[test]
+  fn full_config_round_trips() {
+    let mut config = DeviceConfig::default();
+    config.known_wifi_networks.push(KnownWifiNetwork {
+      ssid: "home".into(),
+      pass: "pw".into(),
+    });
+    let json = serde_json::to_string(&config).unwrap();
+    let back: DeviceConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.known_wifi_networks.len(), 1);
+    assert_eq!(back.known_wifi_networks[0].ssid, "home");
+  }
 }

@@ -10,7 +10,7 @@ use crate::protocol::*;
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use embassy_futures::yield_now;
 use log::{debug, info};
-use wasm_protocol::{HostIpcMessage as WireHostIpcMessage, WasmIpcMessage as WireWasmIpcMessage};
+use wasm_protocol::WasmIpcMessage as WireWasmIpcMessage;
 use wasmi::{Caller, Engine, Extern, Linker, Module, Store};
 
 /// Runs a WASM binary through the wasmi interpreter.
@@ -32,7 +32,7 @@ pub async fn wasmi_runner<H: WasmHost>(
     counter: 1,
     last_screen_update: 0,
     timer_registry: TimerRegistry::new(),
-    host_ipc_receiver: host_ipc_receiver.clone(),
+    host_ipc_receiver,
     wasm_ipc_sender,
     limiter: MyLimiter,
     host,
@@ -98,7 +98,7 @@ pub async fn wasmi_runner<H: WasmHost>(
     }
 
     tick_count += 1;
-    if tick_count % 1000 == 0 {
+    if tick_count.is_multiple_of(1000) {
       debug!("wasmi_runner: {tick_count} ticks completed");
     }
 

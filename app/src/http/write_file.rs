@@ -2,7 +2,7 @@ use crate::alloc_ext::external_vec;
 use crate::platform::StorageHandle;
 use crate::types::HttpSender;
 use crate::types::HttpStatusMessage;
-use alloc::{format, vec::Vec};
+use alloc::format;
 use picoserve::{io::Read, response::IntoResponse, routing::RequestHandlerService};
 use serde::Serialize;
 

@@ -257,6 +257,77 @@ deploy_web:
     scp -r dist/* 192.168.49.1:/srv/rustagon/demo
 
 # ============================================================
+# Check / Test / Lint (CI parity — no hardware required)
+# ============================================================
+
+# Build the compressed web bundle (required by the app's `web-bundle` feature,
+# which both desktop and firmware enable). Skipped when it already exists.
+build_web_bundle:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ ! -f web/bundle/index.html.gz ]]; then
+      cd web
+      deno task build
+      deno task compress
+      just bold "web bundle built"
+    fi
+
+# Build everything that can build without hardware
+check: build_web_bundle
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    set -a
+    source firmware/.env
+    set +a
+
+    cd app && cargo build --features wasm-runtime && cd ..
+
+    # Union of the desktop (wasm-runtime, tokio, web-bundle) and firmware
+    # (http-server, embassy, web-bundle, wasm-runtime) feature sets, so one
+    # build covers every feature-gated code path except extern-alloc.
+    cd app && cargo build --features wasm-runtime,tokio,web-bundle,embassy && cd ..
+
+    cd desktop && cargo build && cd ..
+    cd firmware && cargo build -r --lib && cd ..
+    cargo build -p manifest-tool -p uploader
+
+    # No standalone typechecker task exists (deno check chokes on vite-specific
+    # imports like `?worker&inline`), so the production build is the check.
+    cd web && deno task build
+
+# Run host-side tests (app includes the SSH end-to-end test)
+test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    set -a
+    source firmware/.env
+    set +a
+
+    cargo test -p app
+
+# Lint: clippy with -D warnings on the host crates (firmware lib target too;
+# path-dependency crates like display_renderer/wasmi must be clean as well).
+# Web: import-convention check (also run by `deno task build`).
+lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    set -a
+    source firmware/.env
+    set +a
+
+    cargo clippy -p app --features wasm-runtime,tokio,web-bundle,embassy -- -D warnings
+    cargo clippy -p desktop -- -D warnings
+    # Run from inside firmware/ so its .cargo/config.toml applies (xtensa
+    # target + build-std).
+    (cd firmware && cargo clippy --lib -- -D warnings)
+
+    cd web && deno task lint
+
+# ============================================================
 # Combined
 # ============================================================
 

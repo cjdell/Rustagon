@@ -8,7 +8,6 @@ use esp_hal::{
   gpio::{Input, InputConfig, Pull},
   peripherals::GPIO0,
 };
-use log::info;
 
 use crate::utils::EventQueue;
 

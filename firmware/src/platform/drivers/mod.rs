@@ -3,7 +3,6 @@ pub mod tca8418;
 pub use super::input::ButtonEventQueue;
 use app::platform::hexpansion::DeviceIo;
 use app::types::DeviceEvent;
-use core::pin::Pin;
 use embassy_executor::Spawner;
 
 use crate::utils::EventQueue;

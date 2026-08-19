@@ -1,5 +1,5 @@
 use crate::{
-  apps::{common::AppName, AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput},
+  apps::{AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::Platform,
   types::*,
 };
@@ -94,27 +94,19 @@ impl<P: Platform> EditorApp<P> {
   /// arrive as keyboard events via [`handle_key`](Self::handle_key).
   fn handle_nav_button(&mut self, button: HexButton) {
     match button {
-      HexButton::Left => {
-        if self.cursors[self.active] > 0 {
-          self.cursors[self.active] -= 1;
-        }
+      HexButton::Left if self.cursors[self.active] > 0 => {
+        self.cursors[self.active] -= 1;
       }
-      HexButton::Right => {
-        if self.cursors[self.active] < self.lines[self.active].len() {
-          self.cursors[self.active] += 1;
-        }
+      HexButton::Right if self.cursors[self.active] < self.lines[self.active].len() => {
+        self.cursors[self.active] += 1;
       }
-      HexButton::Up => {
-        if self.active > 0 {
-          self.active -= 1;
-          self.clamp_cursor();
-        }
+      HexButton::Up if self.active > 0 => {
+        self.active -= 1;
+        self.clamp_cursor();
       }
-      HexButton::Down => {
-        if self.active < self.lines.len() - 1 {
-          self.active += 1;
-          self.clamp_cursor();
-        }
+      HexButton::Down if self.active < self.lines.len() - 1 => {
+        self.active += 1;
+        self.clamp_cursor();
       }
       HexButton::Fire => {
         // Split the current line at the cursor; the tail becomes a new line
@@ -181,7 +173,6 @@ impl<P: Platform> MenuApp for EditorApp<P> {
         self.handle_nav_button(hex);
         AppAction::Continue
       }
-      _ => AppAction::Continue,
     }
   }
 

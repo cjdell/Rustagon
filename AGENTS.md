@@ -87,6 +87,28 @@ just deploy_web            # build + deploy web frontend
 just deploy                # firmware + SDK + web
 ```
 
+CI recipes (no hardware required; the GitHub Actions pipeline runs exactly
+these, plus a full `just build_firmware` link):
+
+```sh
+just check   # builds every crate that builds without hardware (desktop, app
+             # in all feature combos, firmware --lib, tools, web bundle + vite)
+just test    # cargo test -p app (unit + SSH end-to-end tests)
+just lint    # clippy -D warnings on app (union feature set), desktop, and
+             # the firmware lib target, plus the web import-convention check
+```
+
+`just check` builds the compressed web bundle (`web/bundle/index.html.gz`) first
+if it is missing — the `web-bundle` feature that both desktop and firmware
+enable `include_bytes!`s it. `just lint` runs the firmware clippy from inside
+`firmware/` so that crate's `.cargo/config.toml` (xtensa target + build-std)
+applies.
+
+The CI workflow (`.github/workflows/ci.yml`) installs Nix, runs
+`just check && just test && just lint`, then links the full firmware binary
+(release-lto). The submodule `libs/wasmi` is fetched over HTTPS via an
+`insteadOf` rewrite (it is declared with an SSH URL).
+
 Prerequisites:
 - `just` installed (`brew install just`).
 - Firmware recipes need the Xtensa toolchain (`source ~/export-esp.sh`) and a
@@ -97,7 +119,8 @@ Prerequisites:
   and produces binaries that exceed the guest memory limits.
 - The web app uses `deno task build` for building (via Vite) and `deno task compress` for creating the bundled assets for firmware embedding.
 
-Manual checks without hardware (CI / no Xtensa toolchain):
+Checks without hardware are `just check`, `just test`, and `just lint`
+(see above). Individually, if you need a single crate:
 
 ```sh
 cd desktop && cargo build                       # macOS/linux (minifb window)
@@ -106,9 +129,10 @@ cd firmware && cargo build -r --lib             # firmware crate, no linker
 ```
 
 Note: linking the firmware *binary* needs the Xtensa linker
-(`xtensa-esp32s3-elf-gcc`), only available after `source ~/export-esp.sh`.
-Without it `cargo build --profile release-lto --bin rustagon` fails at link;
-`--lib` compiles fine.
+(`xtensa-esp32s3-elf-gcc`), available inside `nix develop` (the flake
+provisions it). `just build_firmware` does the full release-lto link; the
+firmware's `.cargo/config.toml` sets the xtensa target + build-std, so run
+cargo from inside `firmware/` (the just recipes do).
 
 ### Release Profiles
 
@@ -563,7 +587,9 @@ TypeScript compiler API and fails (exit 1) on:
   `@components`). Bare specifiers that resolve to published npm modules
   (via `deno.json` `imports`, e.g. `valibot`, `@solidjs/router`) are allowed.
 
-Run it after touching web imports; it is not yet wired into `deno task build`.
+It runs automatically as part of `deno task build` (and therefore `just check`
+and CI), and is available standalone as `deno task lint` (an alias of
+`check-imports`) or `just check_web`.
 
 ### Build
 
@@ -817,9 +843,7 @@ for hex buttons.
 1. **Add feature flags to `app` crate** — `#[cfg(feature = "std")]` for desktop-specific
    impls (e.g. sleep via std::thread), `#[cfg(feature = "embassy")]` for embassy.
 
-2. **Clean up warnings** — Many unused imports from the refactoring.
-
-3. **Remove `esp_hal::system::software_reset()` calls outside Platform** — `wifi_join.rs`
+2. **Remove `esp_hal::system::software_reset()` calls outside Platform** — `wifi_join.rs`
    still calls directly; should use `platform.software_reset()`.
 
 4. **Desktop hexpansion simulation** — The desktop `HexpansionManager` is a no-op stub.
@@ -833,10 +857,7 @@ for hex buttons.
 
 2. **Add unit tests to `app` crate** — Use `MockPlatform` for deterministic tests.
 
-3. **Add `#[serde(default)]` to new `DeviceConfig` fields** — Any field added after
-   initial release needs this to avoid breaking deserialization of existing configs.
-
-4. **Interrupt-driven keyboard** — The TCA8418 driver currently polls every 20ms.
+3. **Interrupt-driven keyboard** — The TCA8418 driver currently polls every 20ms.
    The HS_H pin on the hexpansion port could be used as an interrupt line for zero-latency
    key event detection.
 
@@ -1038,6 +1059,20 @@ write on each platform; `HardwareWasmHost`/`DesktopWasmHost` just call it.
 - The ~87 fps ceiling is the SPI bus itself (115,200 bytes @ 80 MHz ≈ 11.5 ms).
 - Full writeup, measurements, and esp-hal API notes: **`DMA.md`** (repo root).
   Read it before touching the display path again.
+
+### `#[serde(default)]` on `String` fields gives `""`, not your intended default
+
+**Problem:** `DeviceConfig` fields added after the initial release need a serde
+default so legacy configs still deserialize. A bare `#[serde(default)]` on a
+`String` field falls back to `String::default()` (`""`), not the value in
+`DeviceConfig::default()` — so a legacy config silently got an empty mDNS
+hostname.
+
+**Solution:** Use named default functions that mirror the struct's defaults:
+`#[serde(default = "DeviceConfig::default_device_name")]` (see
+`app/src/types.rs`). `app/src/types.rs` has a test
+(`legacy_minimal_config_deserializes`) proving a pre-`device_name` config
+deserialises with the intended values — keep it in mind when adding fields.
 
 ## Related Files
 

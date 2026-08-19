@@ -13,13 +13,8 @@ pub enum StackEntryType {
 }
 
 pub enum AppStackEntry<P: Platform> {
-  RootMenu {
-    menu_options: Vec<MenuOption>,
-    selected: u32,
-  },
-  MenuApp {
-    app: MenuAppType<P>,
-  },
+  RootMenu { menu_options: Vec<MenuOption>, selected: u32 },
+  MenuApp { app: MenuAppType<P> },
   HostedApp,
 }
 
@@ -48,9 +43,18 @@ pub struct StackSignal {
   waker: Signal<CriticalSectionRawMutex, ()>,
 }
 
+impl Default for StackSignal {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl StackSignal {
   pub fn new() -> Self {
-    Self { state: AtomicU8::new(SIGNAL_NONE), waker: Signal::new() }
+    Self {
+      state: AtomicU8::new(SIGNAL_NONE),
+      waker: Signal::new(),
+    }
   }
 
   pub fn send(&self, event: StackEvent) {

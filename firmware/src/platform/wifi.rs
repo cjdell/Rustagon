@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 pub use app::platform::wifi::{WiFiHandle, WiFiManager, WifiStatus};
 pub use app::types::{WifiDesiredState, WifiMode, WifiResult};
 use core::fmt;
@@ -10,7 +10,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock,
 use embassy_time::{Duration, Timer};
 use esp_hal::time::Instant;
 use esp_radio::wifi::{
-  AuthenticationMethod, Config, Interface, WifiController,
+  AuthenticationMethod, Config, WifiController,
   ap::{AccessPointConfig, AccessPointInfo},
   scan::ScanConfig,
   sta::StationConfig,
@@ -51,6 +51,12 @@ pub struct HardwareWifiManager {
   scan_complete: Arc<Signal<CriticalSectionRawMutex, Vec<WifiResult>>>,
   connection_attempts: Arc<core::sync::atomic::AtomicU32>,
   successful_connections: Arc<core::sync::atomic::AtomicU32>,
+}
+
+impl Default for HardwareWifiManager {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl HardwareWifiManager {
@@ -357,7 +363,7 @@ fn to_wifi_results(found_networks: &[AccessPointInfo]) -> Vec<WifiResult> {
     }
   }
 
-  results.sort_by(|a, b| b.signal_strength.cmp(&a.signal_strength));
+  results.sort_by_key(|r| core::cmp::Reverse(r.signal_strength));
   results
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-  apps::{common::AppName, AppAction, MenuApp, MenuAppContext, MenuAppInput},
+  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
   platform::Platform,
   types::*,
 };
@@ -8,7 +8,6 @@ use alloc::{format, string::ToString, vec::Vec};
 pub struct InputTestApp<P: Platform> {
   ctx: MenuAppContext<P>,
   pressed: u32,
-  remaining: u32,
 }
 
 impl<P: Platform> AppName for InputTestApp<P> {
@@ -103,11 +102,7 @@ fn render_state(pressed: u32) -> LcdScreen {
 
 impl<P: Platform> InputTestApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
-    Self {
-      ctx,
-      pressed: 0,
-      remaining: ALL_BUTTONS.len() as u32,
-    }
+    Self { ctx, pressed: 0 }
   }
 }
 
@@ -123,6 +118,7 @@ impl<P: Platform> MenuApp for InputTestApp<P> {
       MenuAppInput::Stop => AppAction::Stop,
       MenuAppInput::Button(btn) => {
         self.pressed |= bit(&btn);
+        self.ctx.update_lcd(self.render());
         let total = ALL_BUTTONS.len();
         if self.pressed.count_ones() as usize >= total {
           AppAction::Stop

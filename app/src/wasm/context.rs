@@ -1,7 +1,7 @@
 use super::host::WasmHost;
 use super::timers::TimerRegistry;
 use crate::protocol::{HostIpcReceiver, WasmIpcSender};
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use wasmi::{Caller, ResourceLimiter};
 use wasmi_core::LimiterError;
 
@@ -49,8 +49,7 @@ pub trait ReadWasmBuffer {
 
 impl<H: WasmHost> ReadWasmBuffer for Caller<'_, WasmCtx<H>> {
   fn read_memory(&self, ptr: u32, len: u32) -> Vec<u8> {
-    let mut buffer = Vec::new();
-    buffer.resize(len as usize, 0u8);
+    let mut buffer = vec![0; len as usize];
     self.read_memory_into(ptr, &mut buffer);
     buffer
   }
@@ -62,7 +61,7 @@ impl<H: WasmHost> ReadWasmBuffer for Caller<'_, WasmCtx<H>> {
       .ok_or_else(|| wasmi::Error::new("failed to find memory export"))
       .unwrap();
     memory
-      .read(&self, ptr as usize, buffer)
+      .read(self, ptr as usize, buffer)
       .map_err(|_| wasmi::Error::new("failed to read memory"))
       .unwrap();
   }

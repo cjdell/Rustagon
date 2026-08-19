@@ -77,7 +77,7 @@ fn key_number_to_keycode(key: u8) -> Option<KeyCode> {
     63 => Some(KeyCode::Alt),
     68 => Some(KeyCode::Alt),
     64 => Some(KeyCode::Backslash),
-    65 | 66 | 67 => Some(KeyCode::Space),
+    65..=67 => Some(KeyCode::Space),
     69 => Some(KeyCode::P),
     70 => Some(KeyCode::LBracket),
     80 => Some(KeyCode::RBracket),

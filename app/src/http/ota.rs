@@ -1,8 +1,8 @@
 use crate::platform::Platform;
-use crate::types::OtaError;
 use alloc::format;
 use picoserve::{
-  ResponseSent, io::Read,
+  ResponseSent,
+  io::Read,
   request::Request,
   response::{IntoResponse, ResponseWriter},
   routing::RequestHandlerService,
@@ -45,9 +45,13 @@ impl<P: Platform> RequestHandlerService<()> for OtaUpdateHandler<P> {
       loop {
         let chunk = reader.read(&mut buffer[read_size..]).await?;
         read_size += chunk;
-        if chunk == 0 { break; }
+        if chunk == 0 {
+          break;
+        }
       }
-      if read_size == 0 { break; }
+      if read_size == 0 {
+        break;
+      }
 
       if let Err(e) = self.platform.ota_write_chunk(current_offset, &buffer[..read_size]).await {
         return format!("OTA write error: {e:?}")
@@ -65,6 +69,8 @@ impl<P: Platform> RequestHandlerService<()> for OtaUpdateHandler<P> {
         .await;
     }
 
-    format!("OK: {total_size} bytes").write_to(request.body_connection.finalize().await?, response_writer).await
+    format!("OK: {total_size} bytes")
+      .write_to(request.body_connection.finalize().await?, response_writer)
+      .await
   }
 }

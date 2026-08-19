@@ -1,8 +1,6 @@
 use super::sleep;
 use crate::platform::Platform;
-use alloc::format;
 use picoserve::{
-  ResponseSent,
   io::Read,
   request::Request,
   response::{IntoResponse, ResponseWriter},
@@ -29,7 +27,7 @@ impl<P: Platform> RequestHandlerService<()> for RebootHandler<P> {
   ) -> Result<picoserve::ResponseSent, W::Error> {
     // Send the response *before* resetting — `software_reset` never returns,
     // so awaiting it first would leave the client waiting forever.
-    format!("OK")
+    alloc::string::String::from("OK")
       .write_to(request.body_connection.finalize().await?, response_writer)
       .await?;
 

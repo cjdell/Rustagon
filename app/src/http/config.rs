@@ -1,9 +1,9 @@
-use super::common::*;
 use crate::platform::ConfigHandle;
 use crate::types::DeviceConfig;
-use alloc::{format, vec::Vec};
+use alloc::format;
 use picoserve::{
-  ResponseSent, io::Read,
+  ResponseSent,
+  io::Read,
   request::Request,
   response::{IntoResponse, ResponseWriter},
   routing::RequestHandlerService,

@@ -17,7 +17,6 @@ use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc};
 use app::platform::HexpansionHandle;
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::rwlock::RwLock;
 use embedded_tools::config::ConfigFile;
 use embedded_tools::config::storage::LocalFsConfigFileStorage;

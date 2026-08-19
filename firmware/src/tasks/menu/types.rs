@@ -1,6 +1,5 @@
 use crate::platform::{HardwarePlatform, StorageHandle};
 use crate::types::*;
-use alloc::sync::Arc;
 use embassy_net::Stack;
 
 pub struct MenuRunnerContext {

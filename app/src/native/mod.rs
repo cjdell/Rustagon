@@ -16,7 +16,7 @@ impl NativeAppType {
     []
   }
 
-  pub fn load_app_async(name: String, ctx: NativeAppContext) -> NativeAppType {
+  pub fn load_app_async(_name: String, _ctx: NativeAppContext) -> NativeAppType {
     panic!("No native apps available")
   }
 }

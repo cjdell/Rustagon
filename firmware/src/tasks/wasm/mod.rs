@@ -6,7 +6,6 @@ use crate::native::*;
 use crate::utils::*;
 use alloc::string::ToString;
 use app::protocol::*;
-use app::types::*;
 use app::wasm;
 use display_types::{Icon40, LcdScreen};
 use embassy_time::{Duration, Timer};
@@ -21,7 +20,7 @@ pub async fn second_core_task(storage: StorageHandle, display: DisplayHandle, se
   println!("Starting WASM on SECOND CORE...");
 
   loop {
-    if let Err(err) = wasm_host_loop(storage.clone(), display.clone(), sender.clone(), receiver.clone()).await {
+    if let Err(err) = wasm_host_loop(storage.clone(), display.clone(), sender, receiver).await {
       error!("second_core_task: An error occurred: {err:?}");
     }
 
@@ -52,9 +51,9 @@ async fn wasm_host_loop(
         wasm_ipc_sender.send((0, WasmIpcMessage::LcdScreen(screen))).await;
 
         let ctx = NativeAppContext::new(storage.clone(), wasm_ipc_sender, host_ipc_receiver);
-        let app = NativeAppType::load_app_async(app_name, ctx);
-
-        app.app_main().await;
+        // `app::native::NativeAppType` is an empty enum (no native apps exist yet),
+        // so drive it via a temporary: a named binding trips unused_variables.
+        NativeAppType::load_app_async(app_name, ctx).app_main().await;
 
         wasm_ipc_sender.send((0, WasmIpcMessage::Stopped)).await;
       }
@@ -76,14 +75,7 @@ async fn wasm_host_loop(
 
         info!("WASM: File size: {}", buf.len());
 
-        if let Err(err) = wasm::wasmi_runner(
-          HardwareWasmHost::new(display.clone()),
-          wasm_ipc_sender.clone(),
-          host_ipc_receiver.clone(),
-          buf,
-        )
-        .await
-        {
+        if let Err(err) = wasm::wasmi_runner(HardwareWasmHost::new(display.clone()), wasm_ipc_sender, host_ipc_receiver, buf).await {
           error!("A error occurred whilst running the program: {err}");
         }
 
@@ -106,14 +98,7 @@ async fn wasm_host_loop(
         info!("Wasm: Started");
         print_memory_info();
 
-        if let Err(err) = wasm::wasmi_runner(
-          HardwareWasmHost::new(display.clone()),
-          wasm_ipc_sender.clone(),
-          host_ipc_receiver.clone(),
-          buffer,
-        )
-        .await
-        {
+        if let Err(err) = wasm::wasmi_runner(HardwareWasmHost::new(display.clone()), wasm_ipc_sender, host_ipc_receiver, buffer).await {
           error!("A error occurred whilst running the program: {err}");
         }
 

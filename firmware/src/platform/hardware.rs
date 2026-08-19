@@ -1,16 +1,13 @@
 use super::display::DisplayHandle;
 use super::input::InputHandle;
-use super::led::{HardwareLedManager, LedHandle};
+use super::led::LedHandle;
 use super::power::PowerHandle;
 use super::storage::{ConfigHandle, FsError, HardwareStorageManager, StorageHandle};
 use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
 use crate::utils::ota::Ota;
-use alloc::sync::Arc;
 use app::platform::{HexpansionHandle, HttpClientHandle, Platform, TcpHandle};
 use app::types::OtaError;
-use core::fmt;
-use embassy_executor::Spawner;
 use embedded_storage::Storage;
 use esp_hal::system::{Cpu, CpuControl};
 use procmacros::partition_offset;
@@ -33,6 +30,8 @@ pub struct HardwarePlatform {
 }
 
 impl HardwarePlatform {
+  // One parameter per manager handle; they mirror the Platform trait surface.
+  #[allow(clippy::too_many_arguments)]
   pub fn new_with_managers(
     display: DisplayHandle,
     hexpansion: HexpansionHandle,
@@ -141,7 +140,7 @@ impl Platform for HardwarePlatform {
     let raw = self.storage_formatter.raw_flash();
     let mut flash = raw.write().await;
 
-    let mut ota = Ota::new(&mut *flash);
+    let mut ota = Ota::new(&mut flash);
     let slot = ota.target_slot();
     Ok(OTA_OFFSETS[slot.number()])
   }
@@ -156,7 +155,7 @@ impl Platform for HardwarePlatform {
     let raw = self.storage_formatter.raw_flash();
     let mut flash = raw.write().await;
 
-    let mut ota = Ota::new(&mut *flash);
+    let mut ota = Ota::new(&mut flash);
     let slot = ota.target_slot();
     ota.set_current_slot(slot);
     Ok(())

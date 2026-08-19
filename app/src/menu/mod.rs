@@ -54,7 +54,7 @@ pub async fn menu_task<P: Platform + 'static>(mut runner_ctx: MenuRunnerContext<
       }
       Some(StackEntryType::HostedApp) => {
         debug!("menu_task: calling handle_hosted_app");
-        handle_hosted_app(&mut stack, &runner_ctx, &display, &stack_signal).await;
+        handle_hosted_app(&mut stack, &runner_ctx, &stack_signal).await;
         debug!("menu_task: handle_hosted_app returned, stack.len={}", stack.len());
       }
       None => {
@@ -126,15 +126,11 @@ async fn handle_root_menu<P: Platform>(
         should_render = true;
         if let AppStackEntry::RootMenu { menu_options, selected } = &mut stack[idx] {
           match hex {
-            HexButton::Up => {
-              if *selected > 0 {
-                *selected -= 1;
-              }
+            HexButton::Up if *selected > 0 => {
+              *selected -= 1;
             }
-            HexButton::Down => {
-              if (*selected as usize) < menu_options.len().saturating_sub(1) {
-                *selected += 1;
-              }
+            HexButton::Down if (*selected as usize) < menu_options.len().saturating_sub(1) => {
+              *selected += 1;
             }
             HexButton::Fire => {
               if *selected as usize >= menu_options.len() {
@@ -188,10 +184,8 @@ async fn handle_root_menu<P: Platform>(
             debug!("handle_root_menu: stack event {event:?}");
             match event {
               StackEvent::Pushed(StackEntryType::HostedApp) => stack.push(AppStackEntry::HostedApp),
-              StackEvent::Popped => {
-                if stack.len() > 1 {
-                  let _ = stack.pop();
-                }
+              StackEvent::Popped if stack.len() > 1 => {
+                let _ = stack.pop();
               }
               _ => {}
             }
@@ -200,14 +194,13 @@ async fn handle_root_menu<P: Platform>(
         Either::Second(dev_event) => {
           debug!("handle_root_menu: device event {dev_event:?}");
           // Inject navigation keys as HexButton (press and release) for menu navigation
-          if let DeviceEvent::Keyboard(ke) = &dev_event {
-            if let Some(nav) = device_key_to_nav(ke.code) {
-              let button = match ke.typ {
-                KeyEventType::Pressed => nav,
-                KeyEventType::Released => nav.released(),
-              };
-              runner_ctx.platform.input_manager().inject_button(button).await;
-            }
+          let DeviceEvent::Keyboard(ke) = &dev_event;
+          if let Some(nav) = device_key_to_nav(ke.code) {
+            let button = match ke.typ {
+              KeyEventType::Pressed => nav,
+              KeyEventType::Released => nav.released(),
+            };
+            runner_ctx.platform.input_manager().inject_button(button).await;
           }
         }
       },
@@ -224,10 +217,8 @@ async fn handle_root_menu<P: Platform>(
       debug!("handle_root_menu: stack event {event:?}");
       match event {
         StackEvent::Pushed(StackEntryType::HostedApp) => stack.push(AppStackEntry::HostedApp),
-        StackEvent::Popped => {
-          if stack.len() > 1 {
-            let _ = stack.pop();
-          }
+        StackEvent::Popped if stack.len() > 1 => {
+          let _ = stack.pop();
         }
         _ => {}
       }
@@ -328,10 +319,8 @@ async fn handle_menu_app<P: Platform>(
       MenuEvent::Stack(stack_event) => {
         debug!("handle_menu_app: stack event {stack_event:?}");
         match stack_event {
-          StackEvent::Popped => {
-            if stack.len() > 1 {
-              pop = true;
-            }
+          StackEvent::Popped if stack.len() > 1 => {
+            pop = true;
           }
           StackEvent::Pushed(StackEntryType::HostedApp) => push_hosted = true,
           _ => {}
@@ -399,20 +388,13 @@ async fn handle_menu_app<P: Platform>(
 
     // Re-render the app's screen after a real input/event. Skip ticks so idle
     // apps don't flood the display (they may have already updated it in tick).
-    if !is_tick {
-      if let AppStackEntry::MenuApp { app } = &stack[idx] {
-        let _ = display.signal(app.render());
-      }
+    if !is_tick && let AppStackEntry::MenuApp { app } = &stack[idx] {
+      let _ = display.signal(app.render());
     }
   }
 }
 
-async fn handle_hosted_app<P: Platform>(
-  stack: &mut Vec<AppStackEntry<P>>,
-  runner_ctx: &MenuRunnerContext<P>,
-  display: &crate::platform::DisplayHandle,
-  stack_signal: &StackSignal,
-) {
+async fn handle_hosted_app<P: Platform>(stack: &mut Vec<AppStackEntry<P>>, runner_ctx: &MenuRunnerContext<P>, stack_signal: &StackSignal) {
   loop {
     let input = embassy_futures::select::select4(
       runner_ctx.platform.system_manager().next_button(),
@@ -447,10 +429,11 @@ async fn handle_hosted_app<P: Platform>(
             }
             return;
           }
-          StackEvent::Pushed(typ) => match typ {
-            StackEntryType::HostedApp => stack.push(AppStackEntry::HostedApp),
-            _ => {}
-          },
+          StackEvent::Pushed(typ) => {
+            if typ == StackEntryType::HostedApp {
+              stack.push(AppStackEntry::HostedApp)
+            }
+          }
         }
       }
       Either4::Fourth(inner) => match inner {
@@ -460,17 +443,16 @@ async fn handle_hosted_app<P: Platform>(
         Either::Second(dev_event) => {
           debug!("hosted_app: device event {dev_event:?}");
           // Forward navigation keys as HexButton (press and release) to hosted apps
-          if let DeviceEvent::Keyboard(ke) = &dev_event {
-            if let Some(nav) = device_key_to_nav(ke.code) {
-              let button = match ke.typ {
-                KeyEventType::Pressed => nav,
-                KeyEventType::Released => nav.released(),
-              };
-              runner_ctx
-                .host_ipc_sender
-                .try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(button))))
-                .ok();
-            }
+          let DeviceEvent::Keyboard(ke) = &dev_event;
+          if let Some(nav) = device_key_to_nav(ke.code) {
+            let button = match ke.typ {
+              KeyEventType::Pressed => nav,
+              KeyEventType::Released => nav.released(),
+            };
+            runner_ctx
+              .host_ipc_sender
+              .try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(button))))
+              .ok();
           }
         }
       },

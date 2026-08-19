@@ -42,8 +42,7 @@ impl<State: Clone + DeserializeOwned + Serialize> PersistentStateService<State> 
       Ok(json) => {
         info!("PersistentStateService.init: {}", json);
 
-        *self.state.borrow_mut() =
-          serde_json::from_str::<State>(&json).map_err(|err| StateError::Error(format!("{err:?}")))?;
+        *self.state.borrow_mut() = serde_json::from_str::<State>(&json).map_err(|err| StateError::Error(format!("{err:?}")))?;
 
         Ok(())
       }
@@ -60,8 +59,7 @@ impl<State: Clone + DeserializeOwned + Serialize> PersistentStateService<State> 
   }
 
   pub fn set_json(&self, json: &[u8]) -> Result<(), StateError> {
-    *self.state.borrow_mut() =
-      serde_json::from_slice::<State>(json).map_err(|err| StateError::Error(format!("{err:?}")))?;
+    *self.state.borrow_mut() = serde_json::from_slice::<State>(json).map_err(|err| StateError::Error(format!("{err:?}")))?;
 
     Ok(())
   }
@@ -70,7 +68,7 @@ impl<State: Clone + DeserializeOwned + Serialize> PersistentStateService<State> 
     self.state.borrow().clone()
   }
 
-  pub fn set_data(&self, new_state: State) -> () {
+  pub fn set_data(&self, new_state: State) {
     *self.state.borrow_mut() = new_state;
   }
 
@@ -79,7 +77,11 @@ impl<State: Clone + DeserializeOwned + Serialize> PersistentStateService<State> 
 
     info!("PersistentStateService.save: {}", json);
 
-    self.storage.write_text_file(self.file_name.clone(), json).await.map_err(|err| StateError::Error(format!("{err:?}")))?;
+    self
+      .storage
+      .write_text_file(self.file_name.clone(), json)
+      .await
+      .map_err(|err| StateError::Error(format!("{err:?}")))?;
 
     Ok(())
   }

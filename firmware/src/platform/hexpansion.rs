@@ -1,11 +1,11 @@
 use crate::platform::DisplayHandle;
-use crate::platform::drivers::{ButtonEventQueue, DEVICE_EVENT_QUEUE_DEPTH, DeviceEventQueue, DriverEntry};
+use crate::platform::drivers::{ButtonEventQueue, DeviceEventQueue, DriverEntry};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use app::platform::hexpansion::{DeviceI2c, DeviceI2cOps, DeviceIo, HexpansionManager};
+use app::platform::hexpansion::{DeviceI2c, DeviceI2cError, DeviceI2cOps, DeviceIo, HexpansionManager};
 use app::types::{DeviceEvent, HexpansionEvent, HexpansionInfo};
 use core::cell::RefCell;
 use core::fmt;
@@ -39,30 +39,32 @@ impl fmt::Debug for I2cBusWrapper {
 }
 
 impl DeviceI2cOps for I2cBusWrapper {
-  fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), ()> {
+  fn transaction(&self, addr: u8, write_data: &[u8], read_data: &mut [u8]) -> Result<(), DeviceI2cError> {
     use embedded_hal::i2c::I2c;
     let mut bus = self.bus.clone();
     if read_data.is_empty() {
       // Write-only — no read phase
-      bus.transaction(addr, &mut [Operation::Write(write_data)]).map_err(|_| ())
+      bus
+        .transaction(addr, &mut [Operation::Write(write_data)])
+        .map_err(|_| DeviceI2cError)
     } else {
       // Combined write-then-read with REPEATED START
       bus
         .transaction(addr, &mut [Operation::Write(write_data), Operation::Read(read_data)])
-        .map_err(|_| ())
+        .map_err(|_| DeviceI2cError)
     }
   }
 
-  fn write(&self, addr: u8, data: &[u8]) -> Result<(), ()> {
+  fn write(&self, addr: u8, data: &[u8]) -> Result<(), DeviceI2cError> {
     use embedded_hal::i2c::I2c;
     let mut bus = self.bus.clone();
-    bus.transaction(addr, &mut [Operation::Write(data)]).map_err(|_| ())
+    bus.transaction(addr, &mut [Operation::Write(data)]).map_err(|_| DeviceI2cError)
   }
 
-  fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), ()> {
+  fn read(&self, addr: u8, data: &mut [u8]) -> Result<(), DeviceI2cError> {
     use embedded_hal::i2c::I2c;
     let mut bus = self.bus.clone();
-    bus.transaction(addr, &mut [Operation::Read(data)]).map_err(|_| ())
+    bus.transaction(addr, &mut [Operation::Read(data)]).map_err(|_| DeviceI2cError)
   }
 }
 
@@ -97,10 +99,12 @@ impl HardwareHexpansionManager {
         events.clone(),
         state.clone(),
         display,
-        device_events.clone(),
-        button_events,
-        driver_table,
-        spawner,
+        PollTaskResources {
+          device_events: device_events.clone(),
+          button_events,
+          driver_table,
+          spawner,
+        },
       )
       .expect("spawn hexpansion_poll_task"),
     );
@@ -143,17 +147,28 @@ impl HexpansionManager for HardwareHexpansionManager {
 
 // ============================== Polling task ==============================
 
+/// Resources the polling task needs to spawn hexpansion device drivers.
+struct PollTaskResources {
+  device_events: DeviceEventQueue,
+  button_events: ButtonEventQueue,
+  driver_table: &'static [DriverEntry],
+  spawner: Spawner,
+}
+
 #[embassy_executor::task]
 async fn hexpansion_poll_task(
   mut hx_buses: [MaskedI2cBus; 6],
   events: HexpansionEventQueue,
   state: SharedState,
   display: DisplayHandle,
-  device_events: DeviceEventQueue,
-  button_events: ButtonEventQueue,
-  driver_table: &'static [DriverEntry],
-  spawner: Spawner,
+  resources: PollTaskResources,
 ) {
+  let PollTaskResources {
+    device_events,
+    button_events,
+    driver_table,
+    spawner,
+  } = resources;
   let mut states = [PortState::Empty; 6];
   let mut driver_spawned = [false; 6];
 
@@ -245,6 +260,9 @@ async fn hexpansion_poll_task(
   }
 }
 
+// Heterogeneous driver resources (queues, buses, table, spawner) — bundling
+// them just to satisfy the lint would obscure what the driver actually gets.
+#[allow(clippy::too_many_arguments)]
 fn spawn_driver(
   port: u8,
   vid: u16,

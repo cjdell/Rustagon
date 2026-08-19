@@ -1,5 +1,5 @@
-use alloc::sync::Arc;
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::{fmt, future::Future, pin::Pin};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct PowerStatus {
 impl PowerStatus {
   pub fn battery_percent(&self) -> u8 {
     // Li-ion nominal range ~3.0V–4.2V, map 0–100%
-    let mv = self.vbat_mv.max(3000).min(4200);
+    let mv = self.vbat_mv.clamp(3000, 4200);
     ((mv - 3000) * 100 / (4200 - 3000)) as u8
   }
 }

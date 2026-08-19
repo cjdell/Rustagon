@@ -46,12 +46,9 @@ impl RequestHandlerService<()> for ReadFileHandler {
 
     let connection = request.body_connection.finalize().await?;
 
-    ChunkedResponse::new(FileChunks::new(self.storage.clone(), self.sender.clone(), file_name, file_size))
+    ChunkedResponse::new(FileChunks::new(self.storage.clone(), self.sender, file_name, file_size))
       .into_response()
-      .with_headers([
-        ("Access-Control-Allow-Origin", "*"),
-        ("Content-Length", &file_size.to_string()),
-      ])
+      .with_headers([("Access-Control-Allow-Origin", "*"), ("Content-Length", &file_size.to_string())])
       .write_to(connection, response_writer)
       .await
   }
@@ -66,7 +63,12 @@ struct FileChunks {
 
 impl FileChunks {
   pub fn new(storage: StorageHandle, sender: HttpSender, file_name: String, file_size: u64) -> Self {
-    Self { storage, sender, file_name, file_size }
+    Self {
+      storage,
+      sender,
+      file_name,
+      file_size,
+    }
   }
 }
 
@@ -81,10 +83,7 @@ impl Chunks for FileChunks {
     }
   }
 
-  async fn write_chunks<W: picoserve::io::Write>(
-    self,
-    mut chunk_writer: ChunkWriter<W>,
-  ) -> Result<ChunksWritten, W::Error> {
+  async fn write_chunks<W: picoserve::io::Write>(self, mut chunk_writer: ChunkWriter<W>) -> Result<ChunksWritten, W::Error> {
     let mut read_bytes = 0u32;
 
     loop {
@@ -98,7 +97,10 @@ impl Chunks for FileChunks {
       };
 
       chunk_writer.write_chunk(&buffer).await?;
-      self.sender.send(HttpStatusMessage::Progress(read_bytes, self.file_size as u32)).await;
+      self
+        .sender
+        .send(HttpStatusMessage::Progress(read_bytes, self.file_size as u32))
+        .await;
 
       read_bytes += buffer.len() as u32;
 

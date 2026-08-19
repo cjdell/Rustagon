@@ -26,42 +26,25 @@ use embassy_time::{Duration, Timer};
 use embedded_graphics::{pixelcolor::Rgb565, prelude::IntoStorage};
 use esp_alloc::{ExternalMemory, MemoryCapability};
 use esp_hal::time::Instant;
-use esp_println::{print, println};
+use esp_println::println;
 
 pub fn print_memory_info() {
   for region in esp_alloc::HEAP.stats().region_stats {
-    if let Some(region_info) = region {
-      let cap = if region_info.capabilities.contains(MemoryCapability::Internal) {
-        "Internal"
-      } else {
-        "External"
-      };
+    let Some(region_info) = region else { continue };
+    let cap = if region_info.capabilities.contains(MemoryCapability::Internal) {
+      "Internal"
+    } else {
+      "External"
+    };
 
-      println!("{} {}/{}", cap, region_info.used, region_info.size);
-    }
-  }
-}
-
-pub fn print_memory(ptr: *const u8, len: usize) {
-  unsafe {
-    println!("Reading from address: 0x{:08x}", ptr as usize);
-
-    // Read first 64 bytes
-    for i in 0..len {
-      let byte = ptr.add(i).read_volatile();
-      print!("{:02x} ", byte);
-      if (i + 1) % 16 == 0 {
-        println!();
-      }
-    }
-    println!();
+    println!("{} {}/{}", cap, region_info.used, region_info.size);
   }
 }
 
 pub struct VecHelper;
 
 impl VecHelper {
-  pub fn do_vecs_match<T: PartialEq>(a: &Vec<T>, b: &Vec<T>) -> bool {
+  pub fn do_vecs_match<T: PartialEq>(a: &[T], b: &[T]) -> bool {
     let matching = a.iter().zip(b.iter()).filter(|&(a, b)| a == b).count();
     matching == a.len() && matching == b.len()
   }
@@ -111,6 +94,6 @@ macro_rules! timeout {
 #[macro_export]
 macro_rules! timeout_result {
   ($future:expr, $duration:expr, $prefix:literal) => {
-    crate::timeout!(async { Ok::<_, anyhow::Error>($future.await) }, $duration, $prefix)
+    $crate::timeout!(async { Ok::<_, anyhow::Error>($future.await) }, $duration, $prefix)
   };
 }

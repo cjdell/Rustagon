@@ -123,8 +123,8 @@ impl<P: Platform> OtaUpdaterApp<P> {
       }
     };
 
-    join(http_client.request(req, &channel), listen).await;
-    Ok(())
+    let (_, res) = join(http_client.request(req, &channel), listen).await;
+    res
   }
 }
 
@@ -157,10 +157,10 @@ impl<P: Platform> MenuApp for OtaUpdaterApp<P> {
             }
           }
           Screen::UpdatePrompt(version_info) => {
-            if let HexButton::Fire = hex {
-              if self.do_update(version_info.clone()).await.is_err() {
-                self.state.screen = Screen::Welcome;
-              }
+            if let HexButton::Fire = hex
+              && self.do_update(version_info.clone()).await.is_err()
+            {
+              self.state.screen = Screen::Welcome;
             }
           }
         }

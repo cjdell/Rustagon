@@ -168,7 +168,7 @@ async fn touch_monitoring_task(top_bus: MaskedI2cBus, events: ButtonEventQueue) 
       // delays required by the init sequence.  The init path calls this
       // with 500 ms (NVM save) which is long, but the device NACKs the
       // bus during that period anyway so spinning is acceptable.
-      let until = embassy_time::Instant::now() + embassy_time::Duration::from_millis(ms as u64);
+      let until = embassy_time::Instant::now() + embassy_time::Duration::from_millis(ms);
       while embassy_time::Instant::now() < until {}
     })
     .is_err()

@@ -1,6 +1,5 @@
 use crate::alloc_ext::external_vec;
 use crate::types::{HttpSender, HttpStatusMessage};
-use alloc::vec::Vec;
 use picoserve::{
   io::Read,
   request::Request,

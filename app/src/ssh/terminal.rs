@@ -87,10 +87,10 @@ impl Terminal {
         self.utf8_len += 1;
         let need = utf8_len(self.utf8[0]);
         if self.utf8_len == need {
-          if let Ok(s) = core::str::from_utf8(&self.utf8[..need]) {
-            if let Some(ch) = s.chars().next() {
-              self.put_char(ch);
-            }
+          if let Ok(s) = core::str::from_utf8(&self.utf8[..need])
+            && let Some(ch) = s.chars().next()
+          {
+            self.put_char(ch);
           }
           self.utf8_len = 0;
         }
@@ -173,8 +173,8 @@ impl Terminal {
           self.cur_x = 0;
         } else {
           let mut nums = params.split(|&c| c == b';');
-          let row = nums.next().and_then(|n| parse_uint(n)).unwrap_or(1).saturating_sub(1) as usize;
-          let col = nums.next().and_then(|n| parse_uint(n)).unwrap_or(1).saturating_sub(1) as usize;
+          let row = nums.next().and_then(parse_uint).unwrap_or(1).saturating_sub(1) as usize;
+          let col = nums.next().and_then(parse_uint).unwrap_or(1).saturating_sub(1) as usize;
           self.cur_line = row.min(self.lines.len().saturating_sub(1));
           self.cur_x = col;
         }

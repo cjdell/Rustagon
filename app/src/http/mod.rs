@@ -15,11 +15,11 @@ pub mod write_file;
 use crate::platform::Platform;
 use crate::platform::display::DisplayHandle;
 use crate::platform::storage::StorageHandle;
-use crate::types::{DeviceConfig, HttpSender, WebSocketIncomingSender};
+use crate::types::{HttpSender, WebSocketIncomingSender};
 use common::*;
 use picoserve::Router;
 use picoserve::response::WebSocketUpgrade;
-use picoserve::routing::{PathRouter, get, get_service, post, post_service};
+use picoserve::routing::{PathRouter, get, get_service, post_service};
 
 pub use picoserve;
 
@@ -47,14 +47,14 @@ pub fn build_api_router<P: Platform + 'static>(
     .route("/files", get_service(list_files::HandleFileList::new(storage.clone())))
     .route(
       "/file",
-      get_service(read_file::ReadFileHandler::new(storage.clone(), sender.clone()))
-        .post_service(write_file::WriteFileHandler::new(storage.clone(), sender.clone()))
+      get_service(read_file::ReadFileHandler::new(storage.clone(), sender))
+        .post_service(write_file::WriteFileHandler::new(storage.clone(), sender))
         .delete_service(delete_file::DeleteFileHandler::new(storage.clone()))
         .options(async || cors_options_response()),
     )
     .route(
       "/receive",
-      post_service(receive_file::ReceiveFileHandler::new(sender.clone())).options(async || cors_options_response()),
+      post_service(receive_file::ReceiveFileHandler::new(sender)).options(async || cors_options_response()),
     )
     .route(
       "/reboot",
@@ -71,7 +71,7 @@ pub fn build_api_router<P: Platform + 'static>(
         let ws_display = display;
         async move |upgrade: WebSocketUpgrade| {
           upgrade
-            .on_upgrade(web_socket::WebSocketHandler::new(ws_sender.clone(), ws_display.clone()))
+            .on_upgrade(web_socket::WebSocketHandler::new(ws_sender, ws_display.clone()))
             .with_protocol("messages")
         }
       })

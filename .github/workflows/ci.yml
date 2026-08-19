@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-test-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init wasmi submodule (HTTPS)
+        # The submodule is declared with an SSH URL; redirect it to HTTPS so
+        # the checkout token can fetch it.
+        run: |
+          git config --global url."https://github.com/cjdell/wasmi.git".insteadOf "git@github.com:cjdell/wasmi.git"
+          git submodule update --init libs/wasmi
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: just check
+        run: nix develop --command bash -c "just check"
+
+      - name: just test
+        run: nix develop --command bash -c "just test"
+
+      - name: just lint
+        run: nix develop --command bash -c "just lint"
+
+      # Full firmware binary link (release-lto + Xtensa). This is the only
+      # thing that catches link-time issues (stack sizes, partition layout);
+      # it is slow, so it runs after the fast checks.
+      - name: just build_firmware
+        run: nix develop --command bash -c "just build_firmware"

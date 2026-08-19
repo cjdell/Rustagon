@@ -2,7 +2,7 @@ pub mod context;
 
 pub use context::*;
 
-use app::menu::state::{StackEntryType, StackEvent, StackEventHandle};
+use app::menu::state::{StackEvent, StackEventHandle};
 use app::platform::{HttpClientHandle, display::DisplayHandle};
 use app::protocol::*;
 use app::wasm::wasmi_runner;
@@ -10,7 +10,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Receiver;
 use futures::future::join;
 use log::{debug, info, warn};
-use std::sync::Arc;
 use wasm_protocol::{HostIpcMessage as WireHostIpcMessage, WasmIpcMessage as WireWasmIpcMessage};
 
 pub fn spawn_wasm_runner(
@@ -58,8 +57,8 @@ async fn wasm_host_loop(
         debug!("wasm_host_loop: file loaded, {} bytes", buf.len());
         run_program(
           buf,
-          host_sender.clone(),
-          host_receiver.clone(),
+          host_sender,
+          host_receiver,
           stack_event_handle.clone(),
           http_client.clone(),
           display.clone(),
@@ -71,8 +70,8 @@ async fn wasm_host_loop(
         debug!("wasm_host_loop: running from buffer ({} bytes)", buffer.len());
         run_program(
           buffer,
-          host_sender.clone(),
-          host_receiver.clone(),
+          host_sender,
+          host_receiver,
           stack_event_handle.clone(),
           http_client.clone(),
           display.clone(),
@@ -101,7 +100,7 @@ async fn run_program(
 
   debug!("run_program: starting wasmi_runner ({} bytes)", wasm_buffer.len());
 
-  let ipc_sender = wasm_sender.clone();
+  let ipc_sender = wasm_sender;
   let wasm_future = wasmi_runner(DesktopWasmHost::new(display.clone()), wasm_sender, host_receiver, wasm_buffer);
 
   let ipc_future = async {
@@ -157,7 +156,10 @@ async fn run_program(
   };
 
   debug!("run_program: joining wasm + ipc futures");
-  join(wasm_future, ipc_future).await;
+  let (wasm_res, _) = join(wasm_future, ipc_future).await;
+  if let Err(e) = wasm_res {
+    warn!("run_program: wasm error: {e}");
+  }
   debug!("run_program: join completed, cleaning up");
 
   *crate::platform::display::LCD_BUFFER.lock().unwrap() = None;

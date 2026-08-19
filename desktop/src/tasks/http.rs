@@ -1,5 +1,5 @@
 use crate::platform::DesktopPlatform;
-use app::http::common::{CustomNotFound, cors_options_response, html_app_response};
+use app::http::common::{CustomNotFound, html_app_response};
 use app::http::picoserve;
 use app::platform::Platform;
 use app::platform::storage::StorageHandle;

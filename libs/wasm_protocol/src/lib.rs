@@ -95,18 +95,13 @@ impl HexButton {
 
 // ================================ HTTP types ================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum HttpMethod {
+  #[default]
   Get,
   Post,
   Put,
   Delete,
-}
-
-impl Default for HttpMethod {
-  fn default() -> Self {
-    Self::Get
-  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

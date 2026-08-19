@@ -65,9 +65,7 @@ impl<'a> Ota<'a> {
       Slot::None
     } else if seq0 == 0xffffffff {
       Slot::Slot1
-    } else if seq1 == 0xffffffff {
-      Slot::Slot0
-    } else if seq0 > seq1 {
+    } else if seq1 == 0xffffffff || seq0 > seq1 {
       Slot::Slot0
     } else {
       Slot::Slot1

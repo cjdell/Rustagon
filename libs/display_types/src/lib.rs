@@ -40,20 +40,15 @@ pub const NOTIFICATION_SLIDE_OUT_MS: u64 = 350;
 pub const NOTIFICATION_TOTAL_MS: u64 = NOTIFICATION_SLIDE_IN_MS + NOTIFICATION_HOLD_MS + NOTIFICATION_SLIDE_OUT_MS;
 
 /// Slide-in animation for a `LcdScreen::Menu`.
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize)]
 pub enum MenuAnimation {
   /// Slide in from the left edge (content moves rightward).
   FromLeft,
   /// Slide in from the right edge (content moves leftward).
+  #[default]
   FromRight,
   /// No animation — instant update.
   None,
-}
-
-impl Default for MenuAnimation {
-  fn default() -> Self {
-    Self::FromRight
-  }
 }
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]

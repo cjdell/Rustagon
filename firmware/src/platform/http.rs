@@ -32,17 +32,13 @@ impl fmt::Debug for HardwareHttpClient {
 
 impl Clone for HardwareHttpClient {
   fn clone(&self) -> Self {
-    Self { stack: self.stack.clone() }
+    Self { stack: self.stack }
   }
 }
 
 impl HttpClient for HardwareHttpClient {
-  fn request<'a>(
-    &'a self,
-    req: HttpRequest,
-    channel: &'a HttpEventChannel,
-  ) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
-    let stack = self.stack.clone();
+  fn request<'a>(&'a self, req: HttpRequest, channel: &'a HttpEventChannel) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+    let stack = self.stack;
     Box::pin(async move {
       let result = perform_http_request_streaming(
         stack,

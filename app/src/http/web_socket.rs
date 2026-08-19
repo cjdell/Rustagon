@@ -1,9 +1,9 @@
+use crate::platform::display::DisplayHandle;
+use crate::types::WebSocketIncomingMessage;
+use crate::types::WebSocketIncomingSender;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::slice::from_raw_parts;
-use crate::platform::display::DisplayHandle;
-use crate::types::WebSocketIncomingSender;
-use crate::types::WebSocketIncomingMessage;
 use picoserve::{
   futures::Either,
   response::ws::{Message, SocketRx, SocketTx, WebSocketCallback},
@@ -16,12 +16,15 @@ pub struct WebSocketHandler {
 
 impl WebSocketHandler {
   pub fn new(web_socket_incoming_sender: WebSocketIncomingSender, display: DisplayHandle) -> Self {
-    Self { web_socket_incoming_sender, display }
+    Self {
+      web_socket_incoming_sender,
+      display,
+    }
   }
 }
 
 fn u16_bitmask_to_u8_slice(data: &[u16]) -> Vec<u8> {
-  let len_bytes = (data.len() + 7) / 8;
+  let len_bytes = data.len().div_ceil(8);
   let mut bitmask = vec![0u8; len_bytes];
   for (i, &value) in data.iter().enumerate() {
     let byte_idx = i / 8;
@@ -41,8 +44,7 @@ impl WebSocketCallback for WebSocketHandler {
   ) -> Result<(), W::Error> {
     use Message;
 
-    let mut message_buffer = Vec::new();
-    message_buffer.resize(4096, 0u8);
+    let mut message_buffer = vec![0; 4096];
 
     let close_reason = loop {
       let message = match rx.next_message(&mut message_buffer, crate::http::sleep(250)).await? {
@@ -53,9 +55,7 @@ impl WebSocketCallback for WebSocketHandler {
         }
         Either::Second(()) => {
           let raw_buffer = self.display.frame_buffer().unwrap();
-          let pixels = unsafe {
-            from_raw_parts(raw_buffer.as_ptr().cast::<u16>(), raw_buffer.len() / 2)
-          };
+          let pixels = unsafe { from_raw_parts(raw_buffer.as_ptr().cast::<u16>(), raw_buffer.len() / 2) };
 
           match tx.send_binary(&u16_bitmask_to_u8_slice(pixels)).await {
             Ok(()) => continue,
