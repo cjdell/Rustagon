@@ -4,9 +4,7 @@ use app::platform::power::{PowerManager, PowerStatus};
 use app::platform::system::SystemManager;
 use app::platform::wifi::{WiFiManager, WifiStatus};
 use app::types::{DeviceEvent, HexpansionEvent, HexpansionInfo, LedRequest, SystemMessage, WifiDesiredState, WifiResult};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_sync::signal::Signal;
+use app::utils::{EventQueue, WatchedValue};
 use std::pin::Pin;
 
 #[derive(Debug)]
@@ -42,14 +40,34 @@ impl PowerManager for DesktopPowerManager {
   }
 }
 
-#[derive(Debug)]
-pub struct DesktopWifiManager;
+/// Same structure as the firmware's `HardwareWifiManager`: a single
+/// `WatchedValue<WifiStatus>` as the source of truth. Block 10 will add a
+/// simulated connection task that updates it; for now it stays `Offline`.
+#[derive(Clone, Debug)]
+pub struct DesktopWifiManager {
+  status: WatchedValue<WifiStatus>,
+}
+
+impl DesktopWifiManager {
+  pub fn new() -> Self {
+    Self {
+      status: WatchedValue::new(WifiStatus::Offline),
+    }
+  }
+}
+
+impl Default for DesktopWifiManager {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl WiFiManager for DesktopWifiManager {
   fn get_status(&self) -> Pin<Box<dyn std::future::Future<Output = WifiStatus> + Send + '_>> {
-    Box::pin(async { WifiStatus::Offline })
+    Box::pin(self.status.get())
   }
   fn wait_for_status_change(&self) -> Pin<Box<dyn std::future::Future<Output = WifiStatus> + Send + '_>> {
-    Box::pin(async { std::future::pending::<WifiStatus>().await })
+    self.status.wait_for_change()
   }
   fn set_desired_state(&self, _: WifiDesiredState) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
     Box::pin(async {})
@@ -59,51 +77,88 @@ impl WiFiManager for DesktopWifiManager {
   }
 }
 
-static SYSTEM_SIGNAL: Signal<CriticalSectionRawMutex, SystemMessage> = Signal::new();
+/// Same depth as the firmware's system event queue.
+const SYSTEM_EVENT_QUEUE_DEPTH: usize = 8;
 
-#[derive(Debug)]
-pub struct DesktopSystemManager;
+type SystemEventQueue = EventQueue<SystemMessage, SYSTEM_EVENT_QUEUE_DEPTH>;
+
+#[derive(Clone, Debug)]
+pub struct DesktopSystemManager {
+  events: SystemEventQueue,
+}
 
 impl DesktopSystemManager {
-  pub fn push_message(msg: SystemMessage) {
-    SYSTEM_SIGNAL.signal(msg);
+  pub fn new() -> Self {
+    Self {
+      events: SystemEventQueue::new(),
+    }
+  }
+
+  /// Called from the minifb thread when the boot button equivalent is pressed.
+  /// Clones of the manager share the queue, so the minifb thread keeps a clone.
+  pub fn push_message(&self, msg: SystemMessage) {
+    // Drop on overflow, same as the firmware button task's `try_push`.
+    let _ = self.events.try_push(msg);
   }
 }
 
 impl SystemManager for DesktopSystemManager {
   fn next_button(&self) -> Pin<Box<dyn std::future::Future<Output = SystemMessage> + Send + '_>> {
-    Box::pin(async { SYSTEM_SIGNAL.wait().await })
+    Box::pin(self.events.next())
   }
   fn inject(&self, msg: SystemMessage) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-    Box::pin(async move {
-      SYSTEM_SIGNAL.signal(msg);
-    })
+    Box::pin(self.events.push(msg))
   }
 }
 
-/// Device events from the simulated keyboard hexpansion, shared between the
-/// minifb thread (producer) and the menu task (consumer). Mirrors the
-/// firmware's `EventQueue<DeviceEvent, 32>` in `HardwareHexpansionManager`.
-static DEVICE_EVENT_CHANNEL: Channel<CriticalSectionRawMutex, DeviceEvent, 32> = Channel::new();
+/// Same depth as the firmware's hexpansion event queue.
+const HEXPANSION_EVENT_QUEUE_DEPTH: usize = 16;
 
-#[derive(Debug)]
-pub struct DesktopHexpansionManager;
+/// Same depth as the firmware's `DeviceEventQueue`.
+const DEVICE_EVENT_QUEUE_DEPTH: usize = 32;
+
+type HexpansionEventQueue = EventQueue<HexpansionEvent, HEXPANSION_EVENT_QUEUE_DEPTH>;
+type DeviceEventQueue = EventQueue<DeviceEvent, DEVICE_EVENT_QUEUE_DEPTH>;
+
+/// Mirrors `HardwareHexpansionManager`: the manager owns both event queues
+/// rather than relying on module-level statics.
+#[derive(Clone, Debug)]
+pub struct DesktopHexpansionManager {
+  events: HexpansionEventQueue,
+  device_events: DeviceEventQueue,
+}
 
 impl DesktopHexpansionManager {
+  pub fn new() -> Self {
+    Self {
+      events: HexpansionEventQueue::new(),
+      device_events: DeviceEventQueue::new(),
+    }
+  }
+
+  /// Injection point for hexpansion plug/unplug events. Block 10 will feed this
+  /// from a file-backed simulation; until then it stays empty, so `next_event`
+  /// blocks as before.
+  #[allow(dead_code)]
+  pub fn push_event(&self, event: HexpansionEvent) {
+    let _ = self.events.try_push(event);
+  }
+
   /// Called from the minifb thread when a keyboard hexpansion key is pressed/released.
-  pub fn push_device_event(event: DeviceEvent) {
+  /// Clones of the manager share the queue, so the minifb thread keeps a clone.
+  pub fn push_device_event(&self, event: DeviceEvent) {
     // Drop on overflow, same as the firmware driver's `try_push`.
-    let _ = DEVICE_EVENT_CHANNEL.try_send(event);
+    let _ = self.device_events.try_push(event);
   }
 }
 
 impl HexpansionManager for DesktopHexpansionManager {
   fn next_event(&self) -> Pin<Box<dyn std::future::Future<Output = HexpansionEvent> + Send + '_>> {
-    Box::pin(async { std::future::pending::<HexpansionEvent>().await })
+    Box::pin(self.events.next())
   }
 
   fn try_next_event(&self) -> Option<HexpansionEvent> {
-    None
+    self.events.try_next()
   }
 
   fn current_state(&self) -> Vec<(u8, Option<HexpansionInfo>)> {
@@ -111,10 +166,10 @@ impl HexpansionManager for DesktopHexpansionManager {
   }
 
   fn next_device_event(&self) -> Pin<Box<dyn std::future::Future<Output = DeviceEvent> + Send + '_>> {
-    Box::pin(async { DEVICE_EVENT_CHANNEL.receive().await })
+    Box::pin(self.device_events.next())
   }
 
   fn try_next_device_event(&self) -> Option<DeviceEvent> {
-    DEVICE_EVENT_CHANNEL.try_receive().ok()
+    self.device_events.try_next()
   }
 }

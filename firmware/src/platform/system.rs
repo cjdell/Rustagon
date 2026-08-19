@@ -9,7 +9,7 @@ use esp_hal::{
   peripherals::GPIO0,
 };
 
-use crate::utils::EventQueue;
+use app::utils::EventQueue;
 
 const EVENT_QUEUE_DEPTH: usize = 8;
 

@@ -4,8 +4,12 @@
 //! (Embassy on firmware, std futures on desktop), so time comes from
 //! `embassy-time` — the one monotonic clock both hosts agree on.
 
+pub mod sync;
+
+pub use sync::{EventQueue, WatchedValue};
+
 use core::future::Future;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{select, Either};
 
 pub async fn sleep(ms: u64) {
   embassy_time::Timer::after(embassy_time::Duration::from_millis(ms)).await;

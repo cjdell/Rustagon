@@ -9,7 +9,9 @@ use embassy_time::{Duration, Timer};
 
 use crate::d_i2c::*;
 use crate::types::HexButton;
-use crate::utils::{EventQueue, MaskedI2cBus};
+use app::utils::EventQueue;
+
+use crate::utils::MaskedI2cBus;
 
 const EVENT_QUEUE_DEPTH: usize = 10;
 

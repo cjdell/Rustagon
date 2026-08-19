@@ -10,16 +10,17 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock,
 use embassy_time::{Duration, Timer};
 use esp_hal::time::Instant;
 use esp_radio::wifi::{
-  AuthenticationMethod, Config, WifiController,
   ap::{AccessPointConfig, AccessPointInfo},
   scan::ScanConfig,
   sta::StationConfig,
+  AuthenticationMethod, Config, WifiController,
 };
 use log::{error, info};
 
 use crate::platform::ConfigHandle;
+use app::utils::WatchedValue;
+
 use crate::platform::mdns::mdns_task;
-use crate::utils::WatchedValue;
 
 #[derive(Clone, Debug, Default)]
 pub struct WifiStats {

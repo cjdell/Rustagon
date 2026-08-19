@@ -5,7 +5,7 @@ use app::platform::hexpansion::DeviceIo;
 use app::types::DeviceEvent;
 use embassy_executor::Spawner;
 
-use crate::utils::EventQueue;
+use app::utils::EventQueue;
 
 /// Capacity of the shared device event queue.
 pub const DEVICE_EVENT_QUEUE_DEPTH: usize = 32;

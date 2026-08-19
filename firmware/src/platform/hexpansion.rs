@@ -1,5 +1,5 @@
-use crate::platform::DisplayHandle;
 use crate::platform::drivers::{ButtonEventQueue, DeviceEventQueue, DriverEntry};
+use crate::platform::DisplayHandle;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
@@ -12,13 +12,15 @@ use core::fmt;
 use core::future::Future;
 use core::pin::Pin;
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use embedded_hal::i2c::{I2c, Operation};
 use log::{debug, info};
 
-use crate::utils::{EventQueue, MaskedI2cBus};
+use app::utils::EventQueue;
+
+use crate::utils::MaskedI2cBus;
 
 const EVENT_QUEUE_DEPTH: usize = 16;
 type HexpansionEventQueue = EventQueue<HexpansionEvent, EVENT_QUEUE_DEPTH>;

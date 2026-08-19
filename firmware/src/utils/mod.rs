@@ -1,6 +1,5 @@
 pub mod cpu_guard;
 pub mod dns;
-pub mod event_queue;
 pub mod gpio;
 pub mod graphics;
 pub mod http;
@@ -9,16 +8,13 @@ pub mod led_service;
 pub mod ota;
 pub mod spi;
 pub mod state;
-pub mod watched_value;
 
-pub use event_queue::*;
 pub use gpio::*;
 pub use graphics::*;
 pub use http::*;
 pub use i2c::*;
 pub use led_service::*;
 pub use state::*;
-pub use watched_value::*;
 
 use alloc::alloc::Global;
 use alloc::vec::Vec;

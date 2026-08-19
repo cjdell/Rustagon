@@ -349,18 +349,21 @@ supports `get()`, `set()`, `wait_for_change()`.
 ### Event Delivery Pattern (EventQueue)
 
 `WatchedValue<T>` covers *state* (latest value wins). For *events* where every occurrence
-matters (button presses, IRQ notifications), use `EventQueue<T, N>` from
-`firmware/src/utils/event_queue.rs`.
+matters (button presses, IRQ notifications), use `EventQueue<T, N>`.
+Both live in `app/src/utils/sync.rs` (re-exported as `app::utils::{WatchedValue, EventQueue}`)
+and are platform-agnostic (embassy-sync only), so every host uses the same primitives.
 
 - Owns its `Channel` behind an `Arc` - no `static` channel and no `Sender`/`Receiver`
   plumbed through `main`; the manager creates the queue in `new()` and clones it into
-  its spawned task.
+  its spawned task (or, on desktop, hands a clone to the minifb thread).
 - Consumer: `queue.next().await` - suspends until an event arrives, never polls.
 - Producer: `push().await` (backpressure) or `try_push()` (lossy, safe from sync code).
 - Cloneable, so it works naturally with `Arc<dyn Trait>` handles.
 
 Used by `HardwareSystemManager` (boot button), `HardwareInputManager` (hex buttons),
-and `HardwareHexpansionManager` (device events from drivers).
+`HardwareHexpansionManager` (device events from drivers), `HardwareWifiManager`
+(`WatchedValue<WifiStatus>`), and the desktop managers (`DesktopInputManager`,
+`DesktopSystemManager`, `DesktopHexpansionManager`, `DesktopWifiManager`).
 
 **Never write a `loop { check_shared_vec(); Timer::after(..).await }` in a manager** -
 that both adds latency and hogs locks. Use `EventQueue` (events) or `WatchedValue`
@@ -828,13 +831,10 @@ for hex buttons.
    `headers` but not in the canonical form. The `HttpRequest` has all three fields but
    the firmware impl ignores `method`/`body`.
 
-2. **Move `WatchedValue` and `EventQueue` into `app` crate** — Currently in `firmware/src/utils/`,
-   both are platform-agnostic (only use embassy-sync). Desktop WiFi/Input managers need them.
-
-3. **Power Status Polling into Manager** — Similar to LED's work loop pattern.
+2. **Power Status Polling into Manager** — Similar to LED's work loop pattern.
    Would remove `power_monitoring_task` from `i2c.rs`.
 
-4. **OTA CPU control** — `ota_begin()` parks the second core via `CpuControl::steal()`.
+3. **OTA CPU control** — `ota_begin()` parks the second core via `CpuControl::steal()`.
    This works but the `CpuControl` ownership is not tracked (uses unsafe + steal).
    Consider storing CpuControl in HardwarePlatform for cleaner lifecycle.
 
@@ -1097,7 +1097,6 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **WASM IPC:** `firmware/src/tasks/wasm/`
 - **Desktop WASM runner:** `desktop/src/tasks/wasm/`
 - **Network infrastructure:** `firmware/src/tasks/net.rs`
-- **WatchedValue:** `firmware/src/utils/watched_value.rs`
-- **EventQueue:** `firmware/src/utils/event_queue.rs`
+- **WatchedValue / EventQueue:** `app/src/utils/sync.rs` (`app::utils::{WatchedValue, EventQueue}`)
 - **ESP32-S3 flash driver:** `libs/esp32s3_embedded_tools/src/flash.rs`
 - **Generic LocalFs:** `libs/embedded_tools/src/local_fs.rs`

@@ -96,6 +96,12 @@ impl app::platform::HttpClient for DesktopHttpClient {
 #[derive(Clone)]
 pub struct DesktopPlatform {
   pub display_raw: Arc<DesktopDisplayManager>,
+  /// Clones of the managers that share their internal event queues with the
+  /// real managers; the minifb thread uses these to push input/system/device
+  /// events without needing the `Arc<dyn Manager>` handles.
+  pub input_pusher: DesktopInputManager,
+  pub system_pusher: DesktopSystemManager,
+  pub device_event_pusher: DesktopHexpansionManager,
   display: DisplayHandle,
   hexpansion: HexpansionHandle,
   led: LedHandle,
@@ -119,12 +125,15 @@ impl DesktopPlatform {
   pub fn new(data_dir: impl Into<PathBuf>) -> Self {
     let display_raw = Arc::new(DesktopDisplayManager::new());
     let display = DisplayHandle::new(display_raw.clone() as Arc<dyn DisplayManager>);
-    let hexpansion = HexpansionHandle::new(Arc::new(DesktopHexpansionManager) as Arc<dyn HexpansionManager>);
+    let hexpansion_manager = DesktopHexpansionManager::new();
+    let hexpansion = HexpansionHandle::new(Arc::new(hexpansion_manager.clone()) as Arc<dyn HexpansionManager>);
     let led = LedHandle::new(Arc::new(DesktopLedManager) as Arc<dyn LedManager>);
     let power = PowerHandle::new(Arc::new(DesktopPowerManager) as Arc<dyn PowerManager>);
-    let wifi = WiFiHandle::new(Arc::new(DesktopWifiManager) as Arc<dyn WiFiManager>);
-    let input = InputHandle::new(Arc::new(DesktopInputManager::new()) as Arc<dyn InputManager>);
-    let system = SystemHandle::new(Arc::new(DesktopSystemManager) as Arc<dyn SystemManager>);
+    let wifi = WiFiHandle::new(Arc::new(DesktopWifiManager::new()) as Arc<dyn WiFiManager>);
+    let input_manager = DesktopInputManager::new();
+    let input = InputHandle::new(Arc::new(input_manager.clone()) as Arc<dyn InputManager>);
+    let system_manager = DesktopSystemManager::new();
+    let system = SystemHandle::new(Arc::new(system_manager.clone()) as Arc<dyn SystemManager>);
     let local_fs = DesktopLocalFs::new(data_dir);
     let storage = StorageHandle::new(Arc::new(local_fs) as Arc<dyn LocalFsTrait>);
     let config = ConfigHandle::new(Arc::new(DesktopConfigManager::new()) as Arc<dyn ConfigFileTrait<DeviceConfig>>);
@@ -133,6 +142,9 @@ impl DesktopPlatform {
 
     Self {
       display_raw,
+      input_pusher: input_manager,
+      system_pusher: system_manager,
+      device_event_pusher: hexpansion_manager,
       display,
       hexpansion,
       led,

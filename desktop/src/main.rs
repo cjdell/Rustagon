@@ -16,7 +16,7 @@ use app::types::{
 use display_renderer::{FrameBuffer, LcdState};
 use embedded_graphics::prelude::RawData as _;
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
-use platform::{DesktopHexpansionManager, DesktopInputManager, DesktopPlatform, DesktopSystemManager};
+use platform::DesktopPlatform;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -40,6 +40,10 @@ fn main() {
   };
   let wasm_buffer = wasm_app.map(|path| std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display())));
   let platform = Arc::new(DesktopPlatform::new(data_dir));
+  // Manager clones sharing the input/system/device-event queues, used by the minifb loop
+  let input_pusher = platform.input_pusher.clone();
+  let system_pusher = platform.system_pusher.clone();
+  let device_event_pusher = platform.device_event_pusher.clone();
 
   // IPC channels — leaked for static lifetime (never freed on desktop)
   let host_channel = Box::leak(Box::new(HostIpcChannel::new()));
@@ -127,15 +131,15 @@ fn main() {
     // Handle keyboard input: character keys mimic the keyboard hexpansion
     // (typing), while the navigation keys and Ctrl+A-F mimic the badge's hex
     // buttons and boot button.
-    push_keyboard_events(&window);
+    push_keyboard_events(&device_event_pusher, &window);
     if let Some(hex) = key_to_hex_button(&window) {
-      DesktopInputManager::push_button(hex);
+      input_pusher.push_button(hex);
     }
     if let Some(hex) = key_to_hex_button_released(&window) {
-      DesktopInputManager::push_button(hex);
+      input_pusher.push_button(hex);
     }
     if window.is_key_released(Key::Backspace) {
-      DesktopSystemManager::push_message(SystemMessage::BootButton);
+      system_pusher.push_message(SystemMessage::BootButton);
     }
 
     let now = now_ms();
@@ -190,7 +194,11 @@ fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
     return Some(path);
   }
   let with_ext = path.with_extension("wsm");
-  if with_ext.is_file() { Some(with_ext) } else { None }
+  if with_ext.is_file() {
+    Some(with_ext)
+  } else {
+    None
+  }
 }
 
 /// Map a minifb key to the app's `KeyCode`, mimicking the KeebDeck keyboard
@@ -281,13 +289,13 @@ fn ctrl_down(window: &Window) -> bool {
 /// Emit keyboard events for every key pressed/released this frame, mimicking
 /// the TCA8418 driver's per-key reporting. Keys pressed while Ctrl is held are
 /// reserved for hex buttons and skipped.
-fn push_keyboard_events(window: &Window) {
+fn push_keyboard_events(pusher: &platform::DesktopHexpansionManager, window: &Window) {
   if ctrl_down(window) {
     return;
   }
   for key in window.get_keys_pressed(KeyRepeat::No) {
     if let Some(code) = key_to_keycode(key) {
-      DesktopHexpansionManager::push_device_event(DeviceEvent::Keyboard(KeyboardEvent {
+      pusher.push_device_event(DeviceEvent::Keyboard(KeyboardEvent {
         port: 0,
         typ: KeyEventType::Pressed,
         code,
@@ -296,7 +304,7 @@ fn push_keyboard_events(window: &Window) {
   }
   for key in window.get_keys_released() {
     if let Some(code) = key_to_keycode(key) {
-      DesktopHexpansionManager::push_device_event(DeviceEvent::Keyboard(KeyboardEvent {
+      pusher.push_device_event(DeviceEvent::Keyboard(KeyboardEvent {
         port: 0,
         typ: KeyEventType::Released,
         code,
