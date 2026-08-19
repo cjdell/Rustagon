@@ -2,7 +2,7 @@ use alloc::{boxed::Box, string::String, string::ToString, sync::Arc, vec, vec::V
 use core::{
   fmt,
   pin::Pin,
-  str::{Utf8Error, from_utf8},
+  str::{from_utf8, Utf8Error},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use littlefs_rust::{Config, Filesystem, OpenFlags, SeekFrom, Storage};
@@ -10,6 +10,11 @@ use log::info;
 
 pub const BLOCK_SIZE: u32 = 4 * 1024;
 pub const FILESYSTEM_SIZE: u32 = 1024 * 1024;
+
+/// Cap for `read_text_file`. Its callers read small text documents (device
+/// config JSON, SSH key PEMs), so a bounded allocation in PSRAM is deliberate.
+/// Larger files should use `read_binary_chunk`, which supports ranged reads.
+pub const MAX_TEXT_FILE_SIZE: u32 = 32 * 1024;
 
 /// Type of a filesystem entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,7 +213,7 @@ impl<STORAGE: Storage + 'static> LocalFsTrait for LocalFs<STORAGE> {
 
   fn read_text_file(&self, file_name: String) -> Pin<Box<dyn Future<Output = Result<String, FsError>> + Send + '_>> {
     Box::pin(async move {
-      let chunk = self.read_binary_chunk(file_name, 0, 32 * 1024).await?;
+      let chunk = self.read_binary_chunk(file_name, 0, MAX_TEXT_FILE_SIZE).await?;
       let text = from_utf8(&chunk).map_err(FsError::Decoding)?;
       Ok(text.to_string())
     })

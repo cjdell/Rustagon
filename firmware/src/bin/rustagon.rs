@@ -18,8 +18,9 @@ use app::platform::HexpansionHandle;
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
 use embassy_sync::rwlock::RwLock;
-use embedded_tools::config::ConfigFile;
 use embedded_tools::config::storage::LocalFsConfigFileStorage;
+use embedded_tools::config::ConfigFile;
+use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
 use esp_hal::{
@@ -30,16 +31,15 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage as EspFlashStorage;
-use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
 use firmware::d_i2c::*;
-use firmware::platform::drivers::{DriverEntry, tca8418::tca8418_driver_factory};
+use firmware::platform::drivers::{tca8418::tca8418_driver_factory, DriverEntry};
+use firmware::platform::{
+  display::{lcd_task, HardwareDisplayManager, LcdSignal},
+  system::{HardwareSystemManager, SystemHandle},
+};
 use firmware::platform::{
   ConfigHandle, HardwareHexpansionManager, HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager,
   HardwareStorageManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle, WiFiHandle,
-};
-use firmware::platform::{
-  display::{HardwareDisplayManager, LcdSignal, lcd_task},
-  system::{HardwareSystemManager, SystemHandle},
 };
 use firmware::tasks::*;
 use firmware::types::*;
@@ -77,6 +77,8 @@ async fn main(spawner: Spawner) {
   wdt.set_timeout(MwdtStage::Stage0, esp_hal::time::Duration::from_millis(30_000));
   wdt.enable();
 
+  // Kept on esp_println: unconditional boot markers that must be visible on
+  // the serial console even if the logger env config suppresses info! lines.
   println!("Init!");
   print_memory_info();
 
@@ -125,7 +127,10 @@ async fn main(spawner: Spawner) {
 
   let _ = display.signal(LcdScreen::Headline(Icon40::Info, "Checking filesystem...".to_owned()));
 
-  // Create shared flash storage with auto-park for multicore safety
+  // Shared flash storage. `multicore_auto_park` makes this storage the single
+  // owner of app-core parking: every flash write/erase (littlefs, config, OTA
+  // chunks, otadata) parks the other core and unparks it on completion, on all
+  // paths including errors. Do not park the app core manually around flash I/O.
   let flash = Arc::new(RwLock::new(EspFlashStorage::new(peripherals.FLASH).multicore_auto_park()));
 
   // Try to mount the filesystem
@@ -196,6 +201,7 @@ async fn main(spawner: Spawner) {
 
   print_memory_info();
 
+  // Boot marker — see the comment on the "Init!" line above.
   println!("Starting connection...");
   let _ = display.signal(LcdScreen::Progress("Connecting...".to_string()));
 
@@ -220,7 +226,7 @@ async fn main(spawner: Spawner) {
   let led_manager = Arc::new(HardwareLedManager::new(&spawner, sys_bus.clone()));
   let led = LedHandle::new(led_manager);
 
-  let power_manager = Arc::new(HardwarePowerManager::new(sys_bus.clone()));
+  let power_manager = Arc::new(HardwarePowerManager::new(&spawner, sys_bus.clone()));
   let power = PowerHandle::new(power_manager);
 
   let wifi = WiFiHandle::new(Arc::new(wifi_manager));

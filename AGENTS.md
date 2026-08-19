@@ -326,16 +326,23 @@ it up automatically); adding a host-internal one means touching only `app::proto
 - Internal channel for requests (completely encapsulated)
 - No external channel management needed
 
-#### 2. Power Management (`app/src/platform/power/`)
+#### 2. Power Management (`app/src/platform/power.rs`)
 
 **Structure:**
-- `traits.rs` - `PowerManager` trait with `get_status()` and `power_off()` async methods
-- Hardware impl wraps BQ25895 charger IC in `firmware/`
+- `PowerManager` trait with `power_off()`, `get_status()` and `wait_for_change()` async methods
+- Hardware impl wraps the BQ25895 charger IC in `firmware/src/platform/power.rs`
 
 **Design Pattern:**
 - Async trait with `Pin<Box<dyn Future>>` for dyn compatibility
-- Internal `Arc<RwLock<CriticalSectionRawMutex, T>>` for shared access to I2C device
-- Prefer `RwLock` with `CriticalSectionRawMutex` for all internal synchronization
+- `HardwarePowerManager::new(spawner, i2c)` spawns a `power_monitoring_task` work
+  loop (~2 s cadence, same pattern as the LED manager) that owns the polling
+  cadence and publishes into `WatchedValue<PowerStatus>` (from `app::utils`).
+  `get_status()` returns the current state; `wait_for_change()` suspends until
+  the next update. Callers never poll the chip on demand. The task logs only
+  transitions (charging / VBUS presence / battery fault), not every poll.
+- `power_off()` takes the `Arc<RwLock<CriticalSectionRawMutex, Bq25895>>`
+  directly to disable the battery FET — prefer `RwLock` with
+  `CriticalSectionRawMutex` for all internal synchronization
 
 #### 3. WiFi Management (`app/src/platform/wifi/`)
 
@@ -788,6 +795,17 @@ pub trait HttpClient: Send + Sync + fmt::Debug {
 per-callback, which is expensive and complex. A channel is concrete, bounded (capacity 2),
 and works with join.
 
+### CPU Parking for Flash Writes
+
+The flash storage handle created in `firmware/src/bin/rustagon.rs` is wrapped
+with `multicore_auto_park()` (esp-storage `AutoPark` multicore strategy). That
+wrapper is the **single owner of app-core parking for flash I/O**: every flash
+write/erase (littlefs, config files, OTA chunks, otadata) parks the app core
+for the duration of the operation and unparks it on completion — on every
+path, including errors. Do **not** park the app core manually around flash
+access: the old `ota_begin()` park-never-unparked bug and the
+`CpuGuard`/`CpuControl::steal()` boilerplate were removed in favour of this.
+
 ### `CriticalSectionRawMutex` preference
 
 Use `CriticalSectionRawMutex` instead of `NoopRawMutex` for any shared state that crosses
@@ -830,15 +848,6 @@ AW9523B #3 at `0x58` on the top bus (port 0) was added with the 2026 frontboard
 for hex buttons.
 
 ## Remaining Work
-
-### High Priority
-
-1. **Power Status Polling into Manager** — Similar to LED's work loop pattern.
-   Would remove `power_monitoring_task` from `i2c.rs`.
-
-2. **OTA CPU control** — `ota_begin()` parks the second core via `CpuControl::steal()`.
-   This works but the `CpuControl` ownership is not tracked (uses unsafe + steal).
-   Consider storing CpuControl in HardwarePlatform for cleaner lifecycle.
 
 ### Medium Priority
 
@@ -1099,6 +1108,7 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **WASM IPC:** `firmware/src/tasks/wasm/`
 - **Desktop WASM runner:** `desktop/src/tasks/wasm/`
 - **Network infrastructure:** `firmware/src/tasks/net.rs`
+- **Power manager (firmware):** `firmware/src/platform/power.rs` (work loop + `WatchedValue<PowerStatus>`)
 - **WatchedValue / EventQueue:** `app/src/utils/sync.rs` (`app::utils::{WatchedValue, EventQueue}`)
 - **ESP32-S3 flash driver:** `libs/esp32s3_embedded_tools/src/flash.rs`
 - **Generic LocalFs:** `libs/embedded_tools/src/local_fs.rs`

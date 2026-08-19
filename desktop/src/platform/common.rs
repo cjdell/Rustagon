@@ -38,6 +38,10 @@ impl PowerManager for DesktopPowerManager {
       }
     })
   }
+  fn wait_for_change(&self) -> Pin<Box<dyn std::future::Future<Output = PowerStatus> + Send + '_>> {
+    // The desktop power status is a fixed stub and never changes.
+    Box::pin(std::future::pending())
+  }
 }
 
 /// Same structure as the firmware's `HardwareWifiManager`: a single

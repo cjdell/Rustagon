@@ -7,7 +7,7 @@ pub enum PowerError {
   I2cError,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PowerStatus {
   pub vbat_mv: u16,
   pub vsys_mv: u16,
@@ -31,6 +31,8 @@ impl PowerStatus {
 pub trait PowerManager: Send + Sync + fmt::Debug {
   fn power_off(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
   fn get_status(&self) -> Pin<Box<dyn Future<Output = PowerStatus> + Send + '_>>;
+  /// Wait for the next power status change and return the new status.
+  fn wait_for_change(&self) -> Pin<Box<dyn Future<Output = PowerStatus> + Send + '_>>;
 }
 
 #[derive(Clone, Debug)]
@@ -49,5 +51,9 @@ impl PowerHandle {
 
   pub async fn get_status(&self) -> PowerStatus {
     self.inner.get_status().await
+  }
+
+  pub async fn wait_for_change(&self) -> PowerStatus {
+    self.inner.wait_for_change().await
   }
 }

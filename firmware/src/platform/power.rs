@@ -1,50 +1,103 @@
 pub use app::platform::power::{PowerError, PowerHandle, PowerManager, PowerStatus};
 
-use alloc::boxed::Box;
-use alloc::sync::Arc;
+use crate::utils::MaskedI2cBus;
+use alloc::{boxed::Box, sync::Arc};
+use app::utils::WatchedValue;
 use bq25895::Bq25895;
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::{fmt, future::Future, pin::Pin};
+use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, rwlock::RwLock};
-use embedded_hal::i2c::I2c;
+use embassy_time::{Duration, Timer};
 
-pub struct HardwarePowerManager<I2C: I2c> {
-  bq25895: Arc<RwLock<CriticalSectionRawMutex, Bq25895<I2C>>>,
-  initialised: AtomicBool,
+const POWER_POLL_INTERVAL: Duration = Duration::from_millis(2_000);
+
+/// Power manager with a background monitoring work loop (same pattern as the
+/// LED manager): a spawned task owns the BQ25895 polling cadence and publishes
+/// into `WatchedValue<PowerStatus>`. Callers read the current state via
+/// `get_status()` or await the next change via `wait_for_change()` — nobody
+/// polls the chip on demand.
+pub struct HardwarePowerManager {
+  bq25895: Arc<RwLock<CriticalSectionRawMutex, Bq25895<MaskedI2cBus>>>,
+  status: WatchedValue<PowerStatus>,
 }
 
-impl<I2C: I2c> HardwarePowerManager<I2C> {
-  pub fn new(i2c: I2C) -> Self {
+impl HardwarePowerManager {
+  pub fn new(spawner: &Spawner, i2c: MaskedI2cBus) -> Self {
     let bq25895 = Arc::new(RwLock::new(Bq25895::new(i2c)));
-    Self { bq25895, initialised: AtomicBool::new(false) }
+    let status = WatchedValue::new(PowerStatus::default());
+
+    spawner.spawn(power_monitoring_task(bq25895.clone(), status.clone()).expect("spawn power_monitoring_task"));
+
+    Self { bq25895, status }
   }
 }
 
-impl<I2C: I2c> fmt::Debug for HardwarePowerManager<I2C> {
+impl fmt::Debug for HardwarePowerManager {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("HardwarePowerManager").finish()
   }
 }
 
-impl<I2C: I2c + Send + 'static> HardwarePowerManager<I2C> {
-  async fn ensure_init(&self) {
-    if !self.initialised.load(Ordering::Acquire) {
-      log::info!("bq: lazy init");
-      let mut bq25895 = self.bq25895.write().await;
+#[embassy_executor::task]
+async fn power_monitoring_task(bq25895: Arc<RwLock<CriticalSectionRawMutex, Bq25895<MaskedI2cBus>>>, status: WatchedValue<PowerStatus>) {
+  let mut initialised = false;
+  let mut last = PowerStatus::default();
+
+  loop {
+    if !initialised {
+      let mut bq25895 = bq25895.write().await;
       match bq25895.init() {
         Ok(()) => {
-          self.initialised.store(true, Ordering::Release);
-          log::info!("bq: init OK");
+          initialised = true;
+          log::info!("bq: initialised");
         }
-        Err(e) => {
-          log::warn!("bq: init failed: {e}");
-        }
+        Err(e) => log::debug!("bq: init failed, retrying: {e}"),
       }
     }
+
+    if initialised {
+      let mut bq25895 = bq25895.write().await;
+      match bq25895.update_state() {
+        Ok(s) => {
+          let p = PowerStatus {
+            vbat_mv: (s.vbat * 1000.0) as u16,
+            vsys_mv: (s.vsys * 1000.0) as u16,
+            vbus_mv: (s.vbus * 1000.0) as u16,
+            charge_current_ma: s.ichrg as u16,
+            charge_voltage_mv: (s.vreg * 1000.0) as u16,
+            input_current_limit_ma: s.input_current_limit as u16,
+            is_charging: matches!(
+              s.charge_status,
+              bq25895::ChargeStatus::PreCharging | bq25895::ChargeStatus::FastCharging
+            ),
+            // The BQ25895 STATUS register bits don't reliably indicate VBUS
+            // presence on this hardware. Instead, use the VBUS ADC reading.
+            is_power_present: s.vbus > 4.0,
+            battery_fault: !matches!(s.battery_fault, bq25895::BatteryFault::Normal),
+          };
+
+          // Log transitions, not every poll.
+          if p.is_charging != last.is_charging || p.is_power_present != last.is_power_present || p.battery_fault != last.battery_fault {
+            log::info!(
+              "bq: transition: charging={} power_present={} fault={}",
+              p.is_charging,
+              p.is_power_present,
+              p.battery_fault
+            );
+          }
+
+          last = p;
+          status.set(p).await;
+        }
+        Err(e) => log::debug!("bq: update_state failed: {e}"),
+      }
+    }
+
+    Timer::after(POWER_POLL_INTERVAL).await;
   }
 }
 
-impl<I2C: I2c + Send + 'static> PowerManager for HardwarePowerManager<I2C> {
+impl PowerManager for HardwarePowerManager {
   fn power_off(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
     Box::pin(async {
       let mut bq25895 = self.bq25895.write().await;
@@ -53,38 +106,10 @@ impl<I2C: I2c + Send + 'static> PowerManager for HardwarePowerManager<I2C> {
   }
 
   fn get_status(&self) -> Pin<Box<dyn Future<Output = PowerStatus> + Send + '_>> {
-    Box::pin(async {
-      self.ensure_init().await;
-      let mut bq25895 = self.bq25895.write().await;
-      let s = match bq25895.update_state() {
-        Ok(s) => s,
-        Err(e) => {
-          log::warn!("bq: update_state failed: {e}");
-          return PowerStatus {
-            vbat_mv: 0, vsys_mv: 0, vbus_mv: 0,
-            charge_current_ma: 0, charge_voltage_mv: 0,
-            input_current_limit_ma: 0,
-            is_charging: false, is_power_present: false,
-            battery_fault: false,
-          };
-        }
-      };
-      let p = PowerStatus {
-        vbat_mv: (s.vbat * 1000.0) as u16,
-        vsys_mv: (s.vsys * 1000.0) as u16,
-        vbus_mv: (s.vbus * 1000.0) as u16,
-        charge_current_ma: s.ichrg as u16,
-        charge_voltage_mv: (s.vreg * 1000.0) as u16,
-        input_current_limit_ma: s.input_current_limit as u16,
-        is_charging: matches!(s.charge_status, bq25895::ChargeStatus::PreCharging | bq25895::ChargeStatus::FastCharging),
-        // The BQ25895 STATUS register bits don't reliably indicate VBUS
-        // presence on this hardware. Instead, use the VBUS ADC reading.
-        is_power_present: s.vbus > 4.0,
-        battery_fault: !matches!(s.battery_fault, bq25895::BatteryFault::Normal),
-      };
-      log::info!("bq: PowerStatus {{ vbat={}mV vsys={}mV vbus={}mV ichrg={}mA ilim={}mA present={} }}",
-        p.vbat_mv, p.vsys_mv, p.vbus_mv, p.charge_current_ma, p.input_current_limit_ma, p.is_power_present);
-      p
-    })
+    Box::pin(self.status.get())
+  }
+
+  fn wait_for_change(&self) -> Pin<Box<dyn Future<Output = PowerStatus> + Send + '_>> {
+    self.status.wait_for_change()
   }
 }

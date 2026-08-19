@@ -1,7 +1,6 @@
 use core::net::{IpAddr, Ipv4Addr};
 use embassy_net::{IpAddress, Stack};
 use embedded_nal_async::Dns;
-use esp_println::println;
 use smoltcp::wire::DnsQueryType;
 
 pub struct DnsResolver {
@@ -17,12 +16,8 @@ impl DnsResolver {
 impl Dns for DnsResolver {
   type Error = usize;
 
-  async fn get_host_by_name(
-    &self,
-    host: &str,
-    _addr_type: embedded_nal_async::AddrType,
-  ) -> Result<core::net::IpAddr, usize> {
-    println!("get_host_by_name: {}", host);
+  async fn get_host_by_name(&self, host: &str, _addr_type: embedded_nal_async::AddrType) -> Result<core::net::IpAddr, usize> {
+    log::debug!("get_host_by_name: {}", host);
 
     if let Ok(ip) = Ipv4Addr::parse_ascii(host.as_bytes()) {
       return Ok(IpAddr::V4(ip));
@@ -38,7 +33,7 @@ impl Dns for DnsResolver {
   }
 
   async fn get_host_by_address(&self, addr: core::net::IpAddr, _result: &mut [u8]) -> Result<usize, usize> {
-    println!("get_host_by_address: {}", addr);
+    log::debug!("get_host_by_address: {}", addr);
 
     // Not needed
     todo!()

@@ -9,7 +9,6 @@ use crate::utils::ota::Ota;
 use app::platform::{HexpansionHandle, HttpClientHandle, Platform, TcpHandle};
 use app::types::OtaError;
 use embedded_storage::Storage;
-use esp_hal::system::{Cpu, CpuControl};
 use procmacros::partition_offset;
 
 /// Real hardware platform implementation - stores concrete manager handles
@@ -131,12 +130,10 @@ impl Platform for HardwarePlatform {
   }
 
   async fn ota_begin(&self) -> Result<u32, OtaError> {
-    // Park the second core so it doesn't contend with flash writes
-    let mut cpu_ctrl = CpuControl::new(unsafe { esp_hal::peripherals::CPU_CTRL::steal() });
-    unsafe {
-      cpu_ctrl.park_core(Cpu::AppCpu);
-    }
-
+    // No manual CPU parking: the flash storage is created with
+    // `multicore_auto_park()` (see `bin/rustagon.rs`), which parks the app core
+    // around every flash write/erase and unparks it on completion, including
+    // on error. That strategy is the single owner of core parking for flash I/O.
     let raw = self.storage_formatter.raw_flash();
     let mut flash = raw.write().await;
 
@@ -156,6 +153,10 @@ impl Platform for HardwarePlatform {
     let mut flash = raw.write().await;
 
     let mut ota = Ota::new(&mut flash);
+    // Recomputing the target slot yields the same value as at `ota_begin`: the
+    // only mutation of otadata in this session is the `set_current_slot` call
+    // below. The Platform methods take `&self` (HardwarePlatform is Clone and
+    // widely cloned), so there is no safe place to carry the slot between them.
     let slot = ota.target_slot();
     ota.set_current_slot(slot);
     Ok(())

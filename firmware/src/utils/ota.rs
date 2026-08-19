@@ -2,6 +2,15 @@ use crc::{Algorithm, Crc};
 use embedded_storage::{ReadStorage, Storage};
 use esp_storage::FlashStorage;
 
+/// otadata sectors (per the ESP32-S3 partition table). The bootloader keeps one
+/// 32-byte record per app slot and boots the slot with the higher sequence number.
+///
+/// Record layout: 4-byte LE sequence number, 24 bytes of padding, then a
+/// 4-byte CRC-32/LE computed over the first 28 bytes.
+const OTADATA_0_OFFSET: u32 = 0xd000;
+const OTADATA_1_OFFSET: u32 = 0xe000;
+const OTADATA_RECORD: usize = 32;
+
 static ALGO: Algorithm<u32> = Algorithm {
   width: 32,
   poly: 0x04c11db7,
@@ -56,8 +65,6 @@ impl<'a> Ota<'a> {
     Ota { flash }
   }
 
-  pub fn free(self) {}
-
   pub fn current_slot(&mut self) -> Slot {
     let (seq0, seq1) = self.get_slot_seq();
 
@@ -73,10 +80,10 @@ impl<'a> Ota<'a> {
   }
 
   fn get_slot_seq(&mut self) -> (u32, u32) {
-    let mut buffer1 = [0u8; 0x20];
-    let mut buffer2 = [0u8; 0x20];
-    self.flash.read(0xd000, &mut buffer1).unwrap();
-    self.flash.read(0xe000, &mut buffer2).unwrap();
+    let mut buffer1 = [0u8; OTADATA_RECORD];
+    let mut buffer2 = [0u8; OTADATA_RECORD];
+    self.flash.read(OTADATA_0_OFFSET, &mut buffer1).unwrap();
+    self.flash.read(OTADATA_1_OFFSET, &mut buffer2).unwrap();
     let mut seq0bytes = [0u8; 4];
     let mut seq1bytes = [0u8; 4];
     seq0bytes[..].copy_from_slice(&buffer1[..4]);
@@ -99,6 +106,8 @@ impl<'a> Ota<'a> {
   }
 
   pub fn set_current_slot(&mut self, slot: Slot) {
+    // Flash is write-only towards 0xFF: read the current records, patch the
+    // target record, and write both back so the non-target record survives.
     let (seq0, seq1) = self.get_slot_seq();
 
     let new_seq = {
@@ -114,11 +123,11 @@ impl<'a> Ota<'a> {
     };
     let new_seq_le = new_seq.to_le_bytes();
 
-    let mut buffer1 = [0xffu8; 0x20];
-    let mut buffer2 = [0xffu8; 0x20];
+    let mut buffer1 = [0xffu8; OTADATA_RECORD];
+    let mut buffer2 = [0xffu8; OTADATA_RECORD];
 
-    self.flash.read(0xd000, &mut buffer1).unwrap();
-    self.flash.read(0xe000, &mut buffer2).unwrap();
+    self.flash.read(OTADATA_0_OFFSET, &mut buffer1).unwrap();
+    self.flash.read(OTADATA_1_OFFSET, &mut buffer2).unwrap();
 
     if slot == Slot::Slot0 {
       buffer1[..4].copy_from_slice(&new_seq_le);
@@ -130,8 +139,8 @@ impl<'a> Ota<'a> {
       buffer2[28..].copy_from_slice(&crc);
     }
 
-    self.flash.write(0xd000, &buffer1).unwrap();
-    self.flash.write(0xe000, &buffer2).unwrap();
+    self.flash.write(OTADATA_0_OFFSET, &buffer1).unwrap();
+    self.flash.write(OTADATA_1_OFFSET, &buffer2).unwrap();
   }
 
   pub fn write(&mut self, addr: u32, data: &[u8]) -> Result<(), esp_storage::FlashStorageError> {

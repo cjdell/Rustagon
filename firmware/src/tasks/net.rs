@@ -8,7 +8,6 @@ use edge_nal::UdpBind;
 use edge_nal_embassy::{Udp, UdpBuffers};
 use embassy_net::{Runner, Stack};
 use embassy_time::{Duration, Timer};
-use esp_println::println;
 use esp_radio::wifi::Interface;
 use log::info;
 
@@ -80,6 +79,6 @@ pub async fn dhcp_task(stack: Stack<'static>, ap_ip: Ipv4Addr) {
     }
 
     Timer::after(Duration::from_millis(500)).await;
-    println!("DHCP offered");
+    log::info!("DHCP offered");
   }
 }

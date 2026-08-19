@@ -8,25 +8,17 @@ use alloc::string::ToString;
 use app::protocol::*;
 use app::wasm;
 use display_types::{Icon40, LcdScreen};
-use embassy_time::{Duration, Timer};
-use esp_println::println;
 use log::{error, info};
 
-use crate::platform::StorageHandle;
 use crate::platform::display::DisplayHandle;
+use crate::platform::StorageHandle;
 
 #[embassy_executor::task]
 pub async fn second_core_task(storage: StorageHandle, display: DisplayHandle, sender: WasmIpcSender, receiver: HostIpcReceiver) {
-  println!("Starting WASM on SECOND CORE...");
+  info!("WASM: Starting on second core");
 
-  loop {
-    if let Err(err) = wasm_host_loop(storage.clone(), display.clone(), sender, receiver).await {
-      error!("second_core_task: An error occurred: {err:?}");
-    }
-
-    Timer::after(Duration::from_millis(1_000)).await;
-    info!("second_core_task: Restarting...");
-  }
+  // Runs for the life of the core — the loop never fails or returns.
+  wasm_host_loop(storage, display, sender, receiver).await;
 }
 
 async fn wasm_host_loop(
@@ -34,7 +26,7 @@ async fn wasm_host_loop(
   display: DisplayHandle,
   wasm_ipc_sender: WasmIpcSender,
   host_ipc_receiver: HostIpcReceiver,
-) -> Result<(), anyhow::Error> {
+) {
   print_memory_info();
 
   loop {

@@ -112,7 +112,7 @@ Before any block starts, note what has **already landed** (so agents don't
 | 1 | CI, lint & build hygiene foundation | — | done |
 | 2 | Move `WatchedValue`/`EventQueue` into `app`; unify desktop managers | 1 | done |
 | 3 | HTTP client correctness + `HttpEvent` dedup | 1 | not started |
-| 4 | Firmware platform hardening: OTA/CPU parking, power loop, logging | 2 | not started |
+| 4 | Firmware platform hardening: OTA/CPU parking, power loop, logging | 2 | done |
 | 5 | TCP session lifecycle — kill the `Box::leak`s | 2 | not started |
 | 6 | Menu/app model: apps own their loop (`MenuApp::run` + spawner) | 5 | not started |
 | 7 | `MockPlatform` + headless app driver + golden screens | 6 | not started |

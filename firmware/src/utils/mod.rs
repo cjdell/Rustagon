@@ -1,4 +1,3 @@
-pub mod cpu_guard;
 pub mod dns;
 pub mod gpio;
 pub mod graphics;
@@ -22,7 +21,7 @@ use embassy_time::{Duration, Timer};
 use embedded_graphics::{pixelcolor::Rgb565, prelude::IntoStorage};
 use esp_alloc::{ExternalMemory, MemoryCapability};
 use esp_hal::time::Instant;
-use esp_println::println;
+use log::info;
 
 pub fn print_memory_info() {
   for region in esp_alloc::HEAP.stats().region_stats {
@@ -33,7 +32,7 @@ pub fn print_memory_info() {
       "External"
     };
 
-    println!("{} {}/{}", cap, region_info.used, region_info.size);
+    info!("{} {}/{}", cap, region_info.used, region_info.size);
   }
 }
 
@@ -75,21 +74,4 @@ impl ConvertBE16 for Rgb565 {
   fn to_be16(&self) -> u16 {
     IntoStorage::into_storage(*self).to_be()
   }
-}
-
-#[macro_export]
-macro_rules! timeout {
-  ($future:expr, $duration:expr, $prefix:literal) => {
-    match embassy_futures::select::select($future, embassy_time::Timer::after(embassy_time::Duration::from_millis($duration))).await {
-      embassy_futures::select::Either::First(res) => res.map_err(|err| anyhow::anyhow!("{} Error: {err:?}", $prefix)),
-      embassy_futures::select::Either::Second(()) => Err(anyhow::anyhow!("{} Error: Timed out", $prefix)),
-    }
-  };
-}
-
-#[macro_export]
-macro_rules! timeout_result {
-  ($future:expr, $duration:expr, $prefix:literal) => {
-    $crate::timeout!(async { Ok::<_, anyhow::Error>($future.await) }, $duration, $prefix)
-  };
 }
