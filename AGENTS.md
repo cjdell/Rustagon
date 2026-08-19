@@ -262,9 +262,16 @@ communicate concurrently without boxing complex closures.
 **Firmware:** implemented via `reqwless` + `embassy-net::Stack`. The `HardwareHttpClient`
 wraps `Stack<'static>` which is `!Send + !Sync`. Uses `unsafe impl Send + Sync` — same
 pattern as `SendFilesystem` (sound because all access is serialized by the single-core
-async runtime).
+async runtime). `perform_http_request_streaming` (`firmware/src/utils/http.rs`) honours
+`HttpRequest.method` (Get/Post/Put/Delete), forwards `HttpRequest.headers`, and sends
+`HttpRequest.body` as the request payload for non-empty POST/PUT requests (no body for
+GET/DELETE). It returns `Ok(())`/`Err(())`; the caller (the `HttpClient` impl) maps that
+to `HttpEvent::Done`/`HttpEvent::Error`. The single source of truth for `HttpEvent`
+(including its `Error` variant) is `app::protocol::HttpEvent`.
 
-**Desktop:** implemented via `ureq` (blocking HTTP in a background thread).
+**Desktop:** implemented via `ureq` (blocking HTTP in a background thread). Forwards
+`req.headers` for all methods and sends the body for POST/PUT — same `Meta/Chunk/Done/Error`
+streaming sequence as the firmware client.
 
 ### WASM Wire Protocol (`libs/wasm_protocol`)
 
@@ -826,15 +833,10 @@ for hex buttons.
 
 ### High Priority
 
-1. **HTTP request fields on firmware** — `perform_http_request_streaming` always issues
-   `Method::GET` and ignores `HttpRequest.method` and `HttpRequest.body`. It does send
-   `headers` but not in the canonical form. The `HttpRequest` has all three fields but
-   the firmware impl ignores `method`/`body`.
-
-2. **Power Status Polling into Manager** — Similar to LED's work loop pattern.
+1. **Power Status Polling into Manager** — Similar to LED's work loop pattern.
    Would remove `power_monitoring_task` from `i2c.rs`.
 
-3. **OTA CPU control** — `ota_begin()` parks the second core via `CpuControl::steal()`.
+2. **OTA CPU control** — `ota_begin()` parks the second core via `CpuControl::steal()`.
    This works but the `CpuControl` ownership is not tracked (uses unsafe + steal).
    Consider storing CpuControl in HardwarePlatform for cleaner lifecycle.
 

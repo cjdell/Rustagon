@@ -1,18 +1,14 @@
-use crate::utils::{VecHelper, dns::DnsResolver};
+use crate::utils::{dns::DnsResolver, VecHelper};
 use alloc::{
   borrow::ToOwned as _,
   boxed::Box,
   string::{String, ToString as _},
   vec::Vec,
 };
-use core::future::join;
+use core::future::Future;
 use embassy_net::{
-  Stack,
   tcp::client::{TcpClient, TcpClientState},
-};
-use embassy_sync::{
-  blocking_mutex::raw::NoopRawMutex,
-  channel::{Channel, Sender},
+  Stack,
 };
 use embassy_time::Duration;
 use embedded_io_async::Read as _;
@@ -22,79 +18,27 @@ use reqwless::{
   client::HttpClient,
   request::{Method, RequestBuilder},
 };
-use serde::{Deserialize, Serialize};
 
-pub use app::protocol::{HttpRequest, HttpResponseMeta};
+use app::protocol::{HttpMethod, HttpRequest, HttpResponseMeta};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HttpResponse {
-  pub meta: HttpResponseMeta,
-  pub body: Vec<u8>,
-}
-
-impl HttpResponse {
-  pub fn new(meta: HttpResponseMeta, body: Vec<u8>) -> Self {
-    Self { meta, body }
+/// Map a wire `HttpMethod` onto the concrete reqwless request method.
+fn to_reqwless_method(method: HttpMethod) -> Method {
+  match method {
+    HttpMethod::Get => Method::GET,
+    HttpMethod::Post => Method::POST,
+    HttpMethod::Put => Method::PUT,
+    HttpMethod::Delete => Method::DELETE,
   }
 }
 
-pub enum HttpEvent {
-  Meta(HttpResponseMeta),
-  Chunk(Vec<u8>),
-  Done,
-}
-
-pub async fn perform_http_request(stack: Stack<'static>, req: HttpRequest) -> Result<HttpResponse, ()> {
-  let mut meta: Option<HttpResponseMeta> = None;
-  let mut body = Vec::new_in(ExternalMemory);
-
-  let channel = Channel::<NoopRawMutex, HttpEvent, 1>::new();
-
-  let request = perform_http_request_channel(stack, channel.sender(), &req);
-
-  let listen = async {
-    loop {
-      match channel.receive().await {
-        HttpEvent::Meta(http_response_meta) => {
-          // println!("perform_http_request: Got meta");
-          meta = Some(http_response_meta);
-        }
-        HttpEvent::Chunk(chunk) => {
-          // println!("perform_http_request: Got chunk");
-          body.extend_from_slice(&chunk);
-        }
-        HttpEvent::Done => {
-          // println!("perform_http_request: Done");
-          return;
-        }
-      }
-    }
-  };
-
-  let (result, _) = join!(request, listen).await;
-  result?;
-
-  Ok(HttpResponse::new(meta.unwrap(), VecHelper::to_global_vec(body)))
-}
-
-pub async fn perform_http_request_channel<'a>(
-  stack: Stack<'static>,
-  sender: Sender<'a, NoopRawMutex, HttpEvent, 1>,
-  http_request: &HttpRequest,
-) -> Result<(), ()> {
-  let result = perform_http_request_streaming(
-    stack,
-    http_request,
-    |meta| sender.send(HttpEvent::Meta(meta)),
-    |chunk| sender.send(HttpEvent::Chunk(chunk)),
-  )
-  .await;
-
-  sender.send(HttpEvent::Done).await;
-
-  result
-}
-
+/// Perform a streaming HTTP request, invoking `on_meta` once the response
+/// headers arrive and `on_chunk` for every chunk of body data as it streams in.
+///
+/// The request honours `HttpRequest.method` and `HttpRequest.headers`, and sends
+/// `HttpRequest.body` as the request payload for non-empty POST/PUT requests.
+/// Returns `Ok(())` once the response body is fully drained; `Err(())` if any
+/// step of the request fails. The caller is responsible for translating the
+/// result into the appropriate `HttpEvent::Done`/`Error` on its channel.
 pub async fn perform_http_request_streaming<F1, F2, Fut1, Fut2>(
   stack: Stack<'static>,
   http_request: &HttpRequest,
@@ -109,7 +53,8 @@ where
 {
   const CHUNK_SIZE: usize = 4096;
 
-  debug!("HTTP: request url={}", http_request.url);
+  let method = to_reqwless_method(http_request.method);
+  debug!("HTTP: request method={} url={}", method.as_str(), http_request.url);
 
   let state = Box::new_in(TcpClientState::<1, 1024, CHUNK_SIZE>::new(), ExternalMemory);
   let mut tcp_client = TcpClient::new(stack, &state);
@@ -123,7 +68,7 @@ where
 
   let headers: Vec<(&str, &str)> = http_request.headers.iter().map(|h| (h.0.as_str(), h.1.as_str())).collect();
 
-  let handle = match client.request(Method::GET, &http_request.url).await {
+  let handle = match client.request(method, &http_request.url).await {
     Ok(handle) => handle,
     Err(err) => {
       error!("HTTP: client.request error: {}", err);
@@ -131,7 +76,16 @@ where
     }
   };
 
-  let mut handle = handle.headers(&headers);
+  // Only POST/PUT carry a body, and only when the caller supplied a non-empty
+  // payload; GET/DELETE send none. `Option<&[u8]>` unifies both cases so the
+  // resulting handle keeps a single concrete type — the connection it owns must
+  // outlive the response, which borrows it for the whole read below. (reqwless
+  // implements `RequestBody` for `Option<T>`; `None` sends an empty body.)
+  let body_slice: &[u8] = &http_request.body;
+  let has_body = matches!(http_request.method, HttpMethod::Post | HttpMethod::Put) && !body_slice.is_empty();
+  let body: Option<&[u8]> = if has_body { Some(body_slice) } else { None };
+
+  let mut handle = handle.headers(&headers).body(body);
 
   let response = match handle.send(&mut rx_buf).await {
     Ok(response) => response,

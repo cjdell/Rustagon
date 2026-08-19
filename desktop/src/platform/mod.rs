@@ -34,38 +34,65 @@ impl app::platform::HttpClient for DesktopHttpClient {
     let url = req.url;
     let method = req.method;
     let body = req.body;
+    let headers = req.headers;
     Box::pin(async move {
       use app::protocol::{HttpEvent, HttpMethod};
 
+      // Forward every header from the wire request (parity with the firmware
+      // client). Body-bearing methods send the request body; GET/DELETE send none.
       let response = match method {
-        HttpMethod::Get => match ureq::get(&url).call() {
-          Ok(r) => r,
-          Err(_) => {
-            channel.send(HttpEvent::Error).await;
-            return;
+        HttpMethod::Get => {
+          let mut req = ureq::get(&url);
+          for (k, v) in &headers {
+            req = req.header(k.as_str(), v.as_str());
           }
-        },
-        HttpMethod::Post => match ureq::post(&url).send(body.as_slice()) {
-          Ok(r) => r,
-          Err(_) => {
-            channel.send(HttpEvent::Error).await;
-            return;
+          match req.call() {
+            Ok(r) => r,
+            Err(_) => {
+              channel.send(HttpEvent::Error).await;
+              return;
+            }
           }
-        },
-        HttpMethod::Put => match ureq::put(&url).send(body.as_slice()) {
-          Ok(r) => r,
-          Err(_) => {
-            channel.send(HttpEvent::Error).await;
-            return;
+        }
+        HttpMethod::Post => {
+          let mut req = ureq::post(&url);
+          for (k, v) in &headers {
+            req = req.header(k.as_str(), v.as_str());
           }
-        },
-        HttpMethod::Delete => match ureq::delete(&url).call() {
-          Ok(r) => r,
-          Err(_) => {
-            channel.send(HttpEvent::Error).await;
-            return;
+          match req.send(body.as_slice()) {
+            Ok(r) => r,
+            Err(_) => {
+              channel.send(HttpEvent::Error).await;
+              return;
+            }
           }
-        },
+        }
+        HttpMethod::Put => {
+          let mut req = ureq::put(&url);
+          for (k, v) in &headers {
+            req = req.header(k.as_str(), v.as_str());
+          }
+          match req.send(body.as_slice()) {
+            Ok(r) => r,
+            Err(_) => {
+              channel.send(HttpEvent::Error).await;
+              return;
+            }
+          }
+        }
+        HttpMethod::Delete => {
+          let mut req = ureq::delete(&url);
+          for (k, v) in &headers {
+            req = req.header(k.as_str(), v.as_str());
+          }
+          match req.call() {
+            Ok(r) => r,
+            Err(_) => {
+              channel.send(HttpEvent::Error).await;
+              return;
+            }
+          }
+        }
       };
 
       let status = response.status().as_u16() as u32;
@@ -223,5 +250,73 @@ impl Platform for DesktopPlatform {
   async fn ota_commit(&self) -> Result<(), OtaError> {
     info!("ota_commit: simulated");
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod http_client_tests {
+  use super::DesktopHttpClient;
+  use app::platform::{HttpClient, HttpEventChannel};
+  use app::protocol::{HttpEvent, HttpMethod, HttpRequest};
+  use std::io::{Read as _, Write as _};
+  use std::net::TcpListener;
+
+  /// Prove the desktop client forwards the method, headers, and body on the
+  /// wire (parity with the firmware client). A one-shot local TCP server
+  /// captures the raw request bytes and answers with a canned 200.
+  #[test]
+  fn desktop_client_forwards_method_headers_and_body() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let server = std::thread::spawn(move || {
+      let (mut stream, _) = listener.accept().unwrap();
+      let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+      let mut data = Vec::new();
+      let mut buf = [0u8; 4096];
+      // Read until the request body has fully arrived (or the buffer caps out).
+      while !data.windows(8).any(|w| w == b"the-body") {
+        match stream.read(&mut buf) {
+          Ok(0) => break,
+          Ok(n) => data.extend_from_slice(&buf[..n]),
+          Err(_) => break,
+        }
+        if data.len() > 8192 {
+          break;
+        }
+      }
+      tx.send(String::from_utf8_lossy(&data).into_owned()).unwrap();
+      let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    });
+
+    let req = HttpRequest {
+      method: HttpMethod::Post,
+      url: format!("http://{addr}/echo"),
+      headers: vec![("X-Test".into(), "hello".into())],
+      body: b"the-body".to_vec(),
+    };
+
+    let channel = HttpEventChannel::new();
+    let client = DesktopHttpClient;
+    futures::executor::block_on(async {
+      let request = client.request(req, &channel);
+      futures::future::join(request, async {
+        loop {
+          match channel.receive().await {
+            HttpEvent::Done | HttpEvent::Error => break,
+            _ => {}
+          }
+        }
+      })
+      .await;
+    });
+
+    let raw = rx.recv().unwrap();
+    server.join().unwrap();
+
+    assert!(raw.starts_with("POST /echo HTTP/1.1"), "wrong method: {raw}");
+    assert!(raw.to_ascii_uppercase().contains("X-TEST: HELLO"), "missing header: {raw}");
+    assert!(raw.contains("the-body"), "missing body: {raw}");
   }
 }
