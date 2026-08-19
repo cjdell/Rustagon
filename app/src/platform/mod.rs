@@ -18,6 +18,6 @@ pub use led::{LedHandle, LedManager};
 pub use power::{PowerError, PowerHandle, PowerManager};
 pub use storage::{ConfigHandle, DirEntry, FileType, FsError, LocalFsTrait, StateError, StorageHandle};
 pub use system::{SystemHandle, SystemManager};
-pub use tcp::{TcpClient, TcpEvent, TcpEventChannel, TcpHandle};
+pub use tcp::{TcpClient, TcpEvent, TcpEventChannel, TcpHandle, TcpSession, TcpSessionBackend};
 pub use traits::Platform;
 pub use wifi::{WiFiHandle, WiFiManager, WifiStatus};

@@ -217,6 +217,7 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
   fn input_manager(&self) -> InputHandle;
   fn system_manager(&self) -> SystemHandle;
   fn http_client(&self) -> Option<HttpClientHandle>;
+  fn tcp_client(&self) -> Option<TcpHandle>;
   fn storage_manager(&self) -> StorageHandle;
   fn config_manager(&self) -> ConfigHandle<DeviceConfig>;
   async fn format_storage(&self) -> Result<(), FsError>;
@@ -312,6 +313,49 @@ enums does not affect the wire format.
 
 Adding a new guest-facing variant means updating `libs/wasm_protocol` (the SDK picks
 it up automatically); adding a host-internal one means touching only `app::protocol`.
+
+### TCP Client (`app/src/platform/tcp.rs`)
+
+Session-oriented abstraction — there is **no** `&'static` channel parameter and no
+`Box::leak` anywhere in the TCP path:
+
+- **`TcpClient` trait** — one method:
+  `connect(&self, host: String, port: u16) -> Pin<Box<dyn Future<Output = Result<TcpSession, ()>> + 'static>>`.
+  `Ok(session)` means the connection is established; `Err(())` covers DNS/connect
+  failure. The returned future is deliberately `!Send` (firmware embassy-net sockets
+  are `!Send`); the trait itself stays `Send + Sync` for the `Arc<dyn TcpClient>`.
+- **`TcpSession`** — cloneable handle (`Arc<dyn TcpSessionBackend>`) with
+  `next_event()`, `try_next_event()`, `send(Vec<u8>)`, `close()`. Events are
+  `TcpEvent::{Data, Closed, Error}` — there is no `Connected` variant, the
+  connect `Result` conveys that. The public `TcpSessionBackend` trait (each
+  platform implements it) returns `!Send` futures, but the handle is
+  `Send + Sync`, so app state (e.g. `SshApp`) stays `Send`.
+- **`TcpEventChannel`** is now `EventQueue<TcpEvent, 16>` (cloneable, owned) —
+  created per connection by the platform, cloned into the session, freed with
+  the pump. Apps never see a raw channel and never leak one.
+
+**Firmware ownership model (`firmware/src/platform/tcp.rs`):** the pump Embassy
+task is the *sole owner* of everything for the connection: the `TcpConnection`,
+the pool state + `NetTcpClient` (an `OwnedNetTcp` PSRAM box — the client borrows
+the state and the connection borrows the client, so `Pump::drop` frees the
+allocation only after the connection has been dropped), and both event/command
+queues. The `CmdSlot` (`Arc<Mutex<(u64 generation, Option<CmdChannel>)>>`) holds
+the *owned* command queue; the generation counter detects stale pumps, which a
+new `connect` asks to close before replacing the slot. The session talks to the
+pump only through the command queue (`Send`/`Close`); an `Arc<AtomicBool>` alive
+flag (cleared by the last session `Drop` or by pump exit) guarantees command/event
+sends give up instead of blocking forever on a queue nobody drains or reads, and
+a 200 ms liveness tick in the pump's `select` ensures a dropped session can never
+strand the pump. The pump is spawned via `Spawner::for_current_executor()`
+(`!Send` connection; sound because the single-core executor serializes all
+access). When the pump exits, everything is freed — connect/disconnect cycles do
+not grow PSRAM.
+
+**Desktop (`desktop/src/platform/tcp.rs`):** one `std::net::TcpStream` per session
+plus a reader thread pushing `TcpEvent`s (lossy 5 ms backoff, same as before). The
+writer sits in an `Arc<Mutex<Option<TcpStream>>>` owned by the session; dropping
+the last handle (or `close()`) shuts the socket down, which ends the reader thread
+and frees everything. A unit test exercises connect/send/echo/close/reconnect.
 
 ### Completed Subsystems
 
@@ -1090,6 +1134,7 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **Platform trait:** `app/src/platform/traits.rs`
 - **Hexpansion manager trait:** `app/src/platform/hexpansion.rs`
 - **HTTP client trait:** `app/src/platform/http.rs`
+- **TCP client:** `app/src/platform/tcp.rs` (session model), `firmware/src/platform/tcp.rs` (pump task ownership), `desktop/src/platform/tcp.rs` (thread-per-connection)
 - **Menu system:** `app/src/menu/mod.rs`
 - **Menu state/stack:** `app/src/menu/state.rs`
 - **Menu types:** `app/src/menu/types.rs`

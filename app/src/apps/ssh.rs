@@ -1,7 +1,7 @@
 use crate::{
   alloc_ext::external_box,
   apps::{AppAction, AppError, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
-  platform::{Platform, TcpEvent, TcpEventChannel, TcpHandle},
+  platform::{Platform, TcpEvent, TcpSession},
   ssh::{
     PlatformRng, SshEvent, SshSession,
     terminal::{DISPLAY_LINES, Terminal, hex_button_to_bytes, key_to_bytes},
@@ -63,8 +63,7 @@ pub struct SshApp<P: Platform> {
   /// SSH state machine never occupies the stack or inflates the menu stack
   /// enum.
   session: Option<Box<SshSession>>,
-  tcp: Option<TcpHandle>,
-  channel: Option<&'static TcpEventChannel>,
+  tcp_session: Option<TcpSession>,
   terminal: Terminal,
 }
 
@@ -90,8 +89,7 @@ impl<P: Platform> SshApp<P> {
       status: String::new(),
       shifted: false,
       session: None,
-      tcp: None,
-      channel: None,
+      tcp_session: None,
       terminal: Terminal::new(),
     }
   }
@@ -112,17 +110,16 @@ impl<P: Platform> SshApp<P> {
 
   /// Close the TCP connection and return to the connect screen.
   async fn disconnect(&mut self) {
-    if let Some(tcp) = self.tcp.take() {
-      tcp.close().await;
+    if let Some(session) = self.tcp_session.take() {
+      session.close().await;
     }
     self.session = None;
-    self.channel = None;
     self.screen = Screen::Connect;
     self.ctx.update_lcd(self.render());
   }
 
   /// Flush every queued outbound SSH frame to the TCP connection.
-  async fn flush(tcp: &TcpHandle, session: &mut SshSession) {
+  async fn flush(tcp: &TcpSession, session: &mut SshSession) {
     while let Some(frame) = session.poll_transmit() {
       tcp.send(frame).await;
     }
@@ -130,12 +127,12 @@ impl<P: Platform> SshApp<P> {
 
   /// Send `bytes` to the remote shell (as SSH channel data).
   async fn send_bytes(&mut self, bytes: Vec<u8>) {
-    let Some(tcp) = self.ctx.platform.tcp_client() else { return };
+    let Some(tcp) = self.tcp_session.as_ref() else { return };
     let platform = self.ctx.platform.clone();
     let mut rng = PlatformRng { platform: &platform };
     let Some(session) = self.session.as_mut() else { return };
     if session.send_data(&bytes, &mut rng).is_ok() {
-      Self::flush(&tcp, session).await;
+      Self::flush(tcp, session).await;
     }
   }
 
@@ -158,24 +155,11 @@ impl<P: Platform> SshApp<P> {
       return Err(AppError::Message("Host and user required".into()));
     }
 
-    // The background TCP pump needs a `'static` channel; leak one per session.
-    // Bounded (16 events), and recycled when the session's connection closes.
-    let channel: &'static TcpEventChannel = Box::leak(Box::new(TcpEventChannel::new()));
-    tcp.connect(host, port, channel).await;
-
-    // Wait for the connection to establish (or fail).
-    let established = loop {
-      match select_timeout(channel.receive(), CONNECT_TIMEOUT_MS).await {
-        Some(TcpEvent::Connected) => break true,
-        Some(TcpEvent::Error | TcpEvent::Closed) => break false,
-        // Any other event (e.g. stray data) before Connected: keep waiting.
-        Some(_) => {}
-        None => return Err(AppError::Timeout),
-      }
+    let tcp_session = match select_timeout(tcp.connect(host, port), CONNECT_TIMEOUT_MS).await {
+      Some(Ok(session)) => session,
+      Some(Err(())) => return Err(AppError::Network),
+      None => return Err(AppError::Timeout),
     };
-    if !established {
-      return Err(AppError::Network);
-    }
 
     self.status = "Loading key...".to_string();
     self.ctx.update_lcd(self.render());
@@ -207,12 +191,12 @@ impl<P: Platform> SshApp<P> {
       return Err(AppError::Message(format!("Handshake failed: {err:?}")));
     }
     info!("SshApp: session started, flushing {} outbound frames", session.outbox_len());
-    Self::flush(&tcp, &mut session).await;
+    Self::flush(&tcp_session, &mut session).await;
     debug!("SshApp: flushed initial frames");
 
     // Pump the handshake + auth until the shell is open or the session fails.
     loop {
-      let event = match select_timeout(channel.receive(), HANDSHAKE_TIMEOUT_MS).await {
+      let event = match select_timeout(tcp_session.next_event(), HANDSHAKE_TIMEOUT_MS).await {
         Some(ev) => ev,
         None => return Err(AppError::Timeout),
       };
@@ -223,14 +207,13 @@ impl<P: Platform> SshApp<P> {
           if let Err(err) = session.handle_input(&bytes, &mut rng) {
             return Err(AppError::Message(format!("Protocol error: {err:?}")));
           }
-          Self::flush(&tcp, &mut session).await;
+          Self::flush(&tcp_session, &mut session).await;
           while let Some(ev) = session.poll_event() {
             debug!("SshApp: session event: {ev:?}");
             match ev {
               SshEvent::Ready => {
                 self.session = Some(session);
-                self.tcp = Some(tcp);
-                self.channel = Some(channel);
+                self.tcp_session = Some(tcp_session);
                 self.screen = Screen::Terminal;
                 self.status = String::new();
                 self.terminal = Terminal::new();
@@ -245,7 +228,6 @@ impl<P: Platform> SshApp<P> {
           }
         }
         TcpEvent::Closed | TcpEvent::Error => return Err(AppError::Network),
-        _ => {}
       }
     }
   }
@@ -254,17 +236,17 @@ impl<P: Platform> SshApp<P> {
   /// data into the SSH engine, feed output to the terminal, and flush any
   /// outbound frames.
   async fn pump_session(&mut self) {
-    let Some(channel) = self.channel else { return };
-    let Some(tcp) = self.ctx.platform.tcp_client() else { return };
     let platform = self.ctx.platform.clone();
 
     let mut closed = false;
     let mut inbound: Vec<Vec<u8>> = Vec::new();
-    while let Ok(ev) = channel.try_receive() {
-      match ev {
-        TcpEvent::Data(data) => inbound.push(data),
-        TcpEvent::Closed | TcpEvent::Error => closed = true,
-        _ => {}
+    {
+      let Some(session) = self.tcp_session.as_ref() else { return };
+      while let Some(ev) = session.try_next_event() {
+        match ev {
+          TcpEvent::Data(data) => inbound.push(data),
+          TcpEvent::Closed | TcpEvent::Error => closed = true,
+        }
       }
     }
     if closed {
@@ -301,8 +283,11 @@ impl<P: Platform> SshApp<P> {
         }
       }
     }
-    for frame in frames {
-      tcp.send(frame).await;
+    {
+      let Some(session) = self.tcp_session.as_ref() else { return };
+      for frame in frames {
+        session.send(frame).await;
+      }
     }
     if closed {
       self.disconnect().await;
