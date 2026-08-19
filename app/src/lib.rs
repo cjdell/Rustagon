@@ -17,5 +17,7 @@ pub mod protocol;
 pub mod ssh;
 pub mod types;
 pub mod utils;
+#[cfg(feature = "testing")]
+pub mod testing;
 #[cfg(feature = "wasm-runtime")]
 pub mod wasm;

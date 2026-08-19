@@ -1,0 +1,52 @@
+{
+  "Menu": {
+    "menu": [
+      [
+        "Info",
+        "Hexpansions"
+      ],
+      [
+        "Info",
+        ""
+      ],
+      [
+        "Info",
+        "Port 0: empty"
+      ],
+      [
+        "Info",
+        "Port 1: KeebDeck"
+      ],
+      [
+        "Info",
+        "  BAD3:4EEB"
+      ],
+      [
+        "Info",
+        "Port 2: empty"
+      ],
+      [
+        "Info",
+        "Port 3: empty"
+      ],
+      [
+        "Info",
+        "Port 4: empty"
+      ],
+      [
+        "Info",
+        "Port 5: empty"
+      ],
+      [
+        "Info",
+        ""
+      ],
+      [
+        "Info",
+        "<= Back"
+      ]
+    ],
+    "selected": 0,
+    "animation": "FromRight"
+  }
+}

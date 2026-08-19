@@ -306,7 +306,9 @@ test:
     source firmware/.env
     set +a
 
-    cargo test -p app
+    # `--features testing` enables the embassy-time mock driver and the
+    # `app::testing::MockPlatform` used by the golden-screen tests.
+    cargo test -p app --features testing
 
 # Lint: clippy with -D warnings on the host crates (firmware lib target too;
 # path-dependency crates like display_renderer/wasmi must be clean as well).

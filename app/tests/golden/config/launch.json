@@ -1,0 +1,32 @@
+{
+  "Menu": {
+    "menu": [
+      [
+        "Info",
+        "Offline"
+      ],
+      [
+        "Info",
+        "Free: 1022KB"
+      ],
+      [
+        "Config",
+        "Toggle WiFi"
+      ],
+      [
+        "Config",
+        "Toggle AP/STA"
+      ],
+      [
+        "Config",
+        "Format FS"
+      ],
+      [
+        "Info",
+        "<= Back"
+      ]
+    ],
+    "selected": 0,
+    "animation": "FromRight"
+  }
+}

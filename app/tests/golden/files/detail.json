@@ -1,0 +1,28 @@
+{
+  "Menu": {
+    "menu": [
+      [
+        "Info",
+        "Name: demo.wsm"
+      ],
+      [
+        "Info",
+        "Size: 1024B"
+      ],
+      [
+        "Config",
+        "Execute"
+      ],
+      [
+        "Config",
+        "Delete"
+      ],
+      [
+        "Info",
+        "<= Back"
+      ]
+    ],
+    "selected": 0,
+    "animation": "FromRight"
+  }
+}

@@ -13,6 +13,10 @@ tokio = ["http-server", "picoserve/tokio", "std", "embassy-time/std"]
 extern-alloc = ["dep:esp-alloc"]
 web-bundle = []
 wasm-runtime = ["dep:wasmi", "dep:wasmi_core"]
+# Headless test support: enables the embassy-time mock driver so tests can
+# advance the clock deterministically, plus the `app::testing` module
+# (MockPlatform). Never enabled in production (firmware/desktop) builds.
+testing = ["embassy-time/mock-driver", "embassy-time/generic-queue-32"]
 
 [dependencies]
 display_types = { path = "../libs/display_types" }

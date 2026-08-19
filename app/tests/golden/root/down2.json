@@ -1,0 +1,52 @@
+{
+  "Menu": {
+    "menu": [
+      [
+        "Info",
+        "App Store"
+      ],
+      [
+        "Info",
+        "Configuration"
+      ],
+      [
+        "Info",
+        "Editor"
+      ],
+      [
+        "Info",
+        "Files"
+      ],
+      [
+        "Info",
+        "Hexpansions"
+      ],
+      [
+        "Info",
+        "Input Test"
+      ],
+      [
+        "Info",
+        "Firmware Update"
+      ],
+      [
+        "Info",
+        "Power Info"
+      ],
+      [
+        "Info",
+        "SSH"
+      ],
+      [
+        "Info",
+        "WiFi Scanner"
+      ],
+      [
+        "Info",
+        "Power Off"
+      ]
+    ],
+    "selected": 2,
+    "animation": "FromLeft"
+  }
+}

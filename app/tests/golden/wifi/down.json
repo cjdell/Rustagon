@@ -1,0 +1,20 @@
+{
+  "Menu": {
+    "menu": [
+      [
+        "Wifi",
+        "XXXX HomeNet"
+      ],
+      [
+        "Wifi",
+        "XX   Coffee"
+      ],
+      [
+        "Wifi",
+        "X    Neighbour"
+      ]
+    ],
+    "selected": 1,
+    "animation": "FromRight"
+  }
+}

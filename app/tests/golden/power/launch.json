@@ -1,0 +1,32 @@
+{
+  "Menu": {
+    "menu": [
+      [
+        "Info",
+        "Battery: 91%"
+      ],
+      [
+        "Info",
+        "  4.10V"
+      ],
+      [
+        "Info",
+        "USB: not connected"
+      ],
+      [
+        "Info",
+        "VSYS: 4.10V"
+      ],
+      [
+        "Info",
+        "VREG: 4.10V"
+      ],
+      [
+        "Info",
+        "<= Back"
+      ]
+    ],
+    "selected": 0,
+    "animation": "FromRight"
+  }
+}

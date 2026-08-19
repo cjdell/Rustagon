@@ -1,0 +1,16 @@
+{
+  "Menu": {
+    "menu": [
+      [
+        "File",
+        "fetch"
+      ],
+      [
+        "File",
+        "barefill"
+      ]
+    ],
+    "selected": 0,
+    "animation": "FromRight"
+  }
+}

@@ -22,8 +22,10 @@ pub struct PowerStatus {
 
 impl PowerStatus {
   pub fn battery_percent(&self) -> u8 {
-    // Li-ion nominal range ~3.0V–4.2V, map 0–100%
-    let mv = self.vbat_mv.clamp(3000, 4200);
+    // Li-ion nominal range ~3.0V–4.2V, map 0–100%.
+    // Compute in `u32` — `(4200 - 3000) * 100` overflows `u16` and would panic
+    // in debug builds (or wrap to a wrong value in release).
+    let mv = self.vbat_mv.clamp(3000, 4200) as u32;
     ((mv - 3000) * 100 / (4200 - 3000)) as u8
   }
 }

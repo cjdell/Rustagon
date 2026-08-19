@@ -134,6 +134,51 @@ provisions it). `just build_firmware` does the full release-lto link; the
 firmware's `.cargo/config.toml` sets the xtensa target + build-std, so run
 cargo from inside `firmware/` (the just recipes do).
 
+### Headless app testing (MockPlatform + golden screens)
+
+Every built-in app is tested in CI without hardware or a display, via the
+`app` crate's `testing` feature (`app/src/testing/`) and the golden-screen
+integration tests in `app/tests/golden.rs`. This is what `just test` runs:
+
+```sh
+just test                              # == cargo test -p app --features testing
+UPDATE_GOLDEN=1 just test              # regenerate the golden fixtures
+```
+
+`--features testing` is **only** used by the test build. It turns on
+`embassy-time/mock-driver` (a deterministically-advanceable clock) and compiles
+`app::testing`. It is never enabled by firmware/desktop, so the mock clock can't
+conflict with their real timers. (Do **not** enable it alongside the `tokio`/`std`
+features — two embassy-time drivers won't link.)
+
+The pieces:
+- **`app::testing::MockPlatform`** — a scripted `Platform`: input/system/hexpansion
+  backed by `EventQueue`s, in-memory storage + config, canned HTTP/TCP, and a
+  recording `DisplayManager` (read back with `mock.last_screen()` / `mock.screens()`).
+  Inject with `mock.push_button(..)` / `push_boot()` / `push_device_event(..)`;
+  seed with `mock.seed_file(..)` / `set_config(..)` / `set_wifi_scan(..)` / `set_hexpansion_state(..)`;
+  script HTTP with `mock.http().json(url, body)`.
+- **`app::testing::AppDriver`** — pins an app's `run()` loop and drives it one poll
+  at a time. `driver.settle(ms)` polls to quiescence, advancing the mock clock 1 ms
+  per poll (up to `ms`) so timers like `ctx.notify(..)` can fire. Apps that don't
+  render at the top of `run()` (root menu, App Store, OTA, input test) rely on the
+  menu's entry render — `AppDriver::new` reproduces that by signalling `render()` first.
+
+Golden fixtures live under `app/tests/golden/<app>/<scenario>.json` (a pretty
+`serde_json` round-trip of `LcdScreen`). `expect_screen` compares against them, or
+rewrites them when `UPDATE_GOLDEN=1` is set — regeneration is idempotent (no spurious
+diffs on re-run). Each test holds a process-global lock and resets the mock clock,
+so the tests are safe under cargo's parallel test threads.
+
+Notes:
+- The SSH *engine* handshake is still covered by the real-socket e2e unit test
+  (`app/src/ssh/tests.rs`). The golden tests cover the SSH *app* UI (connect form,
+  field navigation, key-not-found error path) headlessly — a full canned
+  handshake transcript is not worth maintaining.
+- The `just lint` recipe does **not** enable `testing`, so the mock/driver code is
+  not part of CI clippy. If you change `app/src/testing`, check it manually with
+  `cd app && cargo clippy --features testing --tests`.
+
 ### Release Profiles
 
 The root `Cargo.toml` splits release builds so host crates build fast while the
@@ -964,9 +1009,7 @@ for hex buttons.
    - Render icons (currently empty on non-xtensa)
    - Improve keyboard mappings
 
-2. **Add unit tests to `app` crate** — Use `MockPlatform` for deterministic tests.
-
-3. **Interrupt-driven keyboard** — The TCA8418 driver currently polls every 20ms.
+2. **Interrupt-driven keyboard** — The TCA8418 driver currently polls every 20ms.
    The HS_H pin on the hexpansion port could be used as an interrupt line for zero-latency
    key event detection.
 
@@ -1215,3 +1258,4 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **WatchedValue / EventQueue:** `app/src/utils/sync.rs` (`app::utils::{WatchedValue, EventQueue}`)
 - **ESP32-S3 flash driver:** `libs/esp32s3_embedded_tools/src/flash.rs`
 - **Generic LocalFs:** `libs/embedded_tools/src/local_fs.rs`
+- **Headless testing:** `app/src/testing/` (`MockPlatform` + `AppDriver`, `testing` feature), golden tests + fixtures in `app/tests/golden.rs` + `app/tests/golden/`

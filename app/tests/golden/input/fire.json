@@ -1,0 +1,96 @@
+{
+  "Menu": {
+    "menu": [
+      [
+        "Info",
+        "Up"
+      ],
+      [
+        "Info",
+        "Down"
+      ],
+      [
+        "Info",
+        "Left"
+      ],
+      [
+        "Info",
+        "Right"
+      ],
+      [
+        "Info",
+        "Hex A"
+      ],
+      [
+        "Info",
+        "Hex B"
+      ],
+      [
+        "Info",
+        "Hex C"
+      ],
+      [
+        "Info",
+        "Hex D"
+      ],
+      [
+        "Info",
+        "Hex E"
+      ],
+      [
+        "Info",
+        "Hex F"
+      ],
+      [
+        "Info",
+        "Touch 01"
+      ],
+      [
+        "Info",
+        "Touch 02"
+      ],
+      [
+        "Info",
+        "Touch 03"
+      ],
+      [
+        "Info",
+        "Touch 04"
+      ],
+      [
+        "Info",
+        "Touch 05"
+      ],
+      [
+        "Info",
+        "Touch 06"
+      ],
+      [
+        "Info",
+        "Touch 07"
+      ],
+      [
+        "Info",
+        "Touch 08"
+      ],
+      [
+        "Info",
+        "Touch 09"
+      ],
+      [
+        "Info",
+        "Touch 10"
+      ],
+      [
+        "Info",
+        "Touch 11"
+      ],
+      [
+        "Info",
+        "Touch 12"
+      ]
+    ],
+    "selected": 0,
+    "animation": "None"
+  }
+}
