@@ -1,5 +1,5 @@
 use crate::{
-  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::Platform,
   types::*,
 };
@@ -106,25 +106,25 @@ impl<P: Platform> InputTestApp<P> {
   }
 }
 
-impl<P: Platform> MenuApp for InputTestApp<P> {
+impl<P: Platform> MenuApp<P> for InputTestApp<P> {
   fn render(&self) -> LcdScreen {
     render_state(self.pressed)
   }
 
-  async fn init(&mut self) {}
-
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    match input {
-      MenuAppInput::Stop => AppAction::Stop,
-      MenuAppInput::Button(btn) => {
-        self.pressed |= bit(&btn);
-        self.ctx.update_lcd(self.render());
-        let total = ALL_BUTTONS.len();
-        if self.pressed.count_ones() as usize >= total {
-          AppAction::Stop
-        } else {
-          AppAction::Continue
-        }
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction {
+    loop {
+      let event = ctx.next().await;
+      if let Some(action) = event.exit_action() {
+        return action;
+      }
+      let AppRunEvent::Input(AppInput::Button(btn)) = event else {
+        continue;
+      };
+      self.pressed |= bit(&btn);
+      self.ctx.update_lcd(self.render());
+      let total = ALL_BUTTONS.len();
+      if self.pressed.count_ones() as usize >= total {
+        return AppAction::Stop;
       }
     }
   }

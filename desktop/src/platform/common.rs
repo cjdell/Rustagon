@@ -1,3 +1,4 @@
+use app::platform::AppSpawner;
 use app::platform::hexpansion::HexpansionManager;
 use app::platform::led::{LedError, LedManager};
 use app::platform::power::{PowerManager, PowerStatus};
@@ -6,6 +7,44 @@ use app::platform::wifi::{WiFiManager, WifiStatus};
 use app::types::{DeviceEvent, HexpansionEvent, HexpansionInfo, LedRequest, SystemMessage, WifiDesiredState, WifiResult};
 use app::utils::{EventQueue, WatchedValue};
 use std::pin::Pin;
+
+/// Desktop background-task spawner: each spawned task runs on its own std
+/// thread, driven by a `futures::executor::block_on` (the desktop host has no
+/// shared async runtime).
+#[derive(Clone, Debug)]
+pub struct DesktopAppSpawner;
+
+/// Wrapper letting a `!Send` future box move to a worker thread. Sound on
+/// desktop: every future an app builds there is `Send` (std-backed platform);
+/// the `!Send` case is a firmware-only concern (embassy-net sockets).
+struct SendFut(Box<dyn std::future::Future<Output = ()> + 'static>);
+
+unsafe impl Send for SendFut {}
+
+impl SendFut {
+  fn run(self) {
+    let SendFut(fut) = self;
+    futures::executor::block_on(std::pin::Pin::from(fut));
+  }
+}
+
+impl AppSpawner for DesktopAppSpawner {
+  fn spawn(&self, fut: Box<dyn std::future::Future<Output = ()> + Send + 'static>) {
+    std::thread::spawn(move || SendFut(fut).run());
+  }
+
+  fn spawn_local(
+    &self,
+    fut: Box<dyn std::future::Future<Output = ()> + 'static>,
+  ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + '_>> {
+    // Wrap *before* the closure so it captures the `Send` wrapper as a whole,
+    // not the `!Send` box field.
+    let wrapper = SendFut(fut);
+    Box::pin(async move {
+      std::thread::spawn(move || wrapper.run());
+    })
+  }
+}
 
 #[derive(Debug)]
 pub struct DesktopLedManager;

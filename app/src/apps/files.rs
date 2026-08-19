@@ -1,5 +1,5 @@
 use crate::{
-  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::Platform,
   types::*,
 };
@@ -81,7 +81,7 @@ impl<P: Platform> FilesApp<P> {
   }
 }
 
-impl<P: Platform> MenuApp for FilesApp<P> {
+impl<P: Platform> MenuApp<P> for FilesApp<P> {
   fn render(&self) -> LcdScreen {
     match &self.state.screen {
       Screen::FileList => {
@@ -126,17 +126,30 @@ impl<P: Platform> MenuApp for FilesApp<P> {
     }
   }
 
-  async fn init(&mut self) {
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction {
+    // Re-scan on (re-)entry — subsumes the old `init` (and refreshes on
+    // return from a sub-app, which the old `on_shown` default did not do).
     self.refresh_files().await;
-  }
+    self.ctx.update_lcd(self.render());
 
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    match input {
-      MenuAppInput::Stop => AppAction::Stop,
-      MenuAppInput::Button(hex) => match &self.state.screen {
+    loop {
+      let event = ctx.next().await;
+      if let Some(action) = event.exit_action() {
+        return action;
+      }
+      let AppRunEvent::Input(AppInput::Button(hex)) = event else {
+        continue;
+      };
+      let action = match &self.state.screen {
         Screen::FileList => self.handle_file_list_input(hex).await,
         Screen::FileDetail => self.handle_file_detail_input(hex).await,
-      },
+      };
+      self.ctx.update_lcd(self.render());
+      match action {
+        AppAction::Continue => {}
+        // `Stop` / `LaunchWasm`: let the menu translate the action.
+        other => return other,
+      }
     }
   }
 }

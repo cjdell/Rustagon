@@ -1,5 +1,5 @@
 use crate::{
-  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
@@ -49,7 +49,9 @@ impl<P: Platform> OtaUpdaterApp<P> {
     }
   }
 
-  async fn download_manifest(&mut self) -> Result<VersionInfo, ()> {
+  /// Download the version manifest, but give up (return `Err`) if any input
+  /// or event arrives while the request is in flight.
+  async fn download_manifest(&mut self, ctx: &AppRunContext<'_, P>) -> Result<VersionInfo, ()> {
     let req = HttpRequest::new(format!(
       "{}/version.json",
       self.ctx.platform.config_manager().get_data().await.firmware_url,
@@ -60,23 +62,31 @@ impl<P: Platform> OtaUpdaterApp<P> {
     let mut meta = None;
     let mut body = Vec::new();
 
-    join(http_client.request(req, &channel), async {
-      loop {
-        match channel.receive().await {
-          HttpEvent::Meta(m) => meta = Some(m),
-          HttpEvent::Chunk(chunk) => body.extend(chunk),
-          HttpEvent::Done => break,
-          HttpEvent::Error => return,
+    let downloaded = embassy_futures::select::select(
+      join(http_client.request(req, &channel), async {
+        loop {
+          match channel.receive().await {
+            HttpEvent::Meta(m) => meta = Some(m),
+            HttpEvent::Chunk(chunk) => body.extend(chunk),
+            HttpEvent::Done => break,
+            HttpEvent::Error => return,
+          }
         }
-      }
-    })
+      }),
+      ctx.next(),
+    )
     .await;
+    if matches!(downloaded, embassy_futures::select::Either::Second(_)) {
+      return Err(());
+    }
 
     let _meta = meta.ok_or(())?;
     serde_json::from_slice::<VersionInfo>(&body).map_err(|_| ())
   }
 
-  async fn do_update(&mut self, version_info: VersionInfo) -> Result<(), ()> {
+  /// Download + flash the firmware, but give up (return `Err`) if any input
+  /// or event arrives while the transfer is in flight.
+  async fn do_update(&mut self, version_info: VersionInfo, ctx: &AppRunContext<'_, P>) -> Result<(), ()> {
     let http_client = self.ctx.platform.http_client().ok_or(())?;
 
     let req = HttpRequest::new(format!(
@@ -90,7 +100,7 @@ impl<P: Platform> OtaUpdaterApp<P> {
     let mut bytes_written = 0u32;
     let platform = self.ctx.platform.clone();
     let display = self.ctx.platform.display_manager();
-    let ctx = self.ctx.clone();
+    let app_ctx = self.ctx.clone();
 
     let listen = async {
       loop {
@@ -106,12 +116,12 @@ impl<P: Platform> OtaUpdaterApp<P> {
             if bytes_written == version_info.size {
               info!("Firmware download complete");
               let _ = platform.ota_commit().await;
-              ctx.notify("Update complete", Icon40::Info).await;
+              app_ctx.notify("Update complete", Icon40::Info).await;
               platform.software_reset().await;
               return Ok(());
             } else {
               error!("Size mismatch: got {bytes_written}, expected {}", version_info.size);
-              ctx.notify("Size mismatch!", Icon40::Error).await;
+              app_ctx.notify("Size mismatch!", Icon40::Error).await;
               return Err(());
             }
           }
@@ -123,12 +133,15 @@ impl<P: Platform> OtaUpdaterApp<P> {
       }
     };
 
-    let (_, res) = join(http_client.request(req, &channel), listen).await;
-    res
+    let result = embassy_futures::select::select(join(http_client.request(req, &channel), listen), ctx.next()).await;
+    match result {
+      embassy_futures::select::Either::First((_, res)) => res,
+      embassy_futures::select::Either::Second(_) => Err(()),
+    }
   }
 }
 
-impl<P: Platform> MenuApp for OtaUpdaterApp<P> {
+impl<P: Platform> MenuApp<P> for OtaUpdaterApp<P> {
   fn render(&self) -> LcdScreen {
     let current = self.ctx.platform.firmware_version();
     match &self.state.screen {
@@ -137,35 +150,37 @@ impl<P: Platform> MenuApp for OtaUpdaterApp<P> {
     }
   }
 
-  async fn init(&mut self) {}
-
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    match input {
-      MenuAppInput::Stop => AppAction::Stop,
-      MenuAppInput::Button(hex) => {
-        match &self.state.screen {
-          Screen::Welcome => {
-            if let HexButton::HexB = hex {
-              let version = match self.download_manifest().await {
-                Ok(version) => version,
-                Err(()) => {
-                  self.ctx.notify("Connection Error!", Icon40::Error).await;
-                  return AppAction::Continue;
-                }
-              };
-              self.state.screen = Screen::UpdatePrompt(version);
-            }
-          }
-          Screen::UpdatePrompt(version_info) => {
-            if let HexButton::Fire = hex
-              && self.do_update(version_info.clone()).await.is_err()
-            {
-              self.state.screen = Screen::Welcome;
-            }
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction {
+    loop {
+      let event = ctx.next().await;
+      if let Some(action) = event.exit_action() {
+        return action;
+      }
+      let AppRunEvent::Input(AppInput::Button(hex)) = event else {
+        continue;
+      };
+      match &self.state.screen {
+        Screen::Welcome => {
+          if let HexButton::HexB = hex {
+            let version = match self.download_manifest(&ctx).await {
+              Ok(version) => version,
+              Err(()) => {
+                self.ctx.notify("Connection Error!", Icon40::Error).await;
+                continue;
+              }
+            };
+            self.state.screen = Screen::UpdatePrompt(version);
           }
         }
-        AppAction::Continue
+        Screen::UpdatePrompt(version_info) => {
+          if let HexButton::Fire = hex
+            && self.do_update(version_info.clone(), &ctx).await.is_err()
+          {
+            self.state.screen = Screen::Welcome;
+          }
+        }
       }
+      self.ctx.update_lcd(self.render());
     }
   }
 }

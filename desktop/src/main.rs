@@ -194,11 +194,7 @@ fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
     return Some(path);
   }
   let with_ext = path.with_extension("wsm");
-  if with_ext.is_file() {
-    Some(with_ext)
-  } else {
-    None
-  }
+  if with_ext.is_file() { Some(with_ext) } else { None }
 }
 
 /// Map a minifb key to the app's `KeyCode`, mimicking the KeebDeck keyboard
@@ -429,5 +425,74 @@ impl FrameBuffer for DesktopFrameBuffer<'_> {
   }
   fn buffer_height(&self) -> u32 {
     HEIGHT as u32
+  }
+}
+
+#[cfg(test)]
+mod menu_smoke_tests {
+  //! Runtime smoke test for the run-loop menu model: launch a built-in app
+  //! from the root menu, interact with it, and exit back to the root menu
+  //! with the boot button.
+  use super::*;
+  use app::types::{HexButton, SystemMessage};
+
+  #[test]
+  fn root_menu_launches_app_and_boot_button_returns_to_root() {
+    let data_dir = std::env::temp_dir().join("rustagon_menu_smoke");
+    let _ = std::fs::remove_dir_all(&data_dir);
+    let platform = Arc::new(DesktopPlatform::new(data_dir));
+    let input_pusher = platform.input_pusher.clone();
+    let system_pusher = platform.system_pusher.clone();
+
+    let host_channel = Box::leak(Box::new(HostIpcChannel::new()));
+    let host_sender = host_channel.sender();
+    let _host_receiver = host_channel.receiver();
+    let stack_event_handle = app::menu::state::create_stack_event_handle();
+
+    let runner_ctx = MenuRunnerContext {
+      platform: (*platform).clone(),
+      host_ipc_sender: host_sender,
+      stack_event_handle,
+      app_loader: None,
+      additional_apps: &[],
+      auto_launch: None,
+    };
+
+    // The menu task loops forever; the test thread ends and the process
+    // exits with it (the leaked thread is not joined).
+    std::thread::spawn(move || futures::executor::block_on(menu_task(runner_ctx)));
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    // Root menu is up: first line is the first app.
+    let (screen, _) = platform.get_screen();
+    assert!(
+      matches!(&screen, display_types::LcdScreen::Menu { menu, selected, .. } if *selected == 0 && menu.first().map(|l| l.1.as_str()) == Some("App Store")),
+      "expected root menu, got {screen:?}"
+    );
+
+    // Down → "Configuration" (index 1), Fire → launch it.
+    input_pusher.push_button(HexButton::Down);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    input_pusher.push_button(HexButton::Fire);
+    std::thread::sleep(std::time::Duration::from_millis(600));
+
+    let (screen, _) = platform.get_screen();
+    assert!(
+      matches!(&screen, display_types::LcdScreen::Menu { menu, .. } if menu.iter().any(|l| l.1.contains("Toggle WiFi"))),
+      "expected Configuration app screen, got {screen:?}"
+    );
+
+    // Boot button exits the app back to the root menu.
+    system_pusher.push_message(SystemMessage::BootButton);
+    std::thread::sleep(std::time::Duration::from_millis(600));
+
+    let (screen, _) = platform.get_screen();
+    // Selection is preserved on the stack: "Configuration" (index 1) is still
+    // highlighted.
+    assert!(
+      matches!(&screen, display_types::LcdScreen::Menu { menu, selected, .. } if *selected == 1 && menu.first().map(|l| l.1.as_str()) == Some("App Store")),
+      "expected root menu (selection preserved) after boot button, got {screen:?}"
+    );
   }
 }

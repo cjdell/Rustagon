@@ -1,5 +1,5 @@
 use crate::{
-  apps::{AppAction, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{AppAction, AppEvent, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::Platform,
   types::*,
 };
@@ -146,7 +146,7 @@ impl<P: Platform> EditorApp<P> {
   }
 }
 
-impl<P: Platform> MenuApp for EditorApp<P> {
+impl<P: Platform> MenuApp<P> for EditorApp<P> {
   fn render(&self) -> LcdScreen {
     let lines = self
       .lines
@@ -160,27 +160,29 @@ impl<P: Platform> MenuApp for EditorApp<P> {
     LcdScreen::TextBuffer { lines }
   }
 
-  async fn init(&mut self) {
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction {
     self.ctx.update_lcd(self.render());
-  }
 
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    match input {
-      MenuAppInput::Stop => AppAction::Stop,
-      // Navigation buttons (arrows, Fire) — unified with the keyboard's arrow
-      // and Enter keys, which the platform surfaces as HexButton presses.
-      MenuAppInput::Button(hex) => {
-        self.handle_nav_button(hex);
-        AppAction::Continue
+    loop {
+      let event = ctx.next().await;
+      if let Some(action) = event.exit_action() {
+        return action;
       }
-    }
-  }
-
-  async fn handle_event(&mut self, event: AppEvent) {
-    // Process the event that triggered this call first (it was already consumed
-    // from the queue by the menu loop), then drain any additional events.
-    if let AppEvent::Device(DeviceEvent::Keyboard(ke)) = event {
-      self.handle_key(ke.code, ke.typ);
+      match event {
+        // Navigation buttons (arrows, Fire) — unified with the keyboard's arrow
+        // and Enter keys, which the platform surfaces as HexButton presses.
+        AppRunEvent::Input(AppInput::Button(hex)) => {
+          self.handle_nav_button(hex);
+          self.ctx.update_lcd(self.render());
+        }
+        // Character keys arrive as raw keyboard events (Tab/Escape included —
+        // nav-key injection only applies to the root menu and hosted apps).
+        AppRunEvent::Event(AppEvent::Device(DeviceEvent::Keyboard(ke))) => {
+          self.handle_key(ke.code, ke.typ);
+          self.ctx.update_lcd(self.render());
+        }
+        _ => {}
+      }
     }
   }
 }

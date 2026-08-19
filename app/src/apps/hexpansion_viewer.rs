@@ -1,5 +1,5 @@
 use crate::{
-  apps::{common::AppName, AppAction, AppEvent, MenuApp, MenuAppInput, MenuAppContext},
+  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::Platform,
   types::*,
 };
@@ -28,7 +28,7 @@ impl<P: Platform> HexpansionViewerApp<P> {
   }
 }
 
-impl<P: Platform> MenuApp for HexpansionViewerApp<P> {
+impl<P: Platform> MenuApp<P> for HexpansionViewerApp<P> {
   fn render(&self) -> LcdScreen {
     let mut lines: Vec<MenuLine> = Vec::new();
 
@@ -38,14 +38,8 @@ impl<P: Platform> MenuApp for HexpansionViewerApp<P> {
     for (port, slot) in &self.slots {
       match slot {
         Some(info) => {
-          lines.push(MenuLine(
-            Icon20::Info,
-            format!("Port {port}: {}", info.friendly_name),
-          ));
-          lines.push(MenuLine(
-            Icon20::Info,
-            format!("  {:04X}:{:04X}", info.vid, info.pid),
-          ));
+          lines.push(MenuLine(Icon20::Info, format!("Port {port}: {}", info.friendly_name)));
+          lines.push(MenuLine(Icon20::Info, format!("  {:04X}:{:04X}", info.vid, info.pid)));
         }
         None => {
           lines.push(MenuLine(Icon20::Info, format!("Port {port}: empty")));
@@ -56,11 +50,17 @@ impl<P: Platform> MenuApp for HexpansionViewerApp<P> {
     lines.push(MenuLine(Icon20::Info, "".to_string()));
     lines.push(MenuLine(Icon20::Info, "<= Back".to_string()));
 
-    LcdScreen::Menu { menu: lines, selected: 0, animation: MenuAnimation::FromRight }
+    LcdScreen::Menu {
+      menu: lines,
+      selected: 0,
+      animation: MenuAnimation::FromRight,
+    }
   }
 
-  async fn init(&mut self) {
-    // Retry a few times in case the polling task hasn't completed its first scan
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction {
+    // Retry a few times in case the polling task hasn't completed its first
+    // scan (subsumes the old `init`; also re-runs on re-entry, which just
+    // means fresher state).
     for _ in 0..3 {
       self.refresh_state();
       if self.slots.iter().any(|(_, s)| s.is_some()) {
@@ -69,18 +69,20 @@ impl<P: Platform> MenuApp for HexpansionViewerApp<P> {
       crate::utils::sleep(500).await;
     }
     self.ctx.update_lcd(self.render());
-  }
 
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    self.refresh_state();
-    match input {
-      MenuAppInput::Stop => AppAction::Stop,
-      MenuAppInput::Button(HexButton::Fire | HexButton::Left) => AppAction::Stop,
-      _ => AppAction::Continue,
+    loop {
+      let event = ctx.next().await;
+      if let Some(action) = event.exit_action() {
+        return action;
+      }
+      match event {
+        AppRunEvent::Input(AppInput::Button(HexButton::Fire | HexButton::Left)) => return AppAction::Stop,
+        AppRunEvent::Event(_) => {
+          self.refresh_state();
+          self.ctx.update_lcd(self.render());
+        }
+        _ => {}
+      }
     }
-  }
-
-  async fn handle_event(&mut self, _event: AppEvent) {
-    self.refresh_state();
   }
 }

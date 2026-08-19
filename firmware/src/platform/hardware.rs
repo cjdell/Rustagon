@@ -6,7 +6,7 @@ use super::storage::{ConfigHandle, FsError, HardwareStorageManager, StorageHandl
 use super::system::SystemHandle;
 use super::wifi::WiFiHandle;
 use crate::utils::ota::Ota;
-use app::platform::{HexpansionHandle, HttpClientHandle, Platform, TcpHandle};
+use app::platform::{HexpansionHandle, HttpClientHandle, Platform, SpawnerHandle, TcpHandle};
 use app::types::OtaError;
 use embedded_storage::Storage;
 use procmacros::partition_offset;
@@ -26,6 +26,7 @@ pub struct HardwarePlatform {
   storage_formatter: HardwareStorageManager,
   http_client: Option<HttpClientHandle>,
   tcp_client: Option<TcpHandle>,
+  spawner: SpawnerHandle,
 }
 
 impl HardwarePlatform {
@@ -42,6 +43,7 @@ impl HardwarePlatform {
     storage: StorageHandle,
     config: ConfigHandle,
     storage_formatter: HardwareStorageManager,
+    spawner: SpawnerHandle,
   ) -> Self {
     Self {
       display,
@@ -56,6 +58,7 @@ impl HardwarePlatform {
       storage_formatter,
       http_client: None,
       tcp_client: None,
+      spawner,
     }
   }
 
@@ -119,6 +122,10 @@ impl Platform for HardwarePlatform {
       let v = rng.random().to_le_bytes();
       chunk.copy_from_slice(&v[..chunk.len()]);
     }
+  }
+
+  fn spawner(&self) -> SpawnerHandle {
+    self.spawner.clone()
   }
 
   async fn format_storage(&self) -> Result<(), FsError> {

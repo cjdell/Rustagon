@@ -1,6 +1,5 @@
-use crate::{apps::MenuAppType, menu::types::*, platform::Platform};
+use crate::{apps::MenuAppType, menu::RootMenuApp, platform::Platform};
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -13,7 +12,7 @@ pub enum StackEntryType {
 }
 
 pub enum AppStackEntry<P: Platform> {
-  RootMenu { menu_options: Vec<MenuOption>, selected: u32 },
+  RootMenu { menu: RootMenuApp<P> },
   MenuApp { app: MenuAppType<P> },
   HostedApp,
 }

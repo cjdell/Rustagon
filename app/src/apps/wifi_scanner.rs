@@ -1,5 +1,5 @@
 use crate::{
-  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::Platform,
   types::{WifiResult, *},
 };
@@ -48,6 +48,7 @@ impl<P: Platform> WifiScannerApp<P> {
 
   async fn refresh_scan(&mut self) {
     self.state.screen = Screen::Scanning;
+    self.ctx.update_lcd(self.render());
     self.state.networks = self.ctx.platform.wifi_manager().scan().await.unwrap_or_default();
     self.state.screen = Screen::NetworkList;
     self.state.cursor = 0;
@@ -87,7 +88,7 @@ impl<P: Platform> WifiScannerApp<P> {
   }
 }
 
-impl<P: Platform> MenuApp for WifiScannerApp<P> {
+impl<P: Platform> MenuApp<P> for WifiScannerApp<P> {
   fn render(&self) -> LcdScreen {
     match &self.state.screen {
       Screen::Scanning => LcdScreen::Progress("Scanning WiFi...".to_string()),
@@ -107,36 +108,40 @@ impl<P: Platform> MenuApp for WifiScannerApp<P> {
     }
   }
 
-  async fn init(&mut self) {
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction {
+    // Initial scan on (re-)entry — subsumes the old `init`.
     self.refresh_scan().await;
-  }
+    self.ctx.update_lcd(self.render());
 
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    match input {
-      MenuAppInput::Stop => AppAction::Stop,
-      MenuAppInput::Button(hex) => {
-        match &self.state.screen {
-          Screen::Scanning => {}
-          Screen::NetworkList => match hex {
-            HexButton::Up if self.state.cursor > 0 => {
-              self.state.cursor -= 1;
-            }
-            HexButton::Down if self.state.cursor + 1 < self.state.networks.len() => {
-              self.state.cursor += 1;
-            }
-            HexButton::Fire => {
-              if let Some(name) = self.state.networks.get(self.state.cursor).map(|n| n.ssid.clone()) {
-                self.connect_to_network(&name).await;
-              }
-            }
-            HexButton::Right => {
-              self.refresh_scan().await;
-            }
-            _ => {}
-          },
-        }
-        AppAction::Continue
+    loop {
+      let event = ctx.next().await;
+      if let Some(action) = event.exit_action() {
+        return action;
       }
+      let AppRunEvent::Input(AppInput::Button(hex)) = event else {
+        continue;
+      };
+      match &self.state.screen {
+        Screen::Scanning => {}
+        Screen::NetworkList => match hex {
+          HexButton::Up if self.state.cursor > 0 => {
+            self.state.cursor -= 1;
+          }
+          HexButton::Down if self.state.cursor + 1 < self.state.networks.len() => {
+            self.state.cursor += 1;
+          }
+          HexButton::Fire => {
+            if let Some(name) = self.state.networks.get(self.state.cursor).map(|n| n.ssid.clone()) {
+              self.connect_to_network(&name).await;
+            }
+          }
+          HexButton::Right => {
+            self.refresh_scan().await;
+          }
+          _ => {}
+        },
+      }
+      self.ctx.update_lcd(self.render());
     }
   }
 }

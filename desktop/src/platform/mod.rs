@@ -140,6 +140,7 @@ pub struct DesktopPlatform {
   config: ConfigHandle<DeviceConfig>,
   http_client: HttpClientHandle,
   tcp_client: TcpHandle,
+  spawner: SpawnerHandle,
 }
 
 impl fmt::Debug for DesktopPlatform {
@@ -166,6 +167,7 @@ impl DesktopPlatform {
     let config = ConfigHandle::new(Arc::new(DesktopConfigManager::new()) as Arc<dyn ConfigFileTrait<DeviceConfig>>);
     let http_client = HttpClientHandle::new(Arc::new(DesktopHttpClient) as Arc<dyn app::platform::HttpClient>);
     let tcp_client = TcpHandle::new(Arc::new(DesktopTcpClient::new()) as Arc<dyn TcpClient>);
+    let spawner = SpawnerHandle::new(Arc::new(DesktopAppSpawner));
 
     Self {
       display_raw,
@@ -183,6 +185,7 @@ impl DesktopPlatform {
       config,
       http_client,
       tcp_client,
+      spawner,
     }
   }
 
@@ -232,6 +235,10 @@ impl Platform for DesktopPlatform {
     if let Err(err) = getrandom::getrandom(dest) {
       log::warn!("DesktopPlatform: entropy unavailable: {err:?}");
     }
+  }
+
+  fn spawner(&self) -> SpawnerHandle {
+    self.spawner.clone()
   }
   async fn format_storage(&self) -> Result<(), FsError> {
     self.storage.format().await

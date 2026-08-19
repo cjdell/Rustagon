@@ -1,6 +1,6 @@
 use crate::{
   alloc_ext::external_box,
-  apps::{AppAction, AppError, AppEvent, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{AppAction, AppError, AppEvent, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::{Platform, TcpEvent, TcpSession},
   ssh::{
     PlatformRng, SshEvent, SshSession,
@@ -138,7 +138,12 @@ impl<P: Platform> SshApp<P> {
 
   /// Establish the TCP connection, perform the SSH handshake, authenticate and
   /// open the interactive shell.
-  async fn connect(&mut self) -> Result<(), AppError> {
+  ///
+  /// Cancellable: at every await point, any input/event (notably the boot
+  /// button) aborts the handshake with `Err`. The caller (`run`) surfaces the
+  /// error via `fail()` and the half-open TCP connection is closed by
+  /// `on_stop` when the app is popped.
+  async fn connect(&mut self, ctx: &AppRunContext<'_, P>) -> Result<(), AppError> {
     self.screen = Screen::Connecting;
     self.status = "Connecting...".to_string();
     self.ctx.update_lcd(self.render());
@@ -155,18 +160,21 @@ impl<P: Platform> SshApp<P> {
       return Err(AppError::Message("Host and user required".into()));
     }
 
-    let tcp_session = match select_timeout(tcp.connect(host, port), CONNECT_TIMEOUT_MS).await {
-      Some(Ok(session)) => session,
-      Some(Err(())) => return Err(AppError::Network),
-      None => return Err(AppError::Timeout),
+    let connected = embassy_futures::select::select(select_timeout(tcp.connect(host, port), CONNECT_TIMEOUT_MS), ctx.next()).await;
+    let tcp_session = match connected {
+      embassy_futures::select::Either::First(Some(Ok(session))) => session,
+      embassy_futures::select::Either::First(Some(Err(()))) => return Err(AppError::Network),
+      embassy_futures::select::Either::First(None) => return Err(AppError::Timeout),
+      embassy_futures::select::Either::Second(_) => return Err(AppError::Message("Cancelled".into())),
     };
 
     self.status = "Loading key...".to_string();
     self.ctx.update_lcd(self.render());
 
-    let key_pem = match self.ctx.platform.storage_manager().read_text_file(key_path).await {
-      Ok(pem) => pem,
-      Err(_) => return Err(AppError::NotFound("Key not found".into())),
+    let key_pem = match embassy_futures::select::select(self.ctx.platform.storage_manager().read_text_file(key_path), ctx.next()).await {
+      embassy_futures::select::Either::First(Ok(pem)) => pem,
+      embassy_futures::select::Either::First(Err(_)) => return Err(AppError::NotFound("Key not found".into())),
+      embassy_futures::select::Either::Second(_) => return Err(AppError::Message("Cancelled".into())),
     };
     let private_key = match PrivateKey::parse_openssh_pem(&key_pem, None) {
       Ok(k) => k,
@@ -194,11 +202,13 @@ impl<P: Platform> SshApp<P> {
     Self::flush(&tcp_session, &mut session).await;
     debug!("SshApp: flushed initial frames");
 
-    // Pump the handshake + auth until the shell is open or the session fails.
+    // Pump the handshake + auth until the shell is open, the session fails,
+    // or input arrives (cancels the handshake mid-flight).
     loop {
-      let event = match select_timeout(tcp_session.next_event(), HANDSHAKE_TIMEOUT_MS).await {
-        Some(ev) => ev,
-        None => return Err(AppError::Timeout),
+      let event = match embassy_futures::select::select(select_timeout(tcp_session.next_event(), HANDSHAKE_TIMEOUT_MS), ctx.next()).await {
+        embassy_futures::select::Either::First(Some(ev)) => ev,
+        embassy_futures::select::Either::First(None) => return Err(AppError::Timeout),
+        embassy_futures::select::Either::Second(_) => return Err(AppError::Message("Cancelled".into())),
       };
       debug!("SshApp: handshake event: {event:?}");
       match event {
@@ -232,14 +242,17 @@ impl<P: Platform> SshApp<P> {
     }
   }
 
-  /// Pump the session while the terminal is foregrounded: drain inbound TCP
-  /// data into the SSH engine, feed output to the terminal, and flush any
-  /// outbound frames.
-  async fn pump_session(&mut self) {
+  /// Feed one inbound TCP event (plus everything else pending) into the SSH
+  /// engine, render terminal output, and flush any outbound frames.
+  /// Disconnects if the connection closed.
+  async fn pump_session(&mut self, first: TcpEvent) {
     let platform = self.ctx.platform.clone();
 
-    let mut closed = false;
+    let mut closed = matches!(first, TcpEvent::Closed | TcpEvent::Error);
     let mut inbound: Vec<Vec<u8>> = Vec::new();
+    if let TcpEvent::Data(data) = first {
+      inbound.push(data);
+    }
     {
       let Some(session) = self.tcp_session.as_ref() else { return };
       while let Some(ev) = session.try_next_event() {
@@ -295,9 +308,51 @@ impl<P: Platform> SshApp<P> {
       self.ctx.update_lcd(self.terminal.render());
     }
   }
+
+  /// Track shift state from both press and release (applied to characters
+  /// typed while it is held).
+  fn track_shift(&mut self, ke: &KeyboardEvent) {
+    if ke.code != KeyCode::Shift {
+      return;
+    }
+    self.shifted = ke.typ == KeyEventType::Pressed;
+  }
+
+  /// Handle a keyboard event on the connect screen (field editing).
+  fn handle_connect_key(&mut self, ke: &KeyboardEvent) {
+    self.track_shift(ke);
+    if ke.typ == KeyEventType::Released || ke.code == KeyCode::Shift {
+      return;
+    }
+    let active = self.active;
+    if active < self.fields.len() {
+      match ke.code {
+        KeyCode::Backspace => {
+          self.fields[active].value.pop();
+        }
+        _ => {
+          if let Some(ch) = ke.code.to_char(self.shifted) {
+            self.fields[active].value.push(ch);
+          }
+        }
+      }
+    }
+  }
+
+  /// Handle a keyboard event on the terminal screen (send key bytes to the
+  /// remote shell).
+  async fn handle_terminal_key(&mut self, ke: &KeyboardEvent) {
+    self.track_shift(ke);
+    if ke.typ != KeyEventType::Pressed || ke.code == KeyCode::Shift {
+      return;
+    }
+    if let Some(bytes) = key_to_bytes(ke.code, self.shifted) {
+      self.send_bytes(bytes).await;
+    }
+  }
 }
 
-impl<P: Platform> MenuApp for SshApp<P> {
+impl<P: Platform> MenuApp<P> for SshApp<P> {
   fn render(&self) -> LcdScreen {
     match self.screen {
       Screen::Connect => {
@@ -332,102 +387,78 @@ impl<P: Platform> MenuApp for SshApp<P> {
     }
   }
 
-  async fn init(&mut self) {
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction {
     self.ctx.update_lcd(self.render());
-  }
 
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    match self.screen {
-      Screen::Connect => match input {
-        MenuAppInput::Stop => AppAction::Stop,
-        MenuAppInput::Button(hex) => match hex {
-          HexButton::Up => {
-            if self.active > 0 {
-              self.active -= 1;
-            }
-            AppAction::Continue
+    loop {
+      match self.screen {
+        Screen::Connect => {
+          let event = ctx.next().await;
+          if let Some(action) = event.exit_action() {
+            return action;
           }
-          HexButton::Down => {
-            if self.active < self.field_count() - 1 {
-              self.active += 1;
+          match event {
+            AppRunEvent::Input(AppInput::Button(hex)) => {
+              match hex {
+                HexButton::Up if self.active > 0 => self.active -= 1,
+                HexButton::Down if self.active < self.field_count() - 1 => self.active += 1,
+                HexButton::Fire if self.active == self.fields.len() => {
+                  if let Err(err) = self.connect(&ctx).await {
+                    self.fail(err.to_display());
+                  }
+                }
+                _ => {}
+              }
+              self.ctx.update_lcd(self.render());
             }
-            AppAction::Continue
-          }
-          HexButton::Fire if self.active == self.fields.len() => {
-            if let Err(err) = self.connect().await {
-              self.fail(err.to_display());
+            AppRunEvent::Event(AppEvent::Device(DeviceEvent::Keyboard(ke))) => {
+              self.handle_connect_key(&ke);
+              self.ctx.update_lcd(self.render());
             }
-            AppAction::Continue
+            _ => {}
           }
-          _ => AppAction::Continue,
-        },
-      },
-      Screen::Connecting => {
-        // Ignore input while the handshake is in flight.
-        AppAction::Continue
-      }
-      Screen::Terminal => {
-        if let MenuAppInput::Stop = input {
-          self.disconnect().await;
-          return AppAction::Stop;
         }
-        if let MenuAppInput::Button(hex) = input
-          && let Some(bytes) = hex_button_to_bytes(hex)
-        {
-          self.send_bytes(bytes).await;
+        Screen::Connecting => {
+          // Only reachable transiently (connect() runs inside the Connect arm
+          // and cancels itself on input): wait for any event and re-check.
+          let event = ctx.next().await;
+          if let Some(action) = event.exit_action() {
+            return action;
+          }
         }
-        self.pump_session().await;
-        AppAction::Continue
-      }
-    }
-  }
-
-  async fn handle_event(&mut self, event: AppEvent) {
-    let AppEvent::Device(DeviceEvent::Keyboard(ke)) = event else {
-      return;
-    };
-    if ke.typ == KeyEventType::Released {
-      if ke.code == KeyCode::Shift {
-        self.shifted = false;
-      }
-      return;
-    }
-    if ke.code == KeyCode::Shift {
-      self.shifted = true;
-      return;
-    }
-
-    match self.screen {
-      Screen::Connect => {
-        let active = self.active;
-        if active < self.fields.len() {
-          match ke.code {
-            KeyCode::Backspace => {
-              self.fields[active].value.pop();
-            }
-            _ => {
-              if let Some(ch) = ke.code.to_char(self.shifted) {
-                self.fields[active].value.push(ch);
+        Screen::Terminal => {
+          let Some(tcp) = self.tcp_session.as_ref() else {
+            // Defensive: the session is gone — back to the connect form.
+            self.screen = Screen::Connect;
+            continue;
+          };
+          let event = embassy_futures::select::select(ctx.next(), tcp.next_event()).await;
+          match event {
+            embassy_futures::select::Either::First(run_event) => {
+              if let Some(action) = run_event.exit_action() {
+                return action;
+              }
+              match run_event {
+                AppRunEvent::Input(AppInput::Button(hex)) => {
+                  if let Some(bytes) = hex_button_to_bytes(hex) {
+                    self.send_bytes(bytes).await;
+                  }
+                }
+                AppRunEvent::Event(AppEvent::Device(DeviceEvent::Keyboard(ke))) => {
+                  self.handle_terminal_key(&ke).await;
+                }
+                _ => {}
               }
             }
+            embassy_futures::select::Either::Second(tcp_event) => {
+              // Inbound shell data renders immediately — no input or tick
+              // cadence required.
+              self.pump_session(tcp_event).await;
+            }
           }
-          self.ctx.update_lcd(self.render());
         }
       }
-      Screen::Terminal => {
-        if let Some(bytes) = key_to_bytes(ke.code, self.shifted) {
-          self.send_bytes(bytes).await;
-        }
-        self.pump_session().await;
-      }
-      Screen::Connecting => {}
     }
-  }
-
-  /// Drain inbound TCP data on the menu's background cadence, so shell output
-  /// appears without the user pressing anything.
-  async fn tick(&mut self) {
-    self.pump_session().await;
   }
 
   /// Always close the socket on pop, not just when `Stop` arrives — the boot

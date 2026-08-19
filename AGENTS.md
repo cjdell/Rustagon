@@ -220,6 +220,7 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
   fn tcp_client(&self) -> Option<TcpHandle>;
   fn storage_manager(&self) -> StorageHandle;
   fn config_manager(&self) -> ConfigHandle<DeviceConfig>;
+  fn spawner(&self) -> SpawnerHandle;   // background-task spawner (see AppSpawner below)
   async fn format_storage(&self) -> Result<(), FsError>;
   async fn software_reset(&self);
   async fn ota_begin(&self) -> Result<u32, OtaError>;
@@ -229,6 +230,26 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
 ```
 
 Each manager returns a cloneable `Handle` that wraps an `Arc<dyn ManagerTrait>`.
+
+### AppSpawner (background tasks)
+
+`app/src/platform/spawner.rs` defines the `AppSpawner` trait + `SpawnerHandle`
+(`Arc<dyn AppSpawner>`), obtained via `Platform::spawner()`.
+
+- `spawn(Box<dyn Future + Send + 'static>)` — portable path. Firmware runs it on
+  the app-core Embassy executor (`SendSpawner`); desktop on a background std
+  thread driven by `futures::executor::block_on`.
+- `spawn_local(Box<dyn Future + 'static>) -> Pin<Box<dyn Future>>` — for `!Send`
+  futures. The returned future must be awaited **from an async context on the
+  executor the caller is on**; firmware resolves the executor via
+  `Spawner::for_current_executor()` (sound: single-core cooperative runtime, same
+  pattern as the TCP pump). Desktop futures are `Send` in practice, so
+  `spawn_local` behaves like `spawn` (a scoped `unsafe impl Send` wrapper moves
+  the box to the worker thread).
+
+In the run-loop model (below) most "background" app work is just `select!` in
+`run()` — the spawner exists for genuine long-lived helpers that outlive one
+`run()` invocation.
 
 ### HTTP Client Abstraction
 
@@ -494,7 +515,7 @@ const DRIVER_TABLE: &[DriverEntry] = &[
 rustagon/
 ├── app/                              # Platform-agnostic application library (no_std)
 │   ├── apps/                         # All menu apps (generic over P: Platform)
-│   │   ├── common.rs                 #   MenuApp trait (init/handle_input/render, handle_event), MenuAppContext<P>, AppAction
+│   │   ├── common.rs                 #   MenuApp trait (render/run/on_stop), AppRunContext, AppInput/AppEvent/AppRunEvent, MenuAppContext<P>, AppAction
 │   │   ├── app_store.rs              #   AppStoreApp<P>
 │   │   ├── config.rs                 #   ConfigApp<P>
 │   │   ├── editor.rs                 #   EditorApp<P> (text editor, consumes DeviceEvent::Keyboard)
@@ -506,20 +527,20 @@ rustagon/
 │   │   ├── power_info.rs             #   PowerInfoApp<P>
 │   │   └── wifi_scanner.rs           #   WifiScannerApp<P>
 │   ├── menu/                         # Full menu system (async fn, not Embassy task)
-│   │   ├── mod.rs                    #   menu_task<P: Platform>() — the main loop
-│   │   ├── state.rs                  #   AppStackEntry<P>, StackEntryType, StackEvent, AppStack types
-│   │   ├── execute.rs                #   MenuState::execute_option
-│   │   ├── types.rs                  #   MenuRunnerContext<P>, MenuContext<P>, AppLoader<P>
-│   │   └── menus.rs                  #   MenuProvider trait, StaticMenu
+│   │   ├── mod.rs                    #   menu_task<P: Platform>(), RootMenuApp, run_* entry fns
+│   │   ├── state.rs                  #   AppStackEntry<P>, StackEntryType, StackEvent, StackSignal
+│   │   ├── types.rs                  #   MenuRunnerContext<P>, MenuOption, AppLoader<P>
+│   │   └── menus.rs                  #   get_root_menu_options, MenuProvider trait, StaticMenu
 │   ├── native/                       # Native app types (stub, empty in app crate)
-│   ├── platform/                     # Platform trait + 10 handle/manager pairs + HttpClient
-│   │   ├── traits.rs                 #   Platform trait (17 methods incl. hexpansion_manager)
+│   ├── platform/                     # Platform trait + 10 handle/manager pairs + HttpClient + AppSpawner
+│   │   ├── traits.rs                 #   Platform trait (incl. hexpansion_manager, spawner)
 │   │   ├── display.rs                #   DisplayManager trait + DisplayHandle
 │   │   ├── hexpansion.rs             #   HexpansionManager trait + HexpansionHandle + DeviceIo + DeviceI2c
 │   │   ├── http.rs                   #   HttpClient trait + HttpClientHandle + HttpEventChannel
 │   │   ├── input.rs                  #   InputManager trait + InputHandle
 │   │   ├── led.rs                    #   LedManager trait + LedHandle + LedError
 │   │   ├── power.rs                  #   PowerManager trait + PowerHandle
+│   │   ├── spawner.rs                #   AppSpawner trait + SpawnerHandle (background tasks)
 │   │   ├── storage.rs                #   StorageHandle, ConfigHandle<State>
 │   │   ├── system.rs                 #   SystemManager trait + SystemHandle
 │   │   └── wifi.rs                   #   WiFiManager trait + WiFiHandle + WifiStatus
@@ -699,7 +720,9 @@ settings apply regardless of the current working directory.
 
 1. `app::menu::menu_task<P: Platform>()` — the full menu system. Uses an **AppStack** to
    support multitasking: apps can launch sub-apps (WASM, native, or other menu apps), and
-   the parent stays on the stack with its state preserved. Generic over any platform.
+   the parent stays on the stack with its state preserved. Each stack-top kind has one
+   `run_*` function; **apps own their event loops** (`MenuApp::run`, see below). Generic
+   over any platform.
 2. `firmware::tasks::menu::menu_task` — thin Embassy wrapper (~20 lines). Constructs
    `app::menu::types::MenuRunnerContext<HardwarePlatform>` and calls `app::menu::menu_task()`.
 3. `desktop/src/main.rs` — calls `app::menu::menu_task()` directly via `thread::spawn`.
@@ -707,9 +730,11 @@ settings apply regardless of the current working directory.
 ### AppStack Architecture
 
 The menu maintains a `Vec<AppStackEntry<P>>` where each entry is one of:
-- **RootMenu** — the main navigation list (always at the bottom)
+- **RootMenu { menu: RootMenuApp }** — the root menu, an ordinary `MenuApp` that
+  owns its options + selection (always at the bottom)
 - **MenuApp(app)** — a built-in app (Files, Config, etc.) with its mutable state
-- **HostedApp** — a WASM or native app running externally on the second core
+- **HostedApp** — a WASM or native app running externally (second core on
+  firmware, a thread on desktop)
 
 The IPC handler (`firmware::tasks::ipc_handler`) communicates stack changes to the menu
 via an `Arc<StackSignal>` (`Pushed(HostedApp)` / `Popped`), rather than through shared
@@ -728,33 +753,63 @@ same event from the same channel, causing a double-pop. The fix replaces the cha
 async wake-up). The atomic `swap` is a single-consumer operation — only one reader sees
 each event.
 
-### App State Machines (not event loops)
+### App Run Loops (apps own their loop)
 
-Apps no longer own the event loop. Instead they implement the `MenuApp` trait:
+Apps own their event loop. The trait (`app/src/apps/common.rs`):
 
 ```rust
-pub trait MenuApp {
+pub trait MenuApp<P: Platform> {
   fn render(&self) -> LcdScreen;
-  async fn init(&mut self);
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction;
-  /// Called when external events occur (hexpansion plug/unplug, keyboard input)
-  /// while the app is foregrounded. Default no-op.
-  async fn handle_event(&mut self, event: AppEvent) {}
+  /// The app's main loop. Returns when the user quits or wants to launch
+  /// something. Re-entered by the menu on (re-)show and after `Continue`.
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction;
+  /// Called just before the app is popped (boot button, Stop, sub-app pop).
+  async fn on_stop(&mut self) {}
 }
 ```
 
-The menu runner calls `handle_input()` for each button press and dispatches on the
-returned `AppAction` (`Continue`, `Stop`, `LaunchWasm(name)`, `LaunchNative(name)`).
-This eliminates the need for global flags (`WASM_LAUNCHING` was removed) and lets the
-stack naturally manage the multitasking flow.
+`AppRunContext` (constructed by the menu per `run()` entry, borrows the
+platform) multiplexes:
+- `next_input() -> AppInput` — `Button(HexButton)` (hex button; keyboard
+  arrows/Enter arrive as HexButtons via the platform) or `System(SystemMessage)`
+  (boot button).
+- `next_event() -> AppEvent` — `Hexpansion(..)` / `Device(..)`.
+- `next() -> AppRunEvent` — the two combined into one enum (the common case).
 
-**External events via `handle_event`:** The menu loop now `select`s on four event
-sources: system button, hex button, stack signal, and a **nested select** of
-hexpansion events + device events. When a device event (keyboard key) or hexpansion
-event arrives, the foreground app's `handle_event()` is called. This lets apps react
-to keyboard input, hexpansion plug/unplug, and future device events without the user
-pressing a badge button. The event that triggered the select is passed to the app,
-followed by a non-blocking drain of any remaining queued events.
+`AppRunEvent::exit_action()` returns `Some(AppAction::Stop)` for the boot button
+so every app gets "BOOP always leaves the app" for free; apps dispatch
+everything else themselves.
+
+The menu (`app/src/menu/mod.rs`) has one `run_*` function per stack-top kind.
+`run_menu_app` renders on (re-)entry (subsumes the old `init`/`on_shown` — apps
+do refresh-on-show work at the top of `run()`), then loops
+`select(app.run(ctx), stack_signal.receive())`: `Pushed` hides the app (hosted
+sub-app, e.g. HTTP upload — it resumes when the hosted app pops), `Popped` is
+defensive re-entry. `AppAction` translation: `Stop` → `on_stop` + pop;
+`LaunchWasm`/`LaunchNative` → send IPC + push `HostedApp`;
+`LoadMenuApp(name)` → `MenuAppType::load_app_async` + push (root menu uses this);
+`Continue` → re-render + re-enter `run()`.
+
+The **root menu is a `MenuApp`** (`RootMenuApp` in `app/src/menu/mod.rs`):
+`AppAction::LoadMenuApp` launches built-ins; the boot button at root is a no-op
+(selection state is preserved on the stack). There are no
+`handle_input`/`handle_event`/`tick` callbacks and no `select3`/`select4` in the
+menu — the only multiplexing is the single `select` inside `AppRunContext`.
+
+**Nav-key injection happens in exactly one place** —
+`apps::common::nav_button_from_device_event` (Escape→HexF, Tab→HexE, press +
+release), used by the hosted-app pump and the root menu (both can only consume
+HexButtons). Built-in menu apps receive raw keyboard events instead, so a Tab in
+the Editor still types a tab.
+
+**Push-driven apps** (SSH) `select!` over `ctx.next()` and their own work (a
+`TcpSession::next_event()`, a download, a timer) in one loop: the boot button
+cancels a mid-flight SSH handshake (each await point selects on `ctx.next()`),
+inbound shell data renders without waiting for input, and long App-Store/OTA
+downloads are interruptible the same way.
+
+**`on_stop` runs on every pop** (boot button included) — SSH overrides it to
+close its socket, not just on `Stop`.
 
 ## Desktop WASM Runner
 
@@ -788,10 +843,10 @@ WASM is busy.
 
 **Stack events for WASM lifecycle:** Instead of a shared `AppState` RwLock, the WASM
 runner signals completion by sending `StackEvent::Popped` through the `StackSignal`.
-The menu runner's `handle_hosted_app` loop waits on `select3(system_button, hex_button, stack_signal.receive())`.
-When the boot button is pressed, `HostIpcMessage::Runtime(HostRuntimeCommand::Stop)` is
-sent and the menu waits for the resulting `StackEvent::Popped` before resuming the
-previous app.
+The menu runner's hosted-app pump (`run_hosted_app` in `app/src/menu/mod.rs`) selects
+input against `stack_signal.receive()`; when the boot button is pressed,
+`HostIpcMessage::Runtime(HostRuntimeCommand::Stop)` is sent and the pump waits for the
+resulting `StackEvent::Popped` before resuming the previous app.
 
 **`wasmi_runner` sends `Stopped` — callers must NOT send it again:** The WASM interpreter
 in `app/src/wasm/mod.rs` sends `WasmIpcMessage::Stopped` on natural completion (line 99)
@@ -800,12 +855,11 @@ this by sending a second `Stopped` after `wasmi_runner` returned, causing two `P
 events per WASM session → double-pop of the stack. The fix: firmware `wasm_host_loop`
 must NOT send `Stopped` — `wasmi_runner` already handles it.
 
-**`select3` for live handlers, `select2` + post-check for others:** Handlers that need to
-react to stack events immediately (`handle_hosted_app`, `handle_menu_app`) use `select3`
-that includes `stack_signal.receive()` as a third future. The root menu handler uses
-`select2` and checks `stack_signal.try_receive()` after each input — it does not need
-immediate WASM-exit response. This avoids the complexity of three-way select in the
-simple root-menu case.
+**Stack-signal consumption:** Each `run_*` handler selects `stack_signal.receive()`
+alongside its input source (a single flat `select`, no nesting). The hosted pump
+forwards hex buttons with `try_send`; a boot button sends
+`HostRuntimeCommand::Stop` and the pump waits for the resulting `StackEvent::Popped`
+before resuming the previous entry.
 
 ## Key Design Decisions & Crate Boundaries
 
@@ -1014,10 +1068,10 @@ keeping the app crate hardware-agnostic.
 ### `DeviceEvent` channel — single-consumer for driver output
 
 Device drivers (keyboard, future sensors) push `DeviceEvent`s into a shared
-`EventQueue<DeviceEvent, 32>` created by the `HardwareHexpansionManager`. The
-menu loop's `select3`/`select4` includes a `select(hexpansion_event, device_event)`
-branch so that keyboard input is immediately delivered to the foreground app without
-needing a badge button press.
+`EventQueue<DeviceEvent, 32>` created by the `HardwareHexpansionManager`.
+`AppRunContext::next_event()` multiplexes hexpansion + device events so keyboard
+input is immediately delivered to the foreground app (inside its `run()` loop)
+without needing a badge button press.
 
 **Why a single queue, not per-driver:** A single shared queue is simpler and
 sufficient — all device events flow to the same consumers (the menu loop and
@@ -1037,10 +1091,12 @@ physical badge buttons:
   `key_to_hex_button` and excludes them from `key_to_keycode`, so they are never
   keyboard events there either.
 
-Consequently `device_key_to_nav` in `app/src/menu/mod.rs` only maps Escape→HexF and
-Tab→HexE; arrows/Enter never reach it. Apps must handle directions/Fire via
-`MenuAppInput::Button(..)` (the Editor does: `handle_nav_button`). WASM guests always
-received only `HexButton` over the wire, so they are unaffected.
+Consequently `nav_button_from_device_event` in `app/src/apps/common.rs` (the single
+nav-injection site, used by the hosted-app pump and the root menu) only maps
+Escape→HexF and Tab→HexE; arrows/Enter never reach it. Built-in menu apps handle
+directions/Fire via `AppRunEvent::Input(AppInput::Button(..))` (the Editor does:
+`handle_nav_button`) and still receive Tab/Escape as raw keyboard events. WASM guests
+always received only `HexButton` over the wire, so they are unaffected.
 
 **Shift is app-side domain logic.** The platform only reports the raw
 `KeyCode::Shift` press/release (the `tca8418` driver maps both shift keys to
@@ -1054,7 +1110,7 @@ platforms.
 
 ### `AppEvent` — external events for MenuApps
 
-Apps receive external events via `handle_event(&mut self, event: AppEvent)` where
+Apps receive external events via `AppRunContext::next_event()` (or `next()`) where
 `AppEvent` is:
 
 ```rust
@@ -1064,9 +1120,9 @@ pub enum AppEvent {
 }
 ```
 
-The default implementation is a no-op. Apps override it to react to keyboard input
-(the Editor app), hexpansion state changes (the HexpansionViewer app), or future
-event types without requiring a badge button press.
+Apps dispatch on them inside `run()` to react to keyboard input (the Editor app),
+hexpansion state changes (the HexpansionViewer app), or future event types without
+requiring a badge button press.
 
 ### Futures do nothing unless awaited — un-awaited `join!`
 
@@ -1135,9 +1191,11 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **Hexpansion manager trait:** `app/src/platform/hexpansion.rs`
 - **HTTP client trait:** `app/src/platform/http.rs`
 - **TCP client:** `app/src/platform/tcp.rs` (session model), `firmware/src/platform/tcp.rs` (pump task ownership), `desktop/src/platform/tcp.rs` (thread-per-connection)
-- **Menu system:** `app/src/menu/mod.rs`
+- **Menu system:** `app/src/menu/mod.rs` (menu loop + `RootMenuApp` + `run_*` entry functions)
 - **Menu state/stack:** `app/src/menu/state.rs`
 - **Menu types:** `app/src/menu/types.rs`
+- **App run-loop contract:** `app/src/apps/common.rs` (`MenuApp`, `AppRunContext`, `AppRunEvent`, `nav_button_from_device_event`)
+- **AppSpawner:** `app/src/platform/spawner.rs`, firmware `firmware/src/platform/spawner.rs`, desktop `desktop/src/platform/common.rs`
 - **Menu apps:** `app/src/apps/mod.rs` (enum + list/load), `app/src/apps/*.rs`
 - **Protocol types:** `app/src/protocol.rs` (runtime supersets), `libs/wasm_protocol/src/lib.rs` (wire types), `sdk/src/protocol.rs` (SDK re-export + host functions)
 - **Domain types:** `app/src/types.rs`

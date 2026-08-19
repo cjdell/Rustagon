@@ -1,5 +1,5 @@
 use crate::{
-  apps::{AppAction, MenuApp, MenuAppContext, MenuAppInput, common::AppName},
+  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::{Platform, WifiStatus},
   types::*,
   utils::sleep,
@@ -112,7 +112,7 @@ impl<P: Platform> ConfigApp<P> {
   }
 }
 
-impl<P: Platform> MenuApp for ConfigApp<P> {
+impl<P: Platform> MenuApp<P> for ConfigApp<P> {
   fn render(&self) -> LcdScreen {
     let ip_str: String = match self.state.wifi_status {
       WifiStatus::Connected(ip) => format!("IP: {ip}"),
@@ -135,38 +135,43 @@ impl<P: Platform> MenuApp for ConfigApp<P> {
     }
   }
 
-  async fn init(&mut self) {
+  async fn run(&mut self, ctx: AppRunContext<'_, P>) -> AppAction {
+    // Refresh status on (re-)entry — subsumes the old `init`.
     self.refresh_status().await;
-  }
+    self.ctx.update_lcd(self.render());
 
-  async fn handle_input(&mut self, input: MenuAppInput) -> AppAction {
-    match input {
-      MenuAppInput::Stop => AppAction::Stop,
-      MenuAppInput::Button(hex) => {
-        let max = CONFIG_OPTIONS.len() + 1;
-        match hex {
-          HexButton::Up if self.state.cursor > 2 => {
-            self.state.cursor -= 1;
-          }
-          HexButton::Down if self.state.cursor + 1 < max + 2 => {
-            self.state.cursor += 1;
-          }
-          HexButton::Fire => {
-            let action_idx = self.state.cursor.checked_sub(2);
-            match action_idx {
-              Some(n) if n < CONFIG_OPTIONS.len() => match CONFIG_OPTIONS[n] {
-                ConfigOption::WifiToggle => self.toggle_wifi().await,
-                ConfigOption::WifiMode => self.toggle_mode().await,
-                ConfigOption::Format => self.format_fs().await,
-              },
-              Some(n) if n == CONFIG_OPTIONS.len() => return AppAction::Stop,
-              _ => {}
-            }
-          }
-          _ => {}
-        }
-        AppAction::Continue
+    loop {
+      let event = ctx.next().await;
+      if let Some(action) = event.exit_action() {
+        return action;
       }
+      let AppRunEvent::Input(AppInput::Button(hex)) = event else {
+        continue;
+      };
+
+      let max = CONFIG_OPTIONS.len() + 1;
+      match hex {
+        HexButton::Up if self.state.cursor > 2 => {
+          self.state.cursor -= 1;
+        }
+        HexButton::Down if self.state.cursor + 1 < max + 2 => {
+          self.state.cursor += 1;
+        }
+        HexButton::Fire => {
+          let action_idx = self.state.cursor.checked_sub(2);
+          match action_idx {
+            Some(n) if n < CONFIG_OPTIONS.len() => match CONFIG_OPTIONS[n] {
+              ConfigOption::WifiToggle => self.toggle_wifi().await,
+              ConfigOption::WifiMode => self.toggle_mode().await,
+              ConfigOption::Format => self.format_fs().await,
+            },
+            Some(n) if n == CONFIG_OPTIONS.len() => return AppAction::Stop,
+            _ => {}
+          }
+        }
+        _ => {}
+      }
+      self.ctx.update_lcd(self.render());
     }
   }
 }

@@ -4,6 +4,7 @@ use super::http::HttpClientHandle;
 use super::input::InputHandle;
 use super::led::LedHandle;
 use super::power::PowerHandle;
+use super::spawner::SpawnerHandle;
 use super::storage::{ConfigHandle, FsError, StorageHandle};
 use super::system::SystemHandle;
 use super::tcp::TcpHandle;
@@ -25,6 +26,9 @@ pub trait Platform: Clone + Send + Sync + fmt::Debug {
   fn tcp_client(&self) -> Option<TcpHandle>;
   fn storage_manager(&self) -> StorageHandle;
   fn config_manager(&self) -> ConfigHandle<DeviceConfig>;
+  /// A handle to the platform's background-task spawner. See
+  /// [`spawner`](self::spawner) for the `Send`-ness rules.
+  fn spawner(&self) -> SpawnerHandle;
   /// The currently running firmware version, baked in at build time.
   fn firmware_version(&self) -> u32;
   /// Fill `dest` with cryptographically-secure random bytes from the device

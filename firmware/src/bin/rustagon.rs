@@ -14,13 +14,12 @@
 #![recursion_limit = "256"]
 
 use alloc::{borrow::ToOwned as _, string::ToString as _, sync::Arc};
-use app::platform::HexpansionHandle;
+use app::platform::{HexpansionHandle, SpawnerHandle};
 use core::{net::Ipv4Addr, str::FromStr};
 use embassy_executor::Spawner;
 use embassy_sync::rwlock::RwLock;
-use embedded_tools::config::storage::LocalFsConfigFileStorage;
 use embedded_tools::config::ConfigFile;
-use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
+use embedded_tools::config::storage::LocalFsConfigFileStorage;
 use esp_alloc::{heap_allocator, psram_allocator};
 use esp_backtrace as _;
 use esp_hal::{
@@ -31,15 +30,17 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_storage::FlashStorage as EspFlashStorage;
+use esp32s3_embedded_tools::flash::LittleFsFlashStorage;
 use firmware::d_i2c::*;
-use firmware::platform::drivers::{tca8418::tca8418_driver_factory, DriverEntry};
+use firmware::platform::drivers::{DriverEntry, tca8418::tca8418_driver_factory};
 use firmware::platform::{
-  display::{lcd_task, HardwareDisplayManager, LcdSignal},
-  system::{HardwareSystemManager, SystemHandle},
+  ConfigHandle, FirmwareAppSpawner, HardwareHexpansionManager, HardwareInputManager, HardwareLedManager, HardwarePlatform,
+  HardwarePowerManager, HardwareStorageManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle,
+  WiFiHandle,
 };
 use firmware::platform::{
-  ConfigHandle, HardwareHexpansionManager, HardwareInputManager, HardwareLedManager, HardwarePlatform, HardwarePowerManager,
-  HardwareStorageManager, HardwareWifiManager, InputHandle, LedHandle, Platform, PowerHandle, StorageHandle, WiFiHandle,
+  display::{HardwareDisplayManager, LcdSignal, lcd_task},
+  system::{HardwareSystemManager, SystemHandle},
 };
 use firmware::tasks::*;
 use firmware::types::*;
@@ -266,6 +267,9 @@ async fn main(spawner: Spawner) {
     button_queue,
   )));
 
+  // Background-task spawner for apps — bound to this (app-core) executor.
+  let app_spawner = SpawnerHandle::new(alloc::sync::Arc::new(FirmwareAppSpawner::new(spawner)));
+
   let platform = HardwarePlatform::new_with_managers(
     display,
     hexpansion,
@@ -277,6 +281,7 @@ async fn main(spawner: Spawner) {
     storage.clone(),
     config_handle.clone(),
     storage_formatter.clone(),
+    app_spawner,
   );
 
   let _ = platform.led_manager().request(LedRequest::Breathe(LedState { r: 255, g: 0, b: 0 }));
