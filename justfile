@@ -238,6 +238,42 @@ upload_wasm file:
     cargo run -r -p uploader http://rustagon.local/api/file?{{file}}.wsm sdk/wasm/{{file}}.wsm
 
 # ============================================================
+# On-device Debug (tools/debug — needs `nix develop` for deno/espflash)
+#
+# Agents: see debug-workflow.md for the full serial + WebSocket screen-scrape
+# loop. Each recipe passes its arguments straight through to the underlying
+# tool; the tools default the device to $BADGE_HOST, then 192.168.49.144.
+# ============================================================
+
+# Capture one screen frame -> <prefix>.png/.txt/.frame
+debug_shot *args:
+    cd tools/debug && deno task shot {{args}}
+
+# OCR a live screen or a saved <prefix>.frame (reads menu + app text)
+debug_ocr *args:
+    cd tools/debug && deno task ocr {{args}}
+
+# Send button presses (press+release): just debug_input Down Fire; "boot" = BootButton
+debug_input *buttons:
+    cd tools/debug && deno task input {{buttons}}
+
+# Exit 0 as soon as the screen hash changes (extra flags: --timeout S, --expect-hash H)
+debug_watch *flags:
+    cd tools/debug && deno task watch --changed {{flags}}
+
+# Capture timestamped serial logs via espflash monitor (hard-resets the badge)
+debug_logs *args:
+    cd tools/debug && deno task logs {{args}}
+
+# Record every changed frame to a directory (extra flags: --dir D, --timeout S)
+debug_record *args:
+    cd tools/debug && deno task record {{args}}
+
+# Soft-reboot the badge via POST /api/reboot
+debug_reboot *args:
+    cd tools/debug && deno task reboot {{args}}
+
+# ============================================================
 # Web App
 # ============================================================
 

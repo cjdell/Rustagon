@@ -1,0 +1,11 @@
+{
+  "tasks": {
+    "shot": "deno run --allow-net --allow-write --allow-env=BADGE_HOST bin/screenshot.ts",
+    "watch": "deno run --allow-net --allow-write --allow-env=BADGE_HOST bin/watch.ts",
+    "input": "deno run --allow-net --allow-env=BADGE_HOST bin/input.ts",
+    "record": "deno run --allow-net --allow-write --allow-env=BADGE_HOST bin/record.ts",
+    "logs": "deno run --allow-run --allow-write bin/logs.ts",
+    "reboot": "deno run --allow-net --allow-env=BADGE_HOST bin/reboot.ts",
+    "ocr": "deno run --allow-net --allow-read --allow-env=BADGE_HOST bin/ocr.ts"
+  }
+}
