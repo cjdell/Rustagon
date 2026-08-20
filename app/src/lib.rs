@@ -16,6 +16,7 @@ pub mod platform;
 pub mod protocol;
 pub mod ssh;
 pub mod types;
+pub mod ui;
 pub mod utils;
 #[cfg(feature = "testing")]
 pub mod testing;

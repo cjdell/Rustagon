@@ -3,6 +3,7 @@ use crate::{
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
+  ui::progress::Progress,
 };
 use alloc::{
   format,
@@ -138,6 +139,7 @@ impl<P: Platform> AppStoreApp<P> {
 
     let channel = HttpEventChannel::new();
     let mut bytes_written = 0u64;
+    let mut progress = Progress::new(0, app.size);
     let app_name = app.name.clone();
     let display = self.ctx.platform.display_manager();
     let storage = self.ctx.platform.storage_manager();
@@ -149,14 +151,16 @@ impl<P: Platform> AppStoreApp<P> {
             HttpEvent::Meta(_) => {}
             HttpEvent::Chunk(chunk) => {
               let len = chunk.len() as u64;
-              let _ = display.signal(LcdScreen::BoundedProgress(bytes_written as u32, app.size));
+              progress.set_done(bytes_written as u32);
+              let _ = display.signal(progress.render());
               let _ = storage
                 .write_binary_chunk(app_name.clone(), bytes_written as u32, chunk, false)
                 .await;
               bytes_written += len;
             }
             HttpEvent::Done => {
-              let _ = display.signal(LcdScreen::BoundedProgress(bytes_written as u32, app.size));
+              progress.set_done(bytes_written as u32);
+              let _ = display.signal(progress.render());
               return;
             }
             HttpEvent::Error => return,

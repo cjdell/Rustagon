@@ -19,7 +19,7 @@
 //! `curve25519-sha256` key exchange, `ssh-ed25519` host keys and publickey
 //! auth, and `chacha20-poly1305@openssh.com` AEAD encryption.
 
-pub mod terminal;
+pub mod keys;
 
 #[cfg(test)]
 mod tests;

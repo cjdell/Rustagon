@@ -1,13 +1,19 @@
-//! A minimal VT-style terminal renderer for the SSH app.
+//! A minimal VT-style terminal renderer.
 //!
 //! The badge display (`LcdScreen::TextBuffer`) shows up to 8 lines of text in a
-//! centred frame. This module turns the raw byte stream from an SSH shell into
-//! those lines, handling the control codes that matter for typical command-line
-//! output: CR/LF/BS/TAB, and enough of the ANSI CSI parser to swallow cursor
-//! movement / erase sequences (so escape garbage never reaches the screen).
-//! Colour/attribute SGR sequences are parsed and discarded.
+//! centred frame. This widget turns a raw byte stream (an SSH shell, a log
+//! stream, a serial port — whatever) into those lines, handling the control
+//! codes that matter for typical command-line output: CR/LF/BS/TAB, and enough
+//! of the ANSI CSI parser to swallow cursor movement / erase sequences (so
+//! escape garbage never reaches the screen). Colour/attribute SGR sequences
+//! are parsed and discarded.
+//!
+//! The terminal is line-based rather than a fixed-column grid: lines grow as
+//! text arrives and only the bottom-aligned [`DISPLAY_LINES`] window is
+//! rendered (scrollback is bounded by `MAX_LINES`). Key-to-byte mapping is
+//! protocol-specific and lives with its consumer (e.g. `app::ssh::keys`).
 
-use crate::types::{HexButton, KeyCode, LcdScreen, TextBufferLine};
+use crate::types::{LcdScreen, TextBufferLine};
 use alloc::{string::String, vec, vec::Vec};
 
 /// Maximum number of lines kept in memory. Only the tail is rendered.
@@ -321,45 +327,6 @@ fn parse_uint(bytes: &[u8]) -> Option<u32> {
     n = n.saturating_mul(10).saturating_add((b - b'0') as u32);
   }
   Some(n)
-}
-
-/// Map a keyboard key to the byte sequence to send to the remote shell.
-///
-/// Character keys produce their UTF-8 bytes (Shift-aware); editing keys produce
-/// their control sequences. Directional keys and Enter never arrive here — the
-/// platform unifies them into [`HexButton`] presses, so they are handled by
-/// [`hex_button_to_bytes`].
-pub fn key_to_bytes(code: KeyCode, shifted: bool) -> Option<Vec<u8>> {
-  match code {
-    KeyCode::Enter => Some(vec![b'\r']),
-    KeyCode::Backspace => Some(vec![0x7f]),
-    KeyCode::Tab => Some(vec![0x09]),
-    KeyCode::Escape => Some(vec![0x1b]),
-    _ => code.to_char(shifted).map(|ch| {
-      let mut buf = [0u8; 4];
-      let s = ch.encode_utf8(&mut buf);
-      s.as_bytes().to_vec()
-    }),
-  }
-}
-
-/// Map a physical hex button to the byte sequence to send to the remote shell.
-pub fn hex_button_to_bytes(button: HexButton) -> Option<Vec<u8>> {
-  match button {
-    HexButton::Up => Some(b"\x1b[A".to_vec()),
-    HexButton::Down => Some(b"\x1b[B".to_vec()),
-    HexButton::Right => Some(b"\x1b[C".to_vec()),
-    HexButton::Left => Some(b"\x1b[D".to_vec()),
-    HexButton::Fire => Some(b"\r".to_vec()),
-    // Ctrl-characters on the function ring (like a mini keyboard).
-    HexButton::HexA => Some(b"\x01".to_vec()), // Ctrl-A (line start)
-    HexButton::HexB => Some(b"\x02".to_vec()), // Ctrl-B (back one char)
-    HexButton::HexC => Some(b"\x03".to_vec()), // Ctrl-C (interrupt)
-    HexButton::HexD => Some(b"\x04".to_vec()), // Ctrl-D (EOF)
-    HexButton::HexE => Some(b"\x05".to_vec()), // Ctrl-E (line end)
-    HexButton::HexF => Some(b"\x1b".to_vec()), // Escape
-    _ => None,
-  }
 }
 
 #[cfg(test)]

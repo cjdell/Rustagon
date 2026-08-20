@@ -24,8 +24,9 @@ use crate::{
   platform::{DisplayHandle, Platform},
   protocol::{HostIpcMessage, HostRuntimeCommand},
   types::{HexButton, Icon20, MenuAnimation, MenuLine},
+  ui::list::List,
 };
-use alloc::{string::ToString, vec::Vec};
+use alloc::{boxed::Box, string::ToString, vec::Vec};
 use display_types::LcdScreen;
 use embassy_futures::select::{Either, select};
 use log::{debug, info};
@@ -37,8 +38,10 @@ enum MenuAppOutcome<P: Platform> {
   Popped,
   /// A hosted app must run; push a `HostedApp` entry.
   Hosted,
-  /// A built-in sub-app was loaded; push it on top.
-  Loaded(MenuAppType<P>),
+  /// A built-in sub-app was loaded; push it on top. Boxed to keep the enum
+  /// small: `MenuAppType` carries an entire app (platform context and app
+  /// state), and the menu stack already heap-owns it.
+  Loaded(Box<MenuAppType<P>>),
 }
 
 pub async fn menu_task<P: Platform + 'static>(mut runner_ctx: MenuRunnerContext<P>) {
@@ -73,7 +76,7 @@ pub async fn menu_task<P: Platform + 'static>(mut runner_ctx: MenuRunnerContext<
           let _ = stack.pop();
         }
         MenuAppOutcome::Hosted => stack.push(AppStackEntry::HostedApp),
-        MenuAppOutcome::Loaded(app) => stack.push(AppStackEntry::MenuApp { app }),
+        MenuAppOutcome::Loaded(app) => stack.push(AppStackEntry::MenuApp { app: *app }),
       },
       Some(StackEntryType::HostedApp) => run_hosted_app(&mut stack, &runner_ctx).await,
       None => {
@@ -89,17 +92,20 @@ pub async fn menu_task<P: Platform + 'static>(mut runner_ctx: MenuRunnerContext<
   }
 }
 
-/// The root menu, as an ordinary app: it owns its options and cursor, drives
-/// its own loop, and launches apps via [`AppAction`].
+/// The root menu, as an ordinary app: it owns its options list (selection
+/// included, via [`ui::list::List`]), drives its own loop, and launches apps
+/// via [`AppAction`].
 pub struct RootMenuApp<P: Platform> {
   ctx: MenuAppContext<P>,
-  options: Vec<MenuOption>,
-  selected: u32,
+  list: List<MenuOption>,
 }
 
 impl<P: Platform> RootMenuApp<P> {
   pub fn new(ctx: MenuAppContext<P>, options: Vec<MenuOption>) -> Self {
-    Self { ctx, options, selected: 0 }
+    Self {
+      ctx,
+      list: List::new(options),
+    }
   }
 }
 
@@ -107,7 +113,8 @@ impl<P: Platform> MenuApp<P> for RootMenuApp<P> {
   fn render(&self) -> LcdScreen {
     LcdScreen::Menu {
       menu: self
-        .options
+        .list
+        .items()
         .iter()
         .map(|option| match option {
           MenuOption::App { name, .. } => MenuLine(Icon20::Info, name.to_string()),
@@ -115,7 +122,7 @@ impl<P: Platform> MenuApp<P> for RootMenuApp<P> {
           MenuOption::PowerOff => MenuLine(Icon20::Info, "Power Off".to_string()),
         })
         .collect(),
-      selected: self.selected,
+      selected: self.list.selected() as u32,
       // Returning to the root menu is a "back" transition: slide in from
       // the left (content moves rightward) to mirror the forward push.
       animation: MenuAnimation::FromLeft,
@@ -133,24 +140,22 @@ impl<P: Platform> MenuApp<P> for RootMenuApp<P> {
 
       let mut launched: Option<AppAction> = None;
       match hex {
-        HexButton::Up if self.selected > 0 => {
-          self.selected -= 1;
-        }
-        HexButton::Down if (self.selected as usize) < self.options.len().saturating_sub(1) => {
-          self.selected += 1;
-        }
-        HexButton::Fire if (self.selected as usize) < self.options.len() => {
-          launched = Some(match &self.options[self.selected as usize] {
-            MenuOption::App { name, app_type } => match app_type {
-              AppType::MenuApp => AppAction::LoadMenuApp((*name).to_string()),
-              AppType::NativeApp => AppAction::LaunchNative(name.to_string()),
-            },
-            MenuOption::PowerOff => {
-              self.ctx.platform.power_manager().power_off().await;
-              AppAction::Continue
-            }
-            MenuOption::Back => AppAction::Continue,
-          });
+        HexButton::Up => self.list.move_up(),
+        HexButton::Down => self.list.move_down(),
+        HexButton::Fire => {
+          if let Some(option) = self.list.selected_item() {
+            launched = Some(match option {
+              MenuOption::App { name, app_type } => match app_type {
+                AppType::MenuApp => AppAction::LoadMenuApp((*name).to_string()),
+                AppType::NativeApp => AppAction::LaunchNative(name.to_string()),
+              },
+              MenuOption::PowerOff => {
+                self.ctx.platform.power_manager().power_off().await;
+                AppAction::Continue
+              }
+              MenuOption::Back => AppAction::Continue,
+            });
+          }
         }
         _ => {}
       }
@@ -282,7 +287,7 @@ async fn run_menu_app<P: Platform>(
         AppAction::LoadMenuApp(name) => {
           let mctx = MenuAppContext::new(runner_ctx.platform.clone(), runner_ctx.host_ipc_sender);
           match MenuAppType::<P>::load_app_async(&name, mctx) {
-            Ok(app) => return MenuAppOutcome::Loaded(app),
+            Ok(app) => return MenuAppOutcome::Loaded(Box::new(app)),
             Err(mctx) => {
               if let Some(loader) = runner_ctx.app_loader {
                 loader(name, mctx).await;

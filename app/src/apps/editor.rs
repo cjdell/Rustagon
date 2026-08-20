@@ -2,8 +2,9 @@ use crate::{
   apps::{AppAction, AppEvent, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::Platform,
   types::*,
+  ui::text_input::TextInput,
 };
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{string::ToString, vec, vec::Vec};
 use log::info;
 
 /// Number of lines in the editor's fixed buffer window. The `TextBuffer`
@@ -16,11 +17,9 @@ pub struct EditorApp<P: Platform> {
   /// grow as you type. When the buffer overflows (e.g. Enter on the last line)
   /// the oldest line is dropped — the window rotates, matching how a future
   /// file-backed editor will page through a larger file.
-  lines: Vec<String>,
+  lines: Vec<TextInput>,
   /// Index of the currently selected line within `lines`.
   active: usize,
-  /// Per-line cursor positions (byte index into the corresponding `lines` entry).
-  cursors: Vec<usize>,
   /// Whether a shift key is currently held. Toggled by `KeyCode::Shift`
   /// press/release events; applied to typed characters via `KeyCode::to_char`.
   shifted: bool,
@@ -36,9 +35,8 @@ impl<P: Platform> EditorApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
     Self {
       ctx,
-      lines: vec![String::new(); BUFFER_LINES],
+      lines: vec![TextInput::new(); BUFFER_LINES],
       active: 0,
-      cursors: vec![0; BUFFER_LINES],
       shifted: false,
     }
   }
@@ -54,36 +52,17 @@ impl<P: Platform> EditorApp<P> {
       return;
     }
     info!("EditorApp: handling key {code:?}");
+    let line = &mut self.lines[self.active];
     match code {
-      KeyCode::Backspace => {
-        if self.cursors[self.active] > 0 {
-          let line = &mut self.lines[self.active];
-          line.remove(self.cursors[self.active] - 1);
-          self.cursors[self.active] -= 1;
-        }
-      }
-      KeyCode::Delete => {
-        let cursor = self.cursors[self.active];
-        let line = &mut self.lines[self.active];
-        if cursor < line.len() {
-          line.remove(cursor);
-        }
-      }
-      KeyCode::Home => {
-        self.cursors[self.active] = 0;
-      }
-      KeyCode::End => {
-        self.cursors[self.active] = self.lines[self.active].len();
-      }
-      KeyCode::Space => {
-        self.insert_char(' ');
-      }
-      KeyCode::Tab => {
-        self.insert_str("  ");
-      }
+      KeyCode::Backspace => line.backspace(),
+      KeyCode::Delete => line.delete(),
+      KeyCode::Home => line.home(),
+      KeyCode::End => line.end(),
+      KeyCode::Space => line.insert_char(' '),
+      KeyCode::Tab => line.insert_str("  "),
       _ => {
         if let Some(ch) = code.to_char(self.shifted) {
-          self.insert_char(ch);
+          line.insert_char(ch);
         }
       }
     }
@@ -94,54 +73,26 @@ impl<P: Platform> EditorApp<P> {
   /// arrive as keyboard events via [`handle_key`](Self::handle_key).
   fn handle_nav_button(&mut self, button: HexButton) {
     match button {
-      HexButton::Left if self.cursors[self.active] > 0 => {
-        self.cursors[self.active] -= 1;
-      }
-      HexButton::Right if self.cursors[self.active] < self.lines[self.active].len() => {
-        self.cursors[self.active] += 1;
-      }
-      HexButton::Up if self.active > 0 => {
-        self.active -= 1;
-        self.clamp_cursor();
-      }
-      HexButton::Down if self.active < self.lines.len() - 1 => {
-        self.active += 1;
-        self.clamp_cursor();
-      }
+      HexButton::Left => self.lines[self.active].left(),
+      HexButton::Right => self.lines[self.active].right(),
+      HexButton::Up if self.active > 0 => self.active -= 1,
+      HexButton::Down if self.active < self.lines.len() - 1 => self.active += 1,
       HexButton::Fire => {
         // Split the current line at the cursor; the tail becomes a new line
         // below it. Keep the window at 8 lines by rotating the oldest line out.
-        let tail = self.lines[self.active].split_off(self.cursors[self.active]);
+        let cursor = self.lines[self.active].cursor();
+        let tail = self.lines[self.active].split_off(cursor);
         self.lines.insert(self.active + 1, tail);
-        self.cursors.insert(self.active + 1, 0);
         if self.lines.len() > BUFFER_LINES {
           // Dropping the top line shifts everything (including the inserted
-          // tail) up one slot, so the tail lands back at `self.active`.
+          // tail) up one slot, so the tail lands back at `self.active` with
+          // its cursor already at column 0.
           self.lines.remove(0);
-          self.cursors.remove(0);
         } else {
           self.active += 1;
         }
-        self.cursors[self.active] = 0;
       }
       _ => {}
-    }
-  }
-
-  fn insert_char(&mut self, ch: char) {
-    self.lines[self.active].insert(self.cursors[self.active], ch);
-    self.cursors[self.active] += 1;
-  }
-
-  fn insert_str(&mut self, s: &str) {
-    self.lines[self.active].insert_str(self.cursors[self.active], s);
-    self.cursors[self.active] += s.len();
-  }
-
-  fn clamp_cursor(&mut self) {
-    let len = self.lines[self.active].len();
-    if self.cursors[self.active] > len {
-      self.cursors[self.active] = len;
     }
   }
 }
@@ -152,9 +103,9 @@ impl<P: Platform> MenuApp<P> for EditorApp<P> {
       .lines
       .iter()
       .enumerate()
-      .map(|(i, text)| TextBufferLine {
-        text: text.clone(),
-        cursor: (i == self.active).then_some(self.cursors[i] as u32),
+      .map(|(i, input)| TextBufferLine {
+        text: input.value().to_string(),
+        cursor: (i == self.active).then_some(input.cursor() as u32),
       })
       .collect();
     LcdScreen::TextBuffer { lines }

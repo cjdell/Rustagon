@@ -3,6 +3,7 @@ use crate::{
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
+  ui::progress::Progress,
 };
 use alloc::{format, vec::Vec};
 use embassy_futures::join::join;
@@ -98,6 +99,7 @@ impl<P: Platform> OtaUpdaterApp<P> {
     let offset = self.ctx.platform.ota_begin().await.map_err(|_| ())?;
     let mut flash_addr = offset;
     let mut bytes_written = 0u32;
+    let mut progress = Progress::new(0, version_info.size);
     let platform = self.ctx.platform.clone();
     let display = self.ctx.platform.display_manager();
     let app_ctx = self.ctx.clone();
@@ -110,7 +112,8 @@ impl<P: Platform> OtaUpdaterApp<P> {
             let _ = platform.ota_write_chunk(flash_addr, &chunk).await;
             flash_addr += chunk.len() as u32;
             bytes_written += chunk.len() as u32;
-            let _ = display.signal(LcdScreen::BoundedProgress(bytes_written, version_info.size));
+            progress.set_done(bytes_written);
+            let _ = display.signal(progress.render());
           }
           HttpEvent::Done => {
             if bytes_written == version_info.size {

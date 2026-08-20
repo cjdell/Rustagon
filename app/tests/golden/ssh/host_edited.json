@@ -1,0 +1,31 @@
+{
+  "TextBuffer": {
+    "lines": [
+      {
+        "text": "SSH Client"
+      },
+      {
+        "text": "host: 192.168.49.1x",
+        "cursor": 13
+      },
+      {
+        "text": "user: cjdell"
+      },
+      {
+        "text": "key: id_ed255.key"
+      },
+      {
+        "text": "port: 22"
+      },
+      {
+        "text": "[Connect]"
+      },
+      {
+        "text": ""
+      },
+      {
+        "text": ""
+      }
+    ]
+  }
+}

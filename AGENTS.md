@@ -172,8 +172,10 @@ so the tests are safe under cargo's parallel test threads.
 
 Notes:
 - The SSH *engine* handshake is still covered by the real-socket e2e unit test
-  (`app/src/ssh/tests.rs`). The golden tests cover the SSH *app* UI (connect form,
-  field navigation, key-not-found error path) headlessly — a full canned
+  (`app/src/ssh/tests.rs`). The golden tests cover the SSH *app* UI (connect form
+  field editing + focus navigation, key-not-found error path) and the Editor's
+  full editing surface (typing, shift, backspace, left/right/home/end, Enter
+  line-split — `editor_editing`, `ssh_form_editing`) headlessly — a full canned
   handshake transcript is not worth maintaining.
 - The `just lint` recipe does **not** enable `testing`, so the mock/driver code is
   not part of CI clippy. If you change `app/src/testing`, check it manually with
@@ -563,13 +565,14 @@ rustagon/
 │   │   ├── common.rs                 #   MenuApp trait (render/run/on_stop), AppRunContext, AppInput/AppEvent/AppRunEvent, MenuAppContext<P>, AppAction
 │   │   ├── app_store.rs              #   AppStoreApp<P>
 │   │   ├── config.rs                 #   ConfigApp<P>
-│   │   ├── editor.rs                 #   EditorApp<P> (text editor, consumes DeviceEvent::Keyboard)
+│   │   ├── editor.rs                 #   EditorApp<P> (text editor on ui::text_input, consumes DeviceEvent::Keyboard)
 │   │   ├── files.rs                  #   FilesApp<P>
 │   │   ├── hexpansion_viewer.rs      #   HexpansionViewerApp<P> (shows slot state)
 │   │   ├── input_test.rs             #   InputTestApp<P>
 │   │   ├── mod.rs                    #   MenuAppType<P> enum + list/load functions
 │   │   ├── ota_updater.rs            #   OtaUpdaterApp<P>
 │   │   ├── power_info.rs             #   PowerInfoApp<P>
+│   │   ├── ssh.rs                    #   SshApp<P> (connect form on ui::form, shell on ui::terminal)
 │   │   └── wifi_scanner.rs           #   WifiScannerApp<P>
 │   ├── menu/                         # Full menu system (async fn, not Embassy task)
 │   │   ├── mod.rs                    #   menu_task<P: Platform>(), RootMenuApp, run_* entry fns
@@ -592,8 +595,19 @@ rustagon/
 │   ├── protocol.rs                   # Host-internal IPC supersets (WasmIpcMessage/HostIpcMessage,
 │   │                                  #   HostRuntimeCommand) wrapping wire enums from wasm_protocol
 │   ├── types.rs                      # Domain types (HexButton re-exported, LedRequest, DeviceConfig,
+│   ├── ssh/                          # no_std SSH engine (puressh sans-IO handshake/auth/channel)
+│   │   ├── mod.rs                    #   SshSession, SshEvent, PlatformRng
+│   │   ├── keys.rs                   #   key_to_bytes / hex_button_to_bytes (SSH terminal input mapping)
+│   │   └── tests.rs                  #   Engine unit tests (incl. real-socket e2e handshake)
+│   ├── types.rs                      # Domain types (HexButton re-exported, LedRequest, DeviceConfig,
 │   │                                  #   HexpansionInfo, HexpansionEvent, DeviceEvent,
 │   │                                  #   KeyboardEvent, KeyCode, etc.)
+│   ├── ui/                           # Shared no_std widget toolkit (alloc only; no std)
+│   │   ├── text_input.rs             #   TextInput: value + byte-index cursor (insert/backspace/delete/home/end/left/right/split)
+│   │   ├── list.rs                   #   List<T>: items + selected index (root menu, pickers)
+│   │   ├── form.rs                   #   Form/Field: labelled fields + action row, up/down/fire focus
+│   │   ├── terminal.rs               #   Terminal: VT byte stream → TextBuffer lines (scrollback + cursor)
+│   │   └── progress.rs               #   Progress → LcdScreen::BoundedProgress (OTA/downloads)
 │   └── utils.rs                      # Sleep helper only
 ├── desktop/                          # Desktop platform (std, minifb, ureq)
 │   └── src/
@@ -1240,6 +1254,8 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **App run-loop contract:** `app/src/apps/common.rs` (`MenuApp`, `AppRunContext`, `AppRunEvent`, `nav_button_from_device_event`)
 - **AppSpawner:** `app/src/platform/spawner.rs`, firmware `firmware/src/platform/spawner.rs`, desktop `desktop/src/platform/common.rs`
 - **Menu apps:** `app/src/apps/mod.rs` (enum + list/load), `app/src/apps/*.rs`
+- **UI widget toolkit:** `app/src/ui/` (`text_input`, `list`, `form`, `terminal`, `progress`) — the shared building blocks the Editor, SSH connect form, root menu, OTA/App Store downloads build on
+- **SSH engine:** `app/src/ssh/mod.rs` (`SshSession`), SSH key → byte mapping in `app/src/ssh/keys.rs`, terminal widget in `app/src/ui/terminal.rs`
 - **Protocol types:** `app/src/protocol.rs` (runtime supersets), `libs/wasm_protocol/src/lib.rs` (wire types), `sdk/src/protocol.rs` (SDK re-export + host functions)
 - **Domain types:** `app/src/types.rs`
 - **Firmware entry point:** `firmware/src/bin/rustagon.rs`

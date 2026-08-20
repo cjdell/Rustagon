@@ -306,6 +306,65 @@ fn editor_launch_and_type() {
   });
 }
 
+/// Exercises the full editing surface the port to `ui::text_input` must keep
+/// identical: typing, shift (uppercase), left/right/home/end, backspace,
+/// Enter (line split), and line navigation.
+#[test]
+fn editor_editing() {
+  with_clock(|| {
+    let mock = MockPlatform::new();
+    let app = EditorApp::<MockPlatform>::new(make_ctx(&mock));
+    let mut driver = make_driver(&mock, app);
+
+    // Type "HIA" — the A is shifted (Shift + letter → uppercase).
+    for (code, shifted) in [(KeyCode::H, false), (KeyCode::I, false), (KeyCode::A, true)] {
+      if shifted {
+        mock.push_device_event(kb(KeyCode::Shift, KeyEventType::Pressed));
+      }
+      mock.push_device_event(kb(code, KeyEventType::Pressed));
+      driver.settle(0);
+      if shifted {
+        mock.push_device_event(kb(KeyCode::Shift, KeyEventType::Released));
+        driver.settle(0);
+      }
+    }
+    expect_screen("editor/typing.json", mock.last_screen().as_ref().unwrap());
+
+    // Left, left, backspace ("HIA" -> "IA"), right, End, type "B" ("IAB").
+    mock.push_button(HexButton::Left);
+    driver.settle(0);
+    mock.push_button(HexButton::Left);
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::Backspace, KeyEventType::Pressed));
+    driver.settle(0);
+    mock.push_button(HexButton::Right);
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::End, KeyEventType::Pressed));
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::B, KeyEventType::Pressed));
+    driver.settle(0);
+    expect_screen("editor/midline.json", mock.last_screen().as_ref().unwrap());
+
+    // Enter splits the line at the cursor; typing lands on the new line.
+    mock.push_button(HexButton::Fire);
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::C, KeyEventType::Pressed));
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::D, KeyEventType::Pressed));
+    driver.settle(0);
+    expect_screen("editor/second_line.json", mock.last_screen().as_ref().unwrap());
+
+    // Up to the first line, Home, type "x" at column 0.
+    mock.push_button(HexButton::Up);
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::Home, KeyEventType::Pressed));
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::X, KeyEventType::Pressed));
+    driver.settle(0);
+    expect_screen("editor/home_insert.json", mock.last_screen().as_ref().unwrap());
+  });
+}
+
 // ---------------------------------------------------------------------------
 // App Store
 // ---------------------------------------------------------------------------
@@ -400,5 +459,46 @@ fn ssh_key_not_found() {
     driver.settle(0);
     // TCP connects, key read fails -> back on the connect form with a status.
     expect_screen("ssh/key_not_found.json", mock.last_screen().as_ref().unwrap());
+  });
+}
+
+/// Field editing + focus navigation on the connect form (the port to
+/// `ui::form`/`ui::text_input` must keep all of it identical): typing,
+/// shift, backspace, Down through the fields, and Fire on a field row (a
+/// no-op — only the action row fires).
+#[test]
+fn ssh_form_editing() {
+  with_clock(|| {
+    let mock = MockPlatform::new();
+    let app = SshApp::<MockPlatform>::new(make_ctx(&mock));
+    let mut driver = make_driver(&mock, app);
+
+    // host field: append "x", a shifted "A", then backspace the A.
+    mock.push_device_event(kb(KeyCode::X, KeyEventType::Pressed));
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::Shift, KeyEventType::Pressed));
+    mock.push_device_event(kb(KeyCode::A, KeyEventType::Pressed));
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::Shift, KeyEventType::Released));
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::Backspace, KeyEventType::Pressed));
+    driver.settle(0);
+    expect_screen("ssh/host_edited.json", mock.last_screen().as_ref().unwrap());
+
+    // Down x3 to the port field ("22"): backspace -> "2", type "3" -> "23".
+    for _ in 0..3 {
+      mock.push_button(HexButton::Down);
+      driver.settle(0);
+    }
+    mock.push_device_event(kb(KeyCode::Backspace, KeyEventType::Pressed));
+    driver.settle(0);
+    mock.push_device_event(kb(KeyCode::Digit3, KeyEventType::Pressed));
+    driver.settle(0);
+    expect_screen("ssh/port_edited.json", mock.last_screen().as_ref().unwrap());
+
+    // Fire on a field row is a no-op (no connect attempt, no status change).
+    mock.push_button(HexButton::Fire);
+    driver.settle(0);
+    expect_screen("ssh/fire_on_field.json", mock.last_screen().as_ref().unwrap());
   });
 }

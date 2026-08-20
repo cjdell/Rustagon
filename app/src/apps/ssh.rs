@@ -3,10 +3,14 @@ use crate::{
   apps::{AppAction, AppError, AppEvent, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
   platform::{Platform, TcpEvent, TcpSession},
   ssh::{
+    keys::{hex_button_to_bytes, key_to_bytes},
     PlatformRng, SshEvent, SshSession,
-    terminal::{DISPLAY_LINES, Terminal, hex_button_to_bytes, key_to_bytes},
   },
   types::*,
+  ui::{
+    form::{Field, Form},
+    terminal::{Terminal, DISPLAY_LINES},
+  },
   utils::select_timeout,
 };
 use alloc::{
@@ -24,21 +28,6 @@ const CONNECT_TIMEOUT_MS: u64 = 15_000;
 /// Max time to wait for any single handshake packet before giving up.
 const HANDSHAKE_TIMEOUT_MS: u64 = 15_000;
 
-/// A connect-screen input field.
-struct Field {
-  label: &'static str,
-  value: String,
-}
-
-impl Field {
-  fn new(label: &'static str, value: &str) -> Self {
-    Self {
-      label,
-      value: value.to_string(),
-    }
-  }
-}
-
 #[derive(PartialEq)]
 enum Screen {
   Connect,
@@ -54,9 +43,8 @@ enum Screen {
 pub struct SshApp<P: Platform> {
   ctx: MenuAppContext<P>,
   screen: Screen,
-  fields: Vec<Field>,
-  /// Index into `fields`, or `fields.len()` for the "[Connect]" action.
-  active: usize,
+  /// The connect form: host/user/key/port fields + the "[Connect]" action row.
+  form: Form,
   status: String,
   shifted: bool,
   /// The session lives on the heap (external memory on firmware) so the big
@@ -75,17 +63,19 @@ impl<P: Platform> AppName for SshApp<P> {
 
 impl<P: Platform> SshApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
-    let fields = vec![
-      Field::new("host", "192.168.49.1"),
-      Field::new("user", "cjdell"),
-      Field::new("key", "id_ed255.key"),
-      Field::new("port", "22"),
-    ];
+    let form = Form::new(
+      vec![
+        Field::new("host", "192.168.49.1"),
+        Field::new("user", "cjdell"),
+        Field::new("key", "id_ed255.key"),
+        Field::new("port", "22"),
+      ],
+      "[Connect]",
+    );
     Self {
       ctx,
       screen: Screen::Connect,
-      fields,
-      active: 0,
+      form,
       status: String::new(),
       shifted: false,
       session: None,
@@ -94,8 +84,9 @@ impl<P: Platform> SshApp<P> {
     }
   }
 
-  fn field_count(&self) -> usize {
-    self.fields.len() + 1
+  /// The value of connect-form field `index`.
+  fn field_value(&self, index: usize) -> &str {
+    self.form.field(index).expect("field index in range").value()
   }
 
   /// Show an error and return to the connect screen.
@@ -151,10 +142,10 @@ impl<P: Platform> SshApp<P> {
     let Some(tcp) = self.ctx.platform.tcp_client() else {
       return Err(AppError::Unsupported("No TCP support on this platform".into()));
     };
-    let host = self.fields[0].value.trim().to_string();
-    let user = self.fields[1].value.trim().to_string();
-    let key_path = self.fields[2].value.trim().to_string();
-    let port: u16 = self.fields[3].value.trim().parse().unwrap_or(22);
+    let host = self.field_value(0).trim().to_string();
+    let user = self.field_value(1).trim().to_string();
+    let key_path = self.field_value(2).trim().to_string();
+    let port: u16 = self.field_value(3).trim().parse().unwrap_or(22);
 
     if host.is_empty() || user.is_empty() {
       return Err(AppError::Message("Host and user required".into()));
@@ -324,16 +315,14 @@ impl<P: Platform> SshApp<P> {
     if ke.typ == KeyEventType::Released || ke.code == KeyCode::Shift {
       return;
     }
-    let active = self.active;
-    if active < self.fields.len() {
-      match ke.code {
-        KeyCode::Backspace => {
-          self.fields[active].value.pop();
-        }
-        _ => {
-          if let Some(ch) = ke.code.to_char(self.shifted) {
-            self.fields[active].value.push(ch);
-          }
+    let Some(field) = self.form.active_field_mut() else {
+      return; // active row is the [Connect] action — not editable
+    };
+    match ke.code {
+      KeyCode::Backspace => field.input.backspace(),
+      _ => {
+        if let Some(ch) = ke.code.to_char(self.shifted) {
+          field.input.push_char(ch);
         }
       }
     }
@@ -360,16 +349,7 @@ impl<P: Platform> MenuApp<P> for SshApp<P> {
           text: "SSH Client".into(),
           cursor: None,
         }];
-        for (i, f) in self.fields.iter().enumerate() {
-          lines.push(TextBufferLine {
-            text: format!("{}: {}", f.label, f.value),
-            cursor: (i == self.active).then_some(f.value.len() as u32),
-          });
-        }
-        lines.push(TextBufferLine {
-          text: "[Connect]".into(),
-          cursor: (self.active == self.fields.len()).then_some(0),
-        });
+        lines.extend(self.form.field_lines());
         lines.push(TextBufferLine {
           text: self.status.clone(),
           cursor: None,
@@ -400,9 +380,9 @@ impl<P: Platform> MenuApp<P> for SshApp<P> {
           match event {
             AppRunEvent::Input(AppInput::Button(hex)) => {
               match hex {
-                HexButton::Up if self.active > 0 => self.active -= 1,
-                HexButton::Down if self.active < self.field_count() - 1 => self.active += 1,
-                HexButton::Fire if self.active == self.fields.len() => {
+                HexButton::Up => self.form.up(),
+                HexButton::Down => self.form.down(),
+                HexButton::Fire if self.form.active_is_action() => {
                   if let Err(err) = self.connect(&ctx).await {
                     self.fail(err.to_display());
                   }

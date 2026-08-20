@@ -114,9 +114,9 @@ Before any block starts, note what has **already landed** (so agents don't
 | 3 | HTTP client correctness + `HttpEvent` dedup | 1 | done |
 | 4 | Firmware platform hardening: OTA/CPU parking, power loop, logging | 2 | done |
 | 5 | TCP session lifecycle — kill the `Box::leak`s | 2 | done |
-| 6 | Menu/app model: apps own their loop (`MenuApp::run` + spawner) | 5 | not started |
-| 7 | `MockPlatform` + headless app driver + golden screens | 6 | not started |
-| 8 | Shared widget toolkit (`app/src/ui/`) | 6 | not started |
+| 6 | Menu/app model: apps own their loop (`MenuApp::run` + spawner) | 5 | done |
+| 7 | `MockPlatform` + headless app driver + golden screens | 6 | done |
+| 8 | Shared widget toolkit (`app/src/ui/`) | 6 | done |
 | 9 | App navigation with results + per-app storage | 6 (8 recommended) | not started |
 | 10 | Desktop platform parity (hexpansion/wifi sim, icons, key repeat) | 2, 6 | not started |
 | 11 | WASM SDK parity & tooling (games, emulator removal, size audit) | 3 | not started |
