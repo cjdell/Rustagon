@@ -1,0 +1,7 @@
+{
+  "vid": 47715,
+  "pid": 20155,
+  "unique_id": 1,
+  "friendly_name": "KeebDeck Keyboard",
+  "driver": "tca8418"
+}

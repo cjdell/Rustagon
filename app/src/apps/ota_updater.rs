@@ -74,7 +74,7 @@ impl<P: Platform> OtaUpdaterApp<P> {
           }
         }
       }),
-      ctx.next(),
+      ctx.next_interrupt(),
     )
     .await;
     if matches!(downloaded, embassy_futures::select::Either::Second(_)) {
@@ -136,7 +136,7 @@ impl<P: Platform> OtaUpdaterApp<P> {
       }
     };
 
-    let result = embassy_futures::select::select(join(http_client.request(req, &channel), listen), ctx.next()).await;
+    let result = embassy_futures::select::select(join(http_client.request(req, &channel), listen), ctx.next_interrupt()).await;
     match result {
       embassy_futures::select::Either::First((_, res)) => res,
       embassy_futures::select::Either::Second(_) => Err(()),

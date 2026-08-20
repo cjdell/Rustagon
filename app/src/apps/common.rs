@@ -27,12 +27,13 @@
 //! - `error!`/`warn!` — recoverable failures the user may see.
 
 use crate::kv::KvNamespace;
-use crate::platform::{display::DisplayHandle, Platform};
+use crate::platform::{Platform, display::DisplayHandle};
 use crate::protocol::HostIpcSender;
 use crate::types::{DeviceEvent, HexButton, HexpansionEvent, Icon40};
 use crate::utils::sleep;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
+use core::cell::RefCell;
 use core::fmt;
 use display_types::LcdScreen;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -215,6 +216,71 @@ pub enum AppAction {
 /// its methods take `&self`).
 pub type ResultChannel = Arc<Channel<CriticalSectionRawMutex, AppResult, 1>>;
 
+/// Initial hold time before a held hex button starts repeating.
+pub const BUTTON_REPEAT_INITIAL_DELAY_MS: u64 = 400;
+/// Interval between repeat presses once a held hex button repeats.
+pub const BUTTON_REPEAT_PERIOD_MS: u64 = 100;
+
+/// App-layer button repeat — the single repeat policy shared by both
+/// platforms (they only deliver press/release edges; a held physical button
+/// or key produces no further events of its own).
+///
+/// Feed hex button events through [`ButtonRepeater::feed`]: a press arms the
+/// repeater, the matching release disarms it. While a button stays held past
+/// the initial delay it produces one repeat press per period
+/// ([`ButtonRepeater::elapse`]). Release events and system (boot) events are
+/// never repeated. The clock is `embassy-time` — the same one apps sleep on,
+/// so the mock driver drives repeat in headless tests.
+#[derive(Debug, Default)]
+pub struct ButtonRepeater {
+  /// The held button and the deadline of its next repeat press.
+  held: Option<(HexButton, embassy_time::Instant)>,
+}
+
+impl ButtonRepeater {
+  pub fn new() -> Self {
+    Self { held: None }
+  }
+
+  /// Feed one button event. A press arms (or re-arms, switching to the
+  /// newest) the repeater; the matching release disarms it. A press of the
+  /// button that is already held is a no-op — this is what keeps the repeat
+  /// presses this repeater emits from re-arming the 400 ms initial delay
+  /// (they flow back through `feed` like any other edge).
+  pub fn feed(&mut self, button: HexButton) {
+    if button.is_released() {
+      if let Some((held, _)) = self.held
+        && held.released() == button
+      {
+        self.held = None;
+      }
+    } else if self.held.map(|(held, _)| held) != Some(button) {
+      let deadline = embassy_time::Instant::now() + embassy_time::Duration::from_millis(BUTTON_REPEAT_INITIAL_DELAY_MS);
+      self.held = Some((button, deadline));
+    }
+  }
+
+  /// The deadline of the next repeat press, if a button is held.
+  pub fn next_repeat(&self) -> Option<embassy_time::Instant> {
+    self.held.map(|(_, deadline)| deadline)
+  }
+
+  /// A repeat deadline has passed: emit the repeat press of the held button
+  /// and schedule the next one. Missed deadlines are skipped, never burst.
+  ///
+  /// Only call this when [`ButtonRepeater::next_repeat`] returned `Some`.
+  pub fn elapse(&mut self) -> HexButton {
+    let (button, deadline) = self.held.expect("elapse called with no held button");
+    let now = embassy_time::Instant::now();
+    let mut next = deadline;
+    while next <= now {
+      next += embassy_time::Duration::from_millis(BUTTON_REPEAT_PERIOD_MS);
+    }
+    self.held = Some((button, next));
+    button
+  }
+}
+
 /// One input event for an app's run loop.
 #[derive(Debug, Clone)]
 pub enum AppInput {
@@ -278,11 +344,17 @@ pub struct AppRunContext<'a, P: Platform> {
   /// (already buffered by the menu) is delivered as
   /// [`AppRunEvent::Result`] by [`AppRunContext::next`].
   result: Option<&'a ResultChannel>,
+  /// App-layer repeat for held hex buttons (see [`ButtonRepeater`]).
+  repeat: RefCell<ButtonRepeater>,
 }
 
 impl<'a, P: Platform> AppRunContext<'a, P> {
   pub fn new(platform: &'a P, result: Option<&'a ResultChannel>) -> Self {
-    Self { platform, result }
+    Self {
+      platform,
+      result,
+      repeat: RefCell::new(ButtonRepeater::new()),
+    }
   }
 
   /// Non-blocking drain of a pending sub-app result, if the menu has already
@@ -307,16 +379,47 @@ impl<'a, P: Platform> AppRunContext<'a, P> {
     self.platform.clone()
   }
 
-  /// Wait for the next user input: a hex button or the boot button.
+  /// Wait for the next user input: a hex button or the boot button. Held
+  /// hex buttons repeat (see [`ButtonRepeater`]); the boot button never
+  /// does.
   pub async fn next_input(&self) -> AppInput {
+    self.next_button_or_system(true).await
+  }
+
+  async fn next_button_or_system(&self, repeat: bool) -> AppInput {
     let system_handle = self.platform.system_manager();
     let input_handle = self.platform.input_manager();
     let system = system_handle.next_button();
     let button = input_handle.next_button();
-    match embassy_futures::select::select(system, button).await {
-      embassy_futures::select::Either::First(msg) => AppInput::System(msg),
-      embassy_futures::select::Either::Second(btn) => AppInput::Button(btn),
+
+    let input = if repeat {
+      // Bind the deadline before the match: a temporary `Ref` in the
+      // scrutinee would stay alive across the awaits below.
+      let deadline = self.repeat.borrow().next_repeat();
+      match deadline {
+        None => match embassy_futures::select::select(system, button).await {
+          embassy_futures::select::Either::First(msg) => AppInput::System(msg),
+          embassy_futures::select::Either::Second(btn) => AppInput::Button(btn),
+        },
+        Some(deadline) => {
+          match embassy_futures::select::select(embassy_time::Timer::at(deadline), embassy_futures::select::select(system, button)).await {
+            embassy_futures::select::Either::First(()) => AppInput::Button(self.repeat.borrow_mut().elapse()),
+            embassy_futures::select::Either::Second(embassy_futures::select::Either::First(msg)) => AppInput::System(msg),
+            embassy_futures::select::Either::Second(embassy_futures::select::Either::Second(btn)) => AppInput::Button(btn),
+          }
+        }
+      }
+    } else {
+      match embassy_futures::select::select(system, button).await {
+        embassy_futures::select::Either::First(msg) => AppInput::System(msg),
+        embassy_futures::select::Either::Second(btn) => AppInput::Button(btn),
+      }
+    };
+
+    if let AppInput::Button(btn) = &input {
+      self.repeat.borrow_mut().feed(*btn);
     }
+    input
   }
 
   /// Wait for the next external event (hexpansion plug/unplug, device/keyboard).
@@ -333,20 +436,62 @@ impl<'a, P: Platform> AppRunContext<'a, P> {
   /// Wait for the next input *or* external event, flattened into one enum —
   /// the common case for apps. Apps that also want to multiplex their own
   /// work (a TCP socket, a timer, a download) `select!` over `next()` and
-  /// those branches directly.
+  /// those branches directly. Held hex buttons repeat (see
+  /// [`ButtonRepeater`]).
   ///
   /// When the menu has a pending result for this re-entry (after the app
   /// returned [`AppAction::Push`]), the result is an additional branch and
   /// arrives first as [`AppRunEvent::Result`] (the menu buffers it before the
   /// parent re-enters, so it never loses the race against a button press).
   pub async fn next(&self) -> AppRunEvent {
+    self.next_impl(true).await
+  }
+
+  /// Same as [`AppRunContext::next`] but **without** app-layer button repeat:
+  /// every platform edge event is delivered exactly once. Used by the
+  /// hosted-app pump, which forwards raw edges to the WASM guest — a guest
+  /// that wants repeat can apply [`ButtonRepeater`] to the events itself
+  /// later; the policy lives in one place either way.
+  pub async fn next_raw(&self) -> AppRunEvent {
+    self.next_impl(false).await
+  }
+
+  /// The next event that should **interrupt** an in-flight operation (a
+  /// download, a connect, a handshake): any system (boot) event, any button
+  /// **press**, or any external event. Button **release** events are consumed
+  /// and not delivered — a physical press arrives as a press/release pair
+  /// back-to-back, and the release of the button that *started* the
+  /// operation must not cancel it. The releases are still fed to the
+  /// repeater, so the button is disarmed as usual; apps never act on hex
+  /// releases, so nothing is lost to the caller.
+  ///
+  /// Note: with app-layer repeat active, *holding* the button that started
+  /// the operation does cancel it (the first repeat is a press).
+  pub async fn next_interrupt(&self) -> AppRunEvent {
+    loop {
+      let event = self.next().await;
+      if matches!(&event, AppRunEvent::Input(AppInput::Button(button)) if button.is_released()) {
+        continue;
+      }
+      return event;
+    }
+  }
+
+  async fn next_impl(&self, repeat: bool) -> AppRunEvent {
+    let input = async {
+      if repeat {
+        self.next_input().await
+      } else {
+        self.next_button_or_system(false).await
+      }
+    };
     match self.result {
-      None => match embassy_futures::select::select(self.next_input(), self.next_event()).await {
+      None => match embassy_futures::select::select(input, self.next_event()).await {
         embassy_futures::select::Either::First(input) => AppRunEvent::Input(input),
         embassy_futures::select::Either::Second(event) => AppRunEvent::Event(event),
       },
       Some(channel) => {
-        let io = embassy_futures::select::select(self.next_input(), self.next_event());
+        let io = embassy_futures::select::select(input, self.next_event());
         match embassy_futures::select::select(io, channel.receive()).await {
           embassy_futures::select::Either::First(embassy_futures::select::Either::First(input)) => AppRunEvent::Input(input),
           embassy_futures::select::Either::First(embassy_futures::select::Either::Second(event)) => AppRunEvent::Event(event),

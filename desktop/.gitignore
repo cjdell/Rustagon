@@ -1,1 +1,10 @@
-data/
+# Desktop data directory: user state (config, KV, uploads) stays ignored, but
+# the simulation samples below are tracked so a fresh clone has a working
+# hexpansion/wifi simulation out of the box.
+data/*
+!data/.gitkeep
+!data/wifi.json
+!data/hexpansions
+data/hexpansions/*
+!data/hexpansions/port1.json
+!data/hexpansions/port3.json

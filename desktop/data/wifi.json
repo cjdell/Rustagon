@@ -1,0 +1,5 @@
+[
+  { "ssid": "Rustagon Lab", "signal_strength": -42, "password_required": true },
+  { "ssid": "KeebDeck-5G", "signal_strength": -58, "password_required": true },
+  { "ssid": "CoffeeShop_Guest", "signal_strength": -71, "password_required": false }
+]

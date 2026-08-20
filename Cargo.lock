@@ -1390,6 +1390,7 @@ dependencies = [
  "log",
  "minifb 0.26.0",
  "picoserve",
+ "serde",
  "serde_json",
  "tokio",
  "ureq",

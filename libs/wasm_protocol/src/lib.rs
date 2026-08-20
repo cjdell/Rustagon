@@ -60,6 +60,36 @@ pub enum HexButton {
 }
 
 impl HexButton {
+  /// True if this is a release (`*Released`) event.
+  pub const fn is_released(self) -> bool {
+    matches!(
+      self,
+      HexButton::UpReleased
+        | HexButton::RightReleased
+        | HexButton::FireReleased
+        | HexButton::DownReleased
+        | HexButton::LeftReleased
+        | HexButton::HexAReleased
+        | HexButton::HexBReleased
+        | HexButton::HexCReleased
+        | HexButton::HexDReleased
+        | HexButton::HexEReleased
+        | HexButton::HexFReleased
+        | HexButton::Touch01Released
+        | HexButton::Touch02Released
+        | HexButton::Touch03Released
+        | HexButton::Touch04Released
+        | HexButton::Touch05Released
+        | HexButton::Touch06Released
+        | HexButton::Touch07Released
+        | HexButton::Touch08Released
+        | HexButton::Touch09Released
+        | HexButton::Touch10Released
+        | HexButton::Touch11Released
+        | HexButton::Touch12Released
+    )
+  }
+
   /// Returns the release event for this button. Press events map to their
   /// `*Released` counterpart; release events map to themselves (idempotent),
   /// so producers can call this on any event they hold.

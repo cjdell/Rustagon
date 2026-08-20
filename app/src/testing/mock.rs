@@ -11,9 +11,11 @@
 //! - **TCP** — a canned inbound event stream + an outbound byte recorder.
 //! - **Power/Wifi/Led/Spawner/Ota** — trivial deterministic stand-ins.
 //!
-//! All shared state sits behind `embassy_sync::Mutex` locked with `try_lock`:
-//! tests drive everything from a single thread and never hold a guard across
-//! an `.await`, so the lock never contends.
+//! All shared state sits behind `embassy_sync::Mutex` acquired with
+//! [`lock_spin`] (never `try_lock().unwrap()` — the e2e tests drive a
+//! manager from a background menu thread while the test thread reads, and a
+//! busy lock is normal). No guard is ever held across an `.await`, so the
+//! spin never contends beyond a small synchronous section.
 
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -27,24 +29,36 @@ use core::pin::Pin;
 use core::str::from_utf8;
 use embassy_sync::{
   blocking_mutex::raw::CriticalSectionRawMutex,
-  mutex::Mutex,
+  mutex::{Mutex, MutexGuard},
   signal::Signal,
 };
+
+/// Blocking acquisition of a mock state mutex: spin on `try_lock` until it
+/// succeeds. Test-only code — the guarded sections are short synchronous
+/// bursts, and contention is only between the test thread and the background
+/// menu thread (or between parallel test threads), so the spin is bounded.
+/// Never use `try_lock().unwrap()` on these: a busy lock is normal there.
+fn lock_spin<'a, T: Send + Sync>(m: &'a Mutex<CriticalSectionRawMutex, T>) -> MutexGuard<'a, CriticalSectionRawMutex, T> {
+  loop {
+    if let Ok(g) = m.try_lock() {
+      return g;
+    }
+  }
+}
 
 use crate::platform::display::FRAME_BYTES;
 use crate::platform::led::LedError;
 use crate::platform::power::PowerStatus;
 use crate::platform::storage::{ConfigFileTrait, StateError};
 use crate::platform::{
-  AppSpawner, ConfigHandle, DisplayError, DisplayManager, DisplayHandle, DirEntry, FileType, FsError, HexpansionHandle,
-  HexpansionManager, HttpClient, HttpClientHandle, InputHandle, InputManager, LedHandle, LedManager, LocalFsTrait,
-  PowerHandle, PowerManager, SpawnerHandle, StorageHandle, SystemHandle, SystemManager, TcpClient, TcpEvent, TcpHandle,
-  TcpSession, TcpSessionBackend, WiFiHandle, WiFiManager, WifiStatus,
+  AppSpawner, ConfigHandle, DirEntry, DisplayError, DisplayHandle, DisplayManager, FileType, FsError, HexpansionHandle, HexpansionManager,
+  HttpClient, HttpClientHandle, InputHandle, InputManager, LedHandle, LedManager, LocalFsTrait, PowerHandle, PowerManager, SpawnerHandle,
+  StorageHandle, SystemHandle, SystemManager, TcpClient, TcpEvent, TcpHandle, TcpSession, TcpSessionBackend, WiFiHandle, WiFiManager,
+  WifiStatus,
 };
 use crate::protocol::{HttpEvent, HttpRequest, HttpResponseMeta};
 use crate::types::{
-  DeviceConfig, DeviceEvent, HexpansionEvent, HexpansionInfo, HexButton, LedRequest, OtaError, SystemMessage,
-  WifiDesiredState, WifiResult,
+  DeviceConfig, DeviceEvent, HexButton, HexpansionEvent, HexpansionInfo, LedRequest, OtaError, SystemMessage, WifiDesiredState, WifiResult,
 };
 use crate::utils::EventQueue;
 
@@ -66,19 +80,21 @@ impl MockDisplay {
     }
   }
 
+  // `lock_spin`, never `try_lock().unwrap()`: the menu task thread signals
+  // and the test thread reads concurrently, and a busy lock is normal.
   pub fn clear(&self) {
-    let mut g = self.state.try_lock().unwrap();
+    let mut g = lock_spin(&self.state);
     g.0.clear();
     g.1 = 0;
   }
 
   /// Every recorded `(frame_index, screen)` pair, in order.
   pub fn screens(&self) -> Vec<(u64, crate::types::LcdScreen)> {
-    self.state.try_lock().unwrap().0.clone()
+    lock_spin(&self.state).0.clone()
   }
 
   pub fn last_screen(&self) -> Option<crate::types::LcdScreen> {
-    self.state.try_lock().unwrap().0.last().map(|(_, s)| s.clone())
+    lock_spin(&self.state).0.last().map(|(_, s)| s.clone())
   }
 }
 
@@ -90,7 +106,7 @@ impl Default for MockDisplay {
 
 impl DisplayManager for MockDisplay {
   fn signal(&self, screen: crate::types::LcdScreen) -> Result<(), DisplayError> {
-    let mut g = self.state.try_lock().unwrap();
+    let mut g = lock_spin(&self.state);
     let ts = g.1;
     g.0.push((ts, screen));
     g.1 = ts + 1;
@@ -126,10 +142,12 @@ pub struct MockLed {
 
 impl MockLed {
   pub fn new() -> Self {
-    Self { requests: Arc::new(Mutex::new(Vec::new())) }
+    Self {
+      requests: Arc::new(Mutex::new(Vec::new())),
+    }
   }
   pub fn requests(&self) -> Vec<LedRequest> {
-    self.requests.try_lock().unwrap().clone()
+    lock_spin(&self.requests).clone()
   }
 }
 
@@ -141,7 +159,7 @@ impl Default for MockLed {
 
 impl LedManager for MockLed {
   fn request(&self, request: LedRequest) -> Result<(), LedError> {
-    self.requests.try_lock().unwrap().push(request);
+    lock_spin(&self.requests).push(request);
     Ok(())
   }
 }
@@ -171,11 +189,11 @@ impl MockPower {
     }
   }
   pub fn set_status(&self, s: PowerStatus) {
-    *self.status.try_lock().unwrap() = s;
+    *lock_spin(&self.status) = s;
     self.changed.signal(());
   }
   pub fn get_status_sync(&self) -> PowerStatus {
-    *self.status.try_lock().unwrap()
+    *lock_spin(&self.status)
   }
 }
 
@@ -183,19 +201,19 @@ impl PowerManager for MockPower {
   fn power_off(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
     let n = self.power_offs.clone();
     Box::pin(async move {
-      *n.try_lock().unwrap() += 1;
+      *lock_spin(&n) += 1;
     })
   }
   fn get_status(&self) -> Pin<Box<dyn Future<Output = PowerStatus> + Send + '_>> {
     let s = self.status.clone();
-    Box::pin(async move { *s.try_lock().unwrap() })
+    Box::pin(async move { *lock_spin(&s) })
   }
   fn wait_for_change(&self) -> Pin<Box<dyn Future<Output = PowerStatus> + Send + '_>> {
     let changed = self.changed.clone();
     let s = self.status.clone();
     Box::pin(async move {
       changed.wait().await;
-      *s.try_lock().unwrap()
+      *lock_spin(&s)
     })
   }
 }
@@ -227,39 +245,39 @@ impl MockWifi {
     }
   }
   pub fn set_status(&self, s: WifiStatus) {
-    *self.status.try_lock().unwrap() = s;
+    *lock_spin(&self.status) = s;
     self.changed.signal(());
   }
   pub fn set_scan_result(&self, networks: Vec<WifiResult>) {
-    *self.scan.try_lock().unwrap() = networks;
+    *lock_spin(&self.scan) = networks;
   }
   pub fn get_status_sync(&self) -> WifiStatus {
-    self.status.try_lock().unwrap().clone()
+    lock_spin(&self.status).clone()
   }
 }
 
 impl WiFiManager for MockWifi {
   fn get_status(&self) -> Pin<Box<dyn Future<Output = WifiStatus> + Send + '_>> {
     let s = self.status.clone();
-    Box::pin(async move { s.try_lock().unwrap().clone() })
+    Box::pin(async move { lock_spin(&s).clone() })
   }
   fn wait_for_status_change(&self) -> Pin<Box<dyn Future<Output = WifiStatus> + Send + '_>> {
     let changed = self.changed.clone();
     let s = self.status.clone();
     Box::pin(async move {
       changed.wait().await;
-      s.try_lock().unwrap().clone()
+      lock_spin(&s).clone()
     })
   }
   fn set_desired_state(&self, state: WifiDesiredState) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
     let d = self.desired.clone();
     Box::pin(async move {
-      d.try_lock().unwrap().push(state);
+      lock_spin(&d).push(state);
     })
   }
   fn scan(&self) -> Pin<Box<dyn Future<Output = Result<Vec<WifiResult>, ()>> + Send + '_>> {
     let s = self.scan.clone();
-    Box::pin(async move { Ok(s.try_lock().unwrap().clone()) })
+    Box::pin(async move { Ok(lock_spin(&s).clone()) })
   }
 }
 
@@ -279,9 +297,23 @@ pub struct MockInput {
 
 impl MockInput {
   pub fn new() -> Self {
-    Self { buttons: EventQueue::new() }
+    Self {
+      buttons: EventQueue::new(),
+    }
   }
+  /// Push a discrete tap: a press plus its matching release — what a
+  /// physical button press produces (the app-layer button repeater disarms
+  /// on the release). For raw press/release edges (e.g. holding a button
+  /// down to test repeat) use [`MockInput::push_button_event`].
   pub fn push_button(&self, b: HexButton) {
+    self.push_button_event(b);
+    if !b.is_released() {
+      self.push_button_event(b.released());
+    }
+  }
+
+  /// Push a single raw button event (one edge, no auto-release).
+  pub fn push_button_event(&self, b: HexButton) {
     self.buttons.try_push(b);
   }
 }
@@ -376,7 +408,7 @@ impl MockHexpansion {
     }
   }
   pub fn set_state(&self, slots: Vec<(u8, Option<HexpansionInfo>)>) {
-    *self.state.try_lock().unwrap() = slots;
+    *lock_spin(&self.state) = slots;
   }
   pub fn push_event(&self, ev: HexpansionEvent) {
     self.events.try_push(ev);
@@ -401,7 +433,7 @@ impl HexpansionManager for MockHexpansion {
     self.events.try_next()
   }
   fn current_state(&self) -> Vec<(u8, Option<HexpansionInfo>)> {
-    self.state.try_lock().unwrap().clone()
+    lock_spin(&self.state).clone()
   }
   fn next_device_event(&self) -> Pin<Box<dyn Future<Output = DeviceEvent> + Send + '_>> {
     let q = self.device_events.clone();
@@ -448,7 +480,11 @@ fn entries_under(files: &BTreeMap<String, Vec<u8>>, dirs: &BTreeSet<String>, par
   }
   for name in dirs.iter() {
     if parent_of(name) == parent {
-      out.push(DirEntry { name: name.clone(), file_type: FileType::Dir, size: 0 });
+      out.push(DirEntry {
+        name: name.clone(),
+        file_type: FileType::Dir,
+        size: 0,
+      });
     }
   }
   out
@@ -460,20 +496,22 @@ pub struct MockStorage {
 
 impl MockStorage {
   pub fn new() -> Self {
-    Self { fs: Arc::new(Mutex::new(Fs::default())) }
+    Self {
+      fs: Arc::new(Mutex::new(Fs::default())),
+    }
   }
 
   pub fn seed_file(&self, name: &str, contents: &[u8]) {
-    let mut g = self.fs.try_lock().unwrap();
+    let mut g = lock_spin(&self.fs);
     g.files.insert(name.to_string(), contents.to_vec());
   }
 
   pub fn read_sync(&self, name: &str) -> Option<Vec<u8>> {
-    self.fs.try_lock().unwrap().files.get(name).cloned()
+    lock_spin(&self.fs).files.get(name).cloned()
   }
 
   pub fn clear(&self) {
-    let mut g = self.fs.try_lock().unwrap();
+    let mut g = lock_spin(&self.fs);
     g.files.clear();
     g.dirs.clear();
   }
@@ -489,7 +527,7 @@ impl LocalFsTrait for MockStorage {
   fn format(&self) -> Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let mut g = fs.try_lock().unwrap();
+      let mut g = lock_spin(&fs);
       g.files.clear();
       g.dirs.clear();
       Ok(())
@@ -498,7 +536,7 @@ impl LocalFsTrait for MockStorage {
   fn list_files(&self) -> Pin<Box<dyn Future<Output = Result<Vec<DirEntry>, FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let g = fs.try_lock().unwrap();
+      let g = lock_spin(&fs);
       Ok(entries_under(&g.files, &g.dirs, ""))
     })
   }
@@ -506,14 +544,14 @@ impl LocalFsTrait for MockStorage {
     let fs = self.fs.clone();
     Box::pin(async move {
       let parent = path.trim_start_matches('/').to_string();
-      let g = fs.try_lock().unwrap();
+      let g = lock_spin(&fs);
       Ok(entries_under(&g.files, &g.dirs, &parent))
     })
   }
   fn get_file_size(&self, file_name: String) -> Pin<Box<dyn Future<Output = Result<u32, FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let g = fs.try_lock().unwrap();
+      let g = lock_spin(&fs);
       g.files.get(&file_name).map(|f| f.len() as u32).ok_or(FsError::NotFound)
     })
   }
@@ -525,7 +563,7 @@ impl LocalFsTrait for MockStorage {
   ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let g = fs.try_lock().unwrap();
+      let g = lock_spin(&fs);
       let entry = g.files.get(&file_name).ok_or(FsError::NotFound)?;
       let start = (pos as usize).min(entry.len());
       let end = (start + size as usize).min(entry.len());
@@ -541,7 +579,7 @@ impl LocalFsTrait for MockStorage {
   ) -> Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let mut g = fs.try_lock().unwrap();
+      let mut g = lock_spin(&fs);
       let entry = g.files.entry(file_name).or_default();
       if truncate {
         entry.truncate(pos as usize);
@@ -557,7 +595,7 @@ impl LocalFsTrait for MockStorage {
   fn read_text_file(&self, file_name: String) -> Pin<Box<dyn Future<Output = Result<String, FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let g = fs.try_lock().unwrap();
+      let g = lock_spin(&fs);
       let entry = g.files.get(&file_name).ok_or(FsError::NotFound)?;
       Ok(from_utf8(entry).map_err(FsError::Decoding)?.to_string())
     })
@@ -565,7 +603,7 @@ impl LocalFsTrait for MockStorage {
   fn write_text_file(&self, file_name: String, text: String) -> Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let mut g = fs.try_lock().unwrap();
+      let mut g = lock_spin(&fs);
       g.files.insert(file_name, text.into_bytes());
       Ok(())
     })
@@ -573,7 +611,7 @@ impl LocalFsTrait for MockStorage {
   fn delete(&self, name: String) -> Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let mut g = fs.try_lock().unwrap();
+      let mut g = lock_spin(&fs);
       if g.files.remove(&name).is_some() || g.dirs.remove(&name) {
         Ok(())
       } else {
@@ -584,7 +622,7 @@ impl LocalFsTrait for MockStorage {
   fn mkdir(&self, dir_name: String) -> Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let mut g = fs.try_lock().unwrap();
+      let mut g = lock_spin(&fs);
       g.dirs.insert(dir_name);
       Ok(())
     })
@@ -592,14 +630,14 @@ impl LocalFsTrait for MockStorage {
   fn file_exists(&self, name: String) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let g = fs.try_lock().unwrap();
+      let g = lock_spin(&fs);
       g.files.contains_key(&name) || g.dirs.contains(&name)
     })
   }
   fn get_file_type(&self, name: String) -> Pin<Box<dyn Future<Output = Result<FileType, FsError>> + Send + '_>> {
     let fs = self.fs.clone();
     Box::pin(async move {
-      let g = fs.try_lock().unwrap();
+      let g = lock_spin(&fs);
       if g.files.contains_key(&name) {
         Ok(FileType::File)
       } else if g.dirs.contains(&name) {
@@ -613,7 +651,9 @@ impl LocalFsTrait for MockStorage {
 
 impl fmt::Debug for MockStorage {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("MockStorage").field("files", &self.fs.try_lock().unwrap().files.len()).finish()
+    f.debug_struct("MockStorage")
+      .field("files", &lock_spin(&self.fs).files.len())
+      .finish()
   }
 }
 
@@ -627,13 +667,15 @@ pub struct MockConfig {
 
 impl MockConfig {
   pub fn new(initial: DeviceConfig) -> Self {
-    Self { data: Arc::new(Mutex::new(initial)) }
+    Self {
+      data: Arc::new(Mutex::new(initial)),
+    }
   }
   pub fn get(&self) -> DeviceConfig {
-    self.data.try_lock().unwrap().clone()
+    lock_spin(&self.data).clone()
   }
   pub fn set(&self, cfg: DeviceConfig) {
-    *self.data.try_lock().unwrap() = cfg;
+    *lock_spin(&self.data) = cfg;
   }
 }
 
@@ -641,27 +683,26 @@ impl ConfigFileTrait<DeviceConfig> for MockConfig {
   fn get_json(&self) -> Pin<Box<dyn Future<Output = Result<String, StateError>> + Send + '_>> {
     let d = self.data.clone();
     Box::pin(async move {
-      let g = d.try_lock().unwrap();
+      let g = lock_spin(&d);
       serde_json::to_string(&*g).map_err(|e| StateError::Error(e.to_string()))
     })
   }
   fn set_json(&self, json: Vec<u8>) -> Pin<Box<dyn Future<Output = Result<(), StateError>> + Send + '_>> {
     let d = self.data.clone();
     Box::pin(async move {
-      let parsed: DeviceConfig =
-        serde_json::from_slice(&json).map_err(|e| StateError::Error(e.to_string()))?;
-      *d.try_lock().unwrap() = parsed;
+      let parsed: DeviceConfig = serde_json::from_slice(&json).map_err(|e| StateError::Error(e.to_string()))?;
+      *lock_spin(&d) = parsed;
       Ok(())
     })
   }
   fn get_data(&self) -> Pin<Box<dyn Future<Output = DeviceConfig> + Send + '_>> {
     let d = self.data.clone();
-    Box::pin(async move { d.try_lock().unwrap().clone() })
+    Box::pin(async move { lock_spin(&d).clone() })
   }
   fn set_data(&self, new_state: DeviceConfig) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
     let d = self.data.clone();
     Box::pin(async move {
-      *d.try_lock().unwrap() = new_state;
+      *lock_spin(&d) = new_state;
     })
   }
   fn save(&self) -> Pin<Box<dyn Future<Output = Result<(), StateError>> + Send + '_>> {
@@ -687,7 +728,7 @@ pub struct HttpScript {
 }
 
 pub struct MockHttp {
-  scripts: Arc<Mutex<CriticalSectionRawMutex, Vec<(String, HttpScript)>>> ,
+  scripts: Arc<Mutex<CriticalSectionRawMutex, Vec<(String, HttpScript)>>>,
   pub requests: Arc<Mutex<CriticalSectionRawMutex, Vec<String>>>,
 }
 
@@ -701,7 +742,7 @@ impl MockHttp {
 
   /// Register a canned response matched when the request URL contains `url`.
   pub fn script(&self, url: &str, meta: HttpResponseMeta, chunks: Vec<Vec<u8>>) {
-    self.scripts.try_lock().unwrap().push((url.to_string(), HttpScript { meta, chunks }));
+    lock_spin(&self.scripts).push((url.to_string(), HttpScript { meta, chunks }));
   }
 
   /// Register a canned JSON body (status 200).
@@ -711,7 +752,7 @@ impl MockHttp {
   }
 
   pub fn requested_urls(&self) -> Vec<String> {
-    self.requests.try_lock().unwrap().clone()
+    lock_spin(&self.requests).clone()
   }
 }
 
@@ -722,19 +763,17 @@ impl Default for MockHttp {
 }
 
 impl HttpClient for MockHttp {
-  fn request<'a>(
-    &'a self,
-    req: HttpRequest,
-    channel: &'a crate::platform::HttpEventChannel,
-  ) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+  fn request<'a>(&'a self, req: HttpRequest, channel: &'a crate::platform::HttpEventChannel) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
     let scripts = self.scripts.clone();
     let requests = self.requests.clone();
     Box::pin(async move {
-      requests.try_lock().unwrap().push(req.url.clone());
+      lock_spin(&requests).push(req.url.clone());
       let url = req.url.clone();
       let matched = {
-        let g = scripts.try_lock().unwrap();
-        g.iter().find(|(u, _)| url.contains(u.as_str())).map(|(_, s)| (s.meta.clone(), s.chunks.clone()))
+        let g = lock_spin(&scripts);
+        g.iter()
+          .find(|(u, _)| url.contains(u.as_str()))
+          .map(|(_, s)| (s.meta.clone(), s.chunks.clone()))
       };
       match matched {
         Some((meta, chunks)) => {
@@ -775,21 +814,23 @@ pub struct MockTcp {
 
 impl MockTcp {
   pub fn new() -> Self {
-    Self { state: Arc::new(Mutex::new(TcpState::default())) }
+    Self {
+      state: Arc::new(Mutex::new(TcpState::default())),
+    }
   }
   pub fn set_connect_ok(&self, ok: bool) {
-    self.state.try_lock().unwrap().connect_ok = ok;
+    lock_spin(&self.state).connect_ok = ok;
   }
   /// Queue an inbound event (in order).
   pub fn push_inbound(&self, ev: TcpEvent) {
-    self.state.try_lock().unwrap().inbound.try_push(ev);
+    lock_spin(&self.state).inbound.try_push(ev);
   }
   pub fn inbound(&self) -> EventQueue<TcpEvent, 64> {
-    self.state.try_lock().unwrap().inbound.clone()
+    lock_spin(&self.state).inbound.clone()
   }
   /// Everything the app has sent on the (fake) connection.
   pub fn outbound(&self) -> Vec<Vec<u8>> {
-    self.state.try_lock().unwrap().outbound.clone()
+    lock_spin(&self.state).outbound.clone()
   }
 }
 
@@ -803,7 +844,7 @@ impl TcpClient for MockTcp {
   fn connect(&self, host: String, port: u16) -> Pin<Box<dyn Future<Output = Result<TcpSession, ()>> + 'static>> {
     let state = self.state.clone();
     Box::pin(async move {
-      let ok = state.try_lock().unwrap().connect_ok;
+      let ok = lock_spin(&state).connect_ok;
       if !ok {
         return Err(());
       }
@@ -826,7 +867,7 @@ pub struct MockTcpSession {
 
 impl MockTcpSession {
   fn inbound(&self) -> EventQueue<TcpEvent, 64> {
-    self.state.try_lock().unwrap().inbound.clone()
+    lock_spin(&self.state).inbound.clone()
   }
 }
 
@@ -841,13 +882,13 @@ impl TcpSessionBackend for MockTcpSession {
   fn send<'a>(&'a self, data: Vec<u8>) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
     let state = self.state.clone();
     Box::pin(async move {
-      state.try_lock().unwrap().outbound.push(data);
+      lock_spin(&state).outbound.push(data);
     })
   }
   fn close<'a>(&'a self) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
     let state = self.state.clone();
     Box::pin(async move {
-      state.try_lock().unwrap().inbound.try_push(TcpEvent::Closed);
+      lock_spin(&state).inbound.try_push(TcpEvent::Closed);
     })
   }
 }
@@ -938,6 +979,10 @@ impl MockPlatform {
   pub fn push_button(&self, b: HexButton) {
     self.input.push_button(b);
   }
+
+  pub fn push_button_event(&self, b: HexButton) {
+    self.input.push_button_event(b);
+  }
   pub fn push_boot(&self) {
     self.system.push_boot();
   }
@@ -1000,10 +1045,10 @@ impl MockPlatform {
 
   // -- misc --
   pub fn power_off_count(&self) -> u32 {
-    *self.power.power_offs.try_lock().unwrap()
+    *lock_spin(&self.power.power_offs)
   }
   pub fn reset_count(&self) -> u32 {
-    *self.resets.try_lock().unwrap()
+    *lock_spin(&self.resets)
   }
 }
 
@@ -1082,18 +1127,18 @@ impl crate::platform::Platform for MockPlatform {
     self.firmware_version
   }
   fn entropy(&self, dest: &mut [u8]) {
-    let mut base = *self.entropy_counter.try_lock().unwrap();
+    let mut base = *lock_spin(&self.entropy_counter);
     for b in dest.iter_mut() {
       *b = base as u8;
       base = base.wrapping_add(1);
     }
-    *self.entropy_counter.try_lock().unwrap() = base;
+    *lock_spin(&self.entropy_counter) = base;
   }
   async fn format_storage(&self) -> Result<(), FsError> {
     self.storage.format().await
   }
   async fn software_reset(&self) {
-    *self.resets.try_lock().unwrap() += 1;
+    *lock_spin(&self.resets) += 1;
   }
   async fn ota_begin(&self) -> Result<u32, OtaError> {
     Ok(0)
@@ -1250,12 +1295,7 @@ impl LocalFsTrait for ForwardStorage {
   fn get_file_size(&self, n: String) -> Pin<Box<dyn Future<Output = Result<u32, FsError>> + Send + '_>> {
     self.0.get_file_size(n)
   }
-  fn read_binary_chunk(
-    &self,
-    n: String,
-    pos: u32,
-    size: u32,
-  ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, FsError>> + Send + '_>> {
+  fn read_binary_chunk(&self, n: String, pos: u32, size: u32) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, FsError>> + Send + '_>> {
     self.0.read_binary_chunk(n, pos, size)
   }
   fn write_binary_chunk(

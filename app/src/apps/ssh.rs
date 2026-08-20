@@ -221,7 +221,7 @@ impl<P: Platform> SshApp<P> {
 
     let connected = embassy_futures::select::select(
       select_timeout(tcp.connect(self.host.clone(), self.port), CONNECT_TIMEOUT_MS),
-      ctx.next(),
+      ctx.next_interrupt(),
     )
     .await;
     let tcp_session = match connected {
@@ -234,11 +234,12 @@ impl<P: Platform> SshApp<P> {
     self.status = "Loading key...".to_string();
     self.ctx.update_lcd(self.render());
 
-    let key_pem = match embassy_futures::select::select(self.ctx.platform.storage_manager().read_text_file(key_path), ctx.next()).await {
-      embassy_futures::select::Either::First(Ok(pem)) => pem,
-      embassy_futures::select::Either::First(Err(_)) => return Err(AppError::NotFound("Key not found".into())),
-      embassy_futures::select::Either::Second(_) => return Err(AppError::Message("Cancelled".into())),
-    };
+    let key_pem =
+      match embassy_futures::select::select(self.ctx.platform.storage_manager().read_text_file(key_path), ctx.next_interrupt()).await {
+        embassy_futures::select::Either::First(Ok(pem)) => pem,
+        embassy_futures::select::Either::First(Err(_)) => return Err(AppError::NotFound("Key not found".into())),
+        embassy_futures::select::Either::Second(_) => return Err(AppError::Message("Cancelled".into())),
+      };
     let private_key = match PrivateKey::parse_openssh_pem(&key_pem, None) {
       Ok(k) => k,
       Err(err) => return Err(AppError::Message(format!("Bad key: {err:?}"))),
@@ -307,7 +308,8 @@ impl<P: Platform> SshApp<P> {
     debug!("SshApp: flushed initial frames");
 
     loop {
-      let event = match embassy_futures::select::select(select_timeout(tcp.next_event(), HANDSHAKE_TIMEOUT_MS), ctx.next()).await {
+      let event = match embassy_futures::select::select(select_timeout(tcp.next_event(), HANDSHAKE_TIMEOUT_MS), ctx.next_interrupt()).await
+      {
         embassy_futures::select::Either::First(Some(ev)) => ev,
         embassy_futures::select::Either::First(None) => return Err(AppError::Timeout),
         embassy_futures::select::Either::Second(_) => return Err(AppError::Message("Cancelled".into())),

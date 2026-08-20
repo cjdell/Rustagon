@@ -151,18 +151,21 @@ impl fmt::Debug for DesktopPlatform {
 
 impl DesktopPlatform {
   pub fn new(data_dir: impl Into<PathBuf>) -> Self {
+    let data_dir = data_dir.into();
     let display_raw = Arc::new(DesktopDisplayManager::new());
     let display = DisplayHandle::new(display_raw.clone() as Arc<dyn DisplayManager>);
-    let hexpansion_manager = DesktopHexpansionManager::new();
+    // Hexpansion file simulation: one JSON per port under `<data_dir>/hexpansions`.
+    let hexpansion_manager = DesktopHexpansionManager::new(data_dir.join("hexpansions"));
     let hexpansion = HexpansionHandle::new(Arc::new(hexpansion_manager.clone()) as Arc<dyn HexpansionManager>);
     let led = LedHandle::new(Arc::new(DesktopLedManager) as Arc<dyn LedManager>);
     let power = PowerHandle::new(Arc::new(DesktopPowerManager) as Arc<dyn PowerManager>);
-    let wifi = WiFiHandle::new(Arc::new(DesktopWifiManager::new()) as Arc<dyn WiFiManager>);
+    // WiFi file simulation: AP list in `<data_dir>/wifi.json`.
+    let wifi = WiFiHandle::new(Arc::new(DesktopWifiManager::new(data_dir.clone())) as Arc<dyn WiFiManager>);
     let input_manager = DesktopInputManager::new();
     let input = InputHandle::new(Arc::new(input_manager.clone()) as Arc<dyn InputManager>);
     let system_manager = DesktopSystemManager::new();
     let system = SystemHandle::new(Arc::new(system_manager.clone()) as Arc<dyn SystemManager>);
-    let local_fs = DesktopLocalFs::new(data_dir);
+    let local_fs = DesktopLocalFs::new(data_dir.clone());
     let storage = StorageHandle::new(Arc::new(local_fs) as Arc<dyn LocalFsTrait>);
     let config = ConfigHandle::new(Arc::new(DesktopConfigManager::new()) as Arc<dyn ConfigFileTrait<DeviceConfig>>);
     let http_client = HttpClientHandle::new(Arc::new(DesktopHttpClient) as Arc<dyn app::platform::HttpClient>);

@@ -628,7 +628,8 @@ rustagon/
 │       │   ├── fs.rs                 #   DesktopLocalFs (real directory-backed)
 │       │   ├── input.rs              #   DesktopInputManager (keyboard) + DesktopSystemManager
 │       │   ├── config.rs            #   DesktopConfigManager (JSON file-backed)
-│       │   └── common.rs             #   DesktopLed/Power/Wifi/System managers (no-op impls)
+│       │   └── common.rs             #   DesktopLed/Power managers + file-backed hexpansion/wifi simulations
+│                                      #   (see "Desktop platform simulation"), DesktopAppSpawner
 │       └── tasks/                    # Desktop task wrappers (mirrors firmware/)
 │           └── wasm/                 # WASM runtime (analogous to firmware's second core)
 │               ├── mod.rs            #   spawn_wasm_runner, wasm_host_loop, run_program
@@ -940,6 +941,36 @@ downloads are interruptible the same way.
 **`on_stop` runs on every pop** (boot button included) — SSH overrides it to
 close its socket, not just on `Stop`.
 
+### Button repeat (app layer)
+
+Held hex buttons repeat — the policy lives **once, in the app layer**
+(`app/src/apps/common.rs::ButtonRepeater`), so firmware and desktop share it
+(the platforms only deliver press/release edges; a held physical button or key
+produces no further events of its own):
+
+- **Policy:** `BUTTON_REPEAT_INITIAL_DELAY_MS = 400` (initial hold) then
+  `BUTTON_REPEAT_PERIOD_MS = 100` (repeat). Release events disarm; a press of
+  the button that is already held (the repeat press flowing back through
+  `feed`) does **not** re-arm the initial delay. The clock is `embassy-time`
+  (the mock driver drives it in headless tests). System/boot buttons never
+  repeat. Missed deadlines are skipped, never burst.
+- **Wiring:** `AppRunContext::next()`/`next_input()` repeat. `next_raw()` is
+  the no-repeat variant — used by the **hosted-app pump** (`run_hosted_app`),
+  which forwards platform edges to the WASM guest 1:1. That is the seam for
+  guest-side repeat: a guest that wants it applies `ButtonRepeater` to the
+  forwarded `HexButton`s itself.
+- **`ctx.next_interrupt()`** — the cancellation source for in-flight ops
+  (App Store/OTA downloads, SSH connect/key-load/handshake): any system event,
+  any button **press**, or any external event; button **releases** are
+  consumed and skipped (a physical press is a press/release pair back-to-back,
+  and the release of the button that *started* the op must not cancel it —
+  on real hardware it would, which is how a release-cancel regression was
+  found). Releases are still fed to the repeater, so the button disarms.
+- Tests: `app/tests/button_repeat.rs` (repeater unit behaviour + held-button
+  e2e through `AppDriver` on the mock clock). `MockPlatform::push_button` is a
+  discrete **tap** (press + release); `push_button_event` pushes one raw edge
+  for hold/release scenarios.
+
 ## Desktop WASM Runner
 
 The desktop WASM runner (`desktop/src/tasks/wasm/`) mirrors the firmware's WASM runtime
@@ -989,6 +1020,36 @@ alongside its input source (a single flat `select`, no nesting). The hosted pump
 forwards hex buttons with `try_send`; a boot button sends
 `HostRuntimeCommand::Stop` and the pump waits for the resulting `StackEvent::Popped`
 before resuming the previous entry.
+
+## Desktop platform simulation (hexpansion + wifi)
+
+The desktop is a faithful platform: hexpansion slots and the WiFi radio are
+file-backed simulations owned by the managers (`desktop/src/platform/common.rs`),
+seeded from the data dir (`<data_dir>/hexpansions/`, `<data_dir>/wifi.json`;
+samples are tracked in `desktop/data/` — the rest of the data dir stays
+ignored). Headless coverage: `sim_tests` in `desktop/src/main.rs`.
+
+**Hexpansion slots** — one JSON per port, `<data_dir>/hexpansions/port<N>.json`
+(N = 1..6): `vid`, `pid` (u16), `unique_id` (u32), `friendly_name` (string),
+optional `driver` tag (informational — the desktop has no driver table). A
+background thread re-reads the files on a 1 s cadence and pushes
+`HexpansionEvent::Inserted`/`Removed` into the manager's `EventQueue`
+(same semantics as the firmware's EEPROM polling task); `current_state()`
+reflects the files. `HexpansionViewerApp` live-updates when a file
+appears/disappears. A missing or invalid file means "port empty".
+
+**WiFi** — `<data_dir>/wifi.json` is a JSON array of
+`{ ssid, signal_strength, password_required }` (the `WifiResult` shape).
+`scan()` returns it; `set_desired_state(Online)` flips the manager's
+`WatchedValue<WifiStatus>` to `Connected(127.0.0.1)` (and back to
+`Offline`), so `wait_for_status_change` actually resolves — `WifiScannerApp`
+is fully exercisable on desktop.
+
+**Icons on desktop** — the icon data is embedded at compile time by
+`include_rgb565_icon!` (the same proc-macro path as the firmware — no
+divergent rendering), so it renders on every host. `desktop/tests/icon_render.rs`
+proves it (every `Icon20`/`Icon40`/logo asset is non-blank, and menu lines +
+headlines draw their icons through `LcdState` on the desktop framebuffer).
 
 ## Key Design Decisions & Crate Boundaries
 
@@ -1084,16 +1145,9 @@ for hex buttons.
 2. **Remove `esp_hal::system::software_reset()` calls outside Platform** — `wifi_join.rs`
    still calls directly; should use `platform.software_reset()`.
 
-4. **Desktop hexpansion simulation** — The desktop `HexpansionManager` is a no-op stub.
-   Implement file-backed simulation for hexpansion EEPROMs and virtual keyboard events.
-
 ### Low Priority
 
-1. **Desktop improvements**
-   - Render icons (currently empty on non-xtensa)
-   - Improve keyboard mappings
-
-2. **Interrupt-driven keyboard** — The TCA8418 driver currently polls every 20ms.
+1. **Interrupt-driven keyboard** — The TCA8418 driver currently polls every 20ms.
    The HS_H pin on the hexpansion port could be used as an interrupt line for zero-latency
    key event detection.
 
@@ -1337,7 +1391,8 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **I2C infrastructure:** `firmware/src/utils/i2c.rs`
 - **IPC handler (firmware):** `firmware/src/tasks/ipc_handler.rs`
 - **Menu wrapper (firmware):** `firmware/src/tasks/menu/mod.rs`
-- **Desktop platform:** `desktop/src/platform/mod.rs`
+- **Desktop platform:** `desktop/src/platform/mod.rs` (simulations in `common.rs`: `read_sim_slots`/`hexpansion_sim_loop`, `read_wifi_scan`; samples in `desktop/data/`, headless coverage in `main.rs` `sim_tests`, icon rendering in `desktop/tests/icon_render.rs`)
+- **Button repeat:** `app/src/apps/common.rs` (`ButtonRepeater`, `BUTTON_REPEAT_*_MS`, `AppRunContext::next_raw`/`next_interrupt`), tests in `app/tests/button_repeat.rs`
 - **WASM IPC:** `firmware/src/tasks/wasm/`
 - **Desktop WASM runner:** `desktop/src/tasks/wasm/`
 - **Network infrastructure:** `firmware/src/tasks/net.rs`

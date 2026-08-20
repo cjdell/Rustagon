@@ -1,5 +1,5 @@
 use crate::{
-  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
+  apps::{common::AppName, AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext},
   platform::{HttpEventChannel, Platform},
   protocol::{HttpEvent, HttpRequest},
   types::*,
@@ -115,7 +115,7 @@ impl<P: Platform> AppStoreApp<P> {
           }
         }
       }),
-      ctx.next(),
+      ctx.next_interrupt(),
     )
     .await;
     if matches!(downloaded, embassy_futures::select::Either::Second(_)) {
@@ -167,7 +167,7 @@ impl<P: Platform> AppStoreApp<P> {
           }
         }
       }),
-      ctx.next(),
+      ctx.next_interrupt(),
     )
     .await;
     if matches!(finished, embassy_futures::select::Either::Second(_)) {

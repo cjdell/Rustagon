@@ -392,7 +392,10 @@ async fn run_menu_app<P: Platform>(
 async fn run_hosted_app<P: Platform>(stack: &mut Vec<AppStackEntry<P>>, runner_ctx: &MenuRunnerContext<P>) {
   loop {
     let ctx = AppRunContext::new(&runner_ctx.platform, None);
-    let event = select(ctx.next(), runner_ctx.stack_event_handle.receive()).await;
+    // `next_raw`: forward platform edges to the guest 1:1 — app-layer button
+    // repeat is a built-in-app policy; a guest that wants it can apply
+    // `ButtonRepeater` to the forwarded `HexButton`s itself.
+    let event = select(ctx.next_raw(), runner_ctx.stack_event_handle.receive()).await;
 
     match event {
       Either::Second(StackEvent::Popped) => {

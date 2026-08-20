@@ -18,6 +18,7 @@ embassy-sync = "0.8.0"
 embassy-futures = "0.1.2"
 critical-section = { version = "1.2.0", features = ["std"] }
 futures = { version = "0.3", default-features = false, features = ["executor"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
 
 ureq = { version = "3", features = ["json"] }

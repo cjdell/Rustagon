@@ -194,7 +194,11 @@ fn resolve_wasm_path(arg: &str) -> Option<PathBuf> {
     return Some(path);
   }
   let with_ext = path.with_extension("wsm");
-  if with_ext.is_file() { Some(with_ext) } else { None }
+  if with_ext.is_file() {
+    Some(with_ext)
+  } else {
+    None
+  }
 }
 
 /// Map a minifb key to the app's `KeyCode`, mimicking the KeebDeck keyboard
@@ -429,12 +433,115 @@ impl FrameBuffer for DesktopFrameBuffer<'_> {
 }
 
 #[cfg(test)]
+mod sim_tests {
+  //! Headless coverage for the Block 10 desktop simulations (hexpansion slot
+  //! files + wifi.json): no display needed.
+  use super::*;
+  use app::platform::hexpansion::HexpansionManager;
+  use app::platform::wifi::{WiFiManager, WifiStatus};
+  use app::types::{HexpansionEvent, WifiDesiredState};
+
+  fn temp_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("rustagon_{tag}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+  }
+
+  #[test]
+  fn hexpansion_simulation_detects_insert_and_remove() {
+    let dir = temp_dir("hexp_sim");
+    let manager = platform::DesktopHexpansionManager::new(&dir);
+
+    // Fresh dir: all six ports empty, no events yet.
+    assert!(manager.current_state().iter().all(|(_, slot)| slot.is_none()));
+    assert!(manager.try_next_event().is_none());
+
+    // Plug a device into port 2.
+    std::fs::write(
+      dir.join("port2.json"),
+      r#"{ "vid": 47715, "pid": 20155, "unique_id": 9, "friendly_name": "Test Pad", "driver": "tca8418" }"#,
+    )
+    .unwrap();
+    for _ in 0..20 {
+      if manager.current_state()[1].1.is_some() {
+        break;
+      }
+      std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let state = manager.current_state();
+    let info = state[1].1.as_ref().expect("port 2 should be occupied");
+    assert_eq!((info.port, info.vid, info.pid, info.unique_id), (2, 47715, 20155, 9));
+    assert_eq!(info.friendly_name, "Test Pad");
+    assert!(manager.current_state().iter().enumerate().all(|(i, (_, s))| i == 1 || s.is_none()));
+    assert!(matches!(manager.try_next_event(), Some(HexpansionEvent::Inserted(_))));
+
+    // Unplug it.
+    std::fs::remove_file(dir.join("port2.json")).unwrap();
+    for _ in 0..20 {
+      if manager.current_state()[1].1.is_none() {
+        break;
+      }
+      std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(manager.current_state()[1].1.is_none());
+    assert!(matches!(manager.try_next_event(), Some(HexpansionEvent::Removed { port: 2 })));
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn wifi_simulation_scans_and_flips_status() {
+    let dir = temp_dir("wifi_sim");
+    std::fs::write(
+      dir.join("wifi.json"),
+      r#"[{ "ssid": "Lab", "signal_strength": -40, "password_required": true }, { "ssid": "Guest", "signal_strength": -71 }]"#,
+    )
+    .unwrap();
+    let manager = platform::DesktopWifiManager::new(&dir);
+
+    assert!(matches!(futures::executor::block_on(manager.get_status()), WifiStatus::Offline));
+
+    let nets = futures::executor::block_on(manager.scan()).unwrap();
+    assert_eq!(nets.len(), 2);
+    assert_eq!(nets[0].ssid, "Lab");
+    assert_eq!(nets[0].signal_strength, -40);
+    assert!(nets[0].password_required);
+    assert!(!nets[1].password_required);
+
+    // Connecting flips the watched value; disconnecting flips it back.
+    futures::executor::block_on(manager.set_desired_state(WifiDesiredState::Online));
+    let status = futures::executor::block_on(manager.get_status());
+    assert!(matches!(status, WifiStatus::Connected(_)));
+    futures::executor::block_on(manager.set_desired_state(WifiDesiredState::Offline));
+    assert!(matches!(futures::executor::block_on(manager.get_status()), WifiStatus::Offline));
+
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn wifi_simulation_without_file_scans_empty() {
+    let dir = temp_dir("wifi_sim_empty");
+    let manager = platform::DesktopWifiManager::new(&dir);
+    assert!(futures::executor::block_on(manager.scan()).unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+}
+
+#[cfg(test)]
 mod menu_smoke_tests {
   //! Runtime smoke test for the run-loop menu model: launch a built-in app
   //! from the root menu, interact with it, and exit back to the root menu
   //! with the boot button.
   use super::*;
   use app::types::{HexButton, SystemMessage};
+
+  /// A discrete tap: press + release (what the minifb loop emits, and what
+  /// the app-layer button repeater expects to see to disarm).
+  fn push_tap(pusher: &platform::DesktopInputManager, button: HexButton) {
+    pusher.push_button(button);
+    pusher.push_button(button.released());
+  }
 
   #[test]
   fn root_menu_launches_app_and_boot_button_returns_to_root() {
@@ -471,10 +578,13 @@ mod menu_smoke_tests {
       "expected root menu, got {screen:?}"
     );
 
-    // Down → "Configuration" (index 1), Fire → launch it.
-    input_pusher.push_button(HexButton::Down);
+    // Down ×2 → "Configuration" (index 2 — "Confirm" took index 1 when it
+    // became a launchable built-in), Fire → launch it.
+    push_tap(&input_pusher, HexButton::Down);
     std::thread::sleep(std::time::Duration::from_millis(150));
-    input_pusher.push_button(HexButton::Fire);
+    push_tap(&input_pusher, HexButton::Down);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    push_tap(&input_pusher, HexButton::Fire);
     std::thread::sleep(std::time::Duration::from_millis(600));
 
     let (screen, _) = platform.get_screen();
@@ -488,10 +598,10 @@ mod menu_smoke_tests {
     std::thread::sleep(std::time::Duration::from_millis(600));
 
     let (screen, _) = platform.get_screen();
-    // Selection is preserved on the stack: "Configuration" (index 1) is still
+    // Selection is preserved on the stack: "Configuration" (index 2) is still
     // highlighted.
     assert!(
-      matches!(&screen, display_types::LcdScreen::Menu { menu, selected, .. } if *selected == 1 && menu.first().map(|l| l.1.as_str()) == Some("App Store")),
+      matches!(&screen, display_types::LcdScreen::Menu { menu, selected, .. } if *selected == 2 && menu.first().map(|l| l.1.as_str()) == Some("App Store")),
       "expected root menu (selection preserved) after boot button, got {screen:?}"
     );
   }

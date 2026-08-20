@@ -8,21 +8,35 @@
 //!
 //! Run: `just test` (i.e. `cargo test -p app --features testing`).
 
-extern crate alloc;
+extern crate std;
 
-use alloc::string::{String, ToString};
+use std::string::{String, ToString};
 
-// The only critical-section impl for this test binary (embassy-sync
-// primitives in `MockPlatform` + the result channel need one; a no-op lock
-// is safe: each test is single-threaded against its own mock).
+// The only critical-section impl for this test binary. Unlike the golden
+// tests (single-threaded, serialized by a global lock), the end-to-end tests
+// here run `menu_task` on a background thread that shares `MockPlatform`'s
+// embassy-sync queues *and* the embassy-time mock clock with the test thread.
+// The lock must therefore be a real mutex — a no-op impl would let the two
+// threads race the RefCells inside the mock driver and the channels.
+static CS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+// `RawRestoreState` is `()` in this build, so the guard is parked in a
+// thread-local between `acquire` and `release` (a thread holds at most one
+// critical section at a time — `critical_section::with` is not reentrant).
+thread_local! {
+  static CS_GUARD: std::cell::Cell<Option<std::sync::MutexGuard<'static, ()>>> = const { std::cell::Cell::new(None) };
+}
+
 struct TestLock;
 critical_section::set_impl!(TestLock);
-#[allow(clippy::unused_unit)]
 unsafe impl critical_section::Impl for TestLock {
   unsafe fn acquire() -> critical_section::RawRestoreState {
-    ()
+    CS_GUARD.with(|g| g.set(Some(CS_LOCK.lock().unwrap_or_else(|e| e.into_inner()))));
   }
-  unsafe fn release(_restore_state: critical_section::RawRestoreState) {}
+
+  unsafe fn release(_restore: critical_section::RawRestoreState) {
+    CS_GUARD.with(|g| g.take());
+  }
 }
 
 use app::apps::confirm::ConfirmationApp;
