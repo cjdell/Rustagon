@@ -31,13 +31,13 @@ use puressh::{
   auth::{ClientAuth, ClientCredential, ClientStep},
   channel::{ChannelEvent, ChannelOpen, ChannelRequest, ConnectionState},
   error::{Error, Result},
-  hostkey::{HostKey, HostKeyVerify, host_key_verify_by_name},
+  hostkey::{host_key_verify_by_name, HostKey, HostKeyVerify},
   transport::{
-    KexAlgorithms, KexInit, PacketCodec,
     ext_info::SSH_MSG_EXT_INFO,
     rekey::is_kex_msg,
     runner::{KexRunner, Role},
-    version::{LOCAL_VERSION, VersionExchange},
+    version::{VersionExchange, LOCAL_VERSION},
+    KexAlgorithms, KexInit, PacketCodec,
   },
 };
 
@@ -166,6 +166,10 @@ pub struct SshSession {
   user: String,
   /// The private key used for publickey auth; consumed when auth starts.
   host_key: Option<Box<dyn HostKey>>,
+  /// The server host key in SSH wire format (string encoding), captured from
+  /// the first `SSH_MSG_KEX_ECDH_REPLY`. Exposed for trust-on-first-use
+  /// fingerprinting (see `SshApp`).
+  server_host_key: Option<Vec<u8>>,
   auth: Option<ClientAuth>,
   conn: ConnectionState,
   /// Local id of the session channel once opened.
@@ -196,6 +200,7 @@ impl SshSession {
       session_id: Vec::new(),
       user,
       host_key: Some(host_key),
+      server_host_key: None,
       auth: None,
       conn: ConnectionState::new(),
       channel: None,
@@ -309,6 +314,12 @@ impl SshSession {
     self.channel.is_some() && self.shell_sent
   }
 
+  /// The server host key in SSH wire format, once the first KEX reply has
+  /// been seen. Hash this (SHA-256) for trust-on-first-use fingerprinting.
+  pub fn server_host_key(&self) -> Option<&[u8]> {
+    self.server_host_key.as_deref()
+  }
+
   // --- internal routing ---
 
   /// Consume version-exchange preamble + the `SSH-2.0-…` line from `inbox`.
@@ -398,6 +409,11 @@ impl SshSession {
       }
       let k_s = &payload[5..5 + k_s_len];
       let neg = self.runner.negotiated().ok_or(Error::Protocol("kex: no negotiated algorithms"))?;
+      // Keep the host key for fingerprinting (TOFU in `SshApp`); the first
+      // KEX reply wins — re-keys carry the same key.
+      if self.server_host_key.is_none() {
+        self.server_host_key = Some(k_s.to_vec());
+      }
       // Trust-on-first-use: accept any `ssh-ed25519` host key, but still verify
       // the exchange-hash signature against it.
       Some(host_key_verify_by_name(&neg.host_key, k_s)?)

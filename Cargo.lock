@@ -195,6 +195,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-tools",
  "esp-alloc",
+ "futures",
  "log",
  "picoserve",
  "purecrypto",

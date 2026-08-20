@@ -1,14 +1,23 @@
 use crate::{
-  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, common::AppName},
+  apps::{common::AppName, AppAction, AppInput, AppParams, AppResult, AppRunContext, AppRunEvent, MenuApp, MenuAppContext},
   platform::Platform,
   types::*,
 };
-use alloc::{format, string::ToString, vec, vec::Vec};
+use alloc::{
+  format,
+  string::{String, ToString},
+  vec,
+  vec::Vec,
+};
 use embedded_tools::local_fs::DirEntry;
 use log::{info, warn};
 
 pub struct FilesApp<P: Platform> {
   ctx: MenuAppContext<P>,
+  /// `Some` when running as a picker (pushed with `AppParams::PickFile`):
+  /// Fire on a file returns `AppResult::Path` to the parent, back/boot
+  /// return `Cancelled`. The `String` is the picker's prompt (reserved).
+  picker: Option<String>,
   state: AppState,
 }
 
@@ -72,6 +81,21 @@ impl<P: Platform> FilesApp<P> {
   pub fn new(ctx: MenuAppContext<P>) -> Self {
     Self {
       ctx,
+      picker: None,
+      state: AppState::new(),
+    }
+  }
+
+  /// Construct from a push payload; `AppParams::PickFile` enables picker
+  /// mode, anything else is the ordinary file browser.
+  pub fn with_params(ctx: MenuAppContext<P>, params: AppParams) -> Self {
+    let picker = match params {
+      AppParams::PickFile { message } => Some(message),
+      _ => None,
+    };
+    Self {
+      ctx,
+      picker,
       state: AppState::new(),
     }
   }
@@ -162,6 +186,11 @@ impl<P: Platform> FilesApp<P> {
       HexButton::Down => self.state.move_cursor_down(max),
       HexButton::Fire => {
         if self.state.cursor < self.state.files.len() {
+          if self.picker.is_some() {
+            // Picker mode: Fire selects the file and hands it to the parent.
+            let name = self.state.files[self.state.cursor].name.clone();
+            return AppAction::Result(AppResult::Path(name));
+          }
           self.state.selected_file = Some(self.state.files[self.state.cursor].clone());
           self.state.cursor = 0;
           self.state.screen = Screen::FileDetail;
@@ -169,6 +198,8 @@ impl<P: Platform> FilesApp<P> {
           return AppAction::Stop;
         }
       }
+      // In picker mode Left is "back" (→ Cancelled for the parent).
+      HexButton::Left if self.picker.is_some() => return AppAction::Stop,
       _ => {}
     }
     AppAction::Continue

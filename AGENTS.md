@@ -137,8 +137,12 @@ cargo from inside `firmware/` (the just recipes do).
 ### Headless app testing (MockPlatform + golden screens)
 
 Every built-in app is tested in CI without hardware or a display, via the
-`app` crate's `testing` feature (`app/src/testing/`) and the golden-screen
-integration tests in `app/tests/golden.rs`. This is what `just test` runs:
+`app` crate's `testing` feature (`app/src/testing/`), the golden-screen
+integration tests in `app/tests/golden.rs`, the KV round-trip tests in
+`app/tests/kv.rs`, and the push/result-flow tests in `app/tests/menu_results.rs`
+(which drive the real `menu_task` on a background thread — the menu future is
+`!Send` by design, so it is created *inside* that thread, like desktop does).
+This is what `just test` runs:
 
 ```sh
 just test                              # == cargo test -p app --features testing
@@ -171,6 +175,9 @@ diffs on re-run). Each test holds a process-global lock and resets the mock cloc
 so the tests are safe under cargo's parallel test threads.
 
 Notes:
+- The push/result plumbing is covered end-to-end in `app/tests/menu_results.rs`
+  (SSH → Files picker → path back into the form; Cancelled on dismiss; the
+  confirm dialog via the menu; SSH settings persisted to the KV file).
 - The SSH *engine* handshake is still covered by the real-socket e2e unit test
   (`app/src/ssh/tests.rs`). The golden tests cover the SSH *app* UI (connect form
   field editing + focus navigation, key-not-found error path) and the Editor's
@@ -562,21 +569,24 @@ const DRIVER_TABLE: &[DriverEntry] = &[
 rustagon/
 ├── app/                              # Platform-agnostic application library (no_std)
 │   ├── apps/                         # All menu apps (generic over P: Platform)
-│   │   ├── common.rs                 #   MenuApp trait (render/run/on_stop), AppRunContext, AppInput/AppEvent/AppRunEvent, MenuAppContext<P>, AppAction
+│   │   ├── common.rs                 #   MenuApp trait (render/run/on_stop), AppRunContext, AppInput/AppEvent/AppRunEvent,
+│   │   │                              #   MenuAppContext<P>, AppAction (incl. Push/Result), AppParams/AppResult, ResultChannel
 │   │   ├── app_store.rs              #   AppStoreApp<P>
+│   │   ├── confirm.rs                #   ConfirmationApp<P> (Yes/No dialog; returns AppResult::Confirm)
 │   │   ├── config.rs                 #   ConfigApp<P>
 │   │   ├── editor.rs                 #   EditorApp<P> (text editor on ui::text_input, consumes DeviceEvent::Keyboard)
-│   │   ├── files.rs                  #   FilesApp<P>
+│   │   ├── files.rs                  #   FilesApp<P> (also a file picker in Push mode: AppParams::PickFile → AppResult::Path)
 │   │   ├── hexpansion_viewer.rs      #   HexpansionViewerApp<P> (shows slot state)
 │   │   ├── input_test.rs             #   InputTestApp<P>
 │   │   ├── mod.rs                    #   MenuAppType<P> enum + list/load functions
 │   │   ├── ota_updater.rs            #   OtaUpdaterApp<P>
 │   │   ├── power_info.rs             #   PowerInfoApp<P>
-│   │   ├── ssh.rs                    #   SshApp<P> (connect form on ui::form, shell on ui::terminal)
+│   │   ├── ssh.rs                    #   SshApp<P> (connect form on ui::form, key file picker, host-key TOFU, KV-persisted settings; shell on ui::terminal)
 │   │   └── wifi_scanner.rs           #   WifiScannerApp<P>
+│   ├── kv.rs                         # Per-app key-value store (one JSON file per namespace over StorageHandle)
 │   ├── menu/                         # Full menu system (async fn, not Embassy task)
-│   │   ├── mod.rs                    #   menu_task<P: Platform>(), RootMenuApp, run_* entry fns
-│   │   ├── state.rs                  #   AppStackEntry<P>, StackEntryType, StackEvent, StackSignal
+│   │   ├── mod.rs                    #   menu_task<P: Platform>(), RootMenuApp, run_* entry fns (incl. Push/Result delivery)
+│   │   ├── state.rs                  #   AppStackEntry<P> (with pending_result slot), StackEntryType, StackEvent, StackSignal
 │   │   ├── types.rs                  #   MenuRunnerContext<P>, MenuOption, AppLoader<P>
 │   │   └── menus.rs                  #   get_root_menu_options, MenuProvider trait, StaticMenu
 │   ├── native/                       # Native app types (stub, empty in app crate)
@@ -839,6 +849,11 @@ platform) multiplexes:
 so every app gets "BOOP always leaves the app" for free; apps dispatch
 everything else themselves.
 
+`AppRunEvent` also carries `Result(AppResult)`: after an app returns
+`AppAction::Push`, the menu re-enters its `run()` with the child's result
+already buffered in the per-push channel, so the first `ctx.next()` on
+re-entry delivers it (see below).
+
 The menu (`app/src/menu/mod.rs`) has one `run_*` function per stack-top kind.
 `run_menu_app` renders on (re-)entry (subsumes the old `init`/`on_shown` — apps
 do refresh-on-show work at the top of `run()`), then loops
@@ -847,7 +862,62 @@ sub-app, e.g. HTTP upload — it resumes when the hosted app pops), `Popped` is
 defensive re-entry. `AppAction` translation: `Stop` → `on_stop` + pop;
 `LaunchWasm`/`LaunchNative` → send IPC + push `HostedApp`;
 `LoadMenuApp(name)` → `MenuAppType::load_app_async` + push (root menu uses this);
+`Push(name, params)` → load with params + push + create a result channel;
+`Result(r)` → `on_stop` + pop + deliver `r` to the parent;
 `Continue` → re-render + re-enter `run()`.
+
+### Sub-apps with results (`AppAction::Push` / `AppResult`)
+
+Apps can push built-in sub-apps (file pickers, confirm dialogs) and receive
+results back:
+
+- **`AppAction::Push(name, AppParams)`** — `AppParams` is a small typed serde
+  payload (`None`, `PickFile { message }`, `Confirm { title, message }`).
+  `MenuAppType::load_app_async(name, ctx, params)` routes the params to the
+  app; apps that don't take params ignore them.
+- **The menu owns the delivery.** On `Push`, the menu creates a
+  `ResultChannel` (`Arc<embassy Channel<CriticalSectionRawMutex, AppResult, 1>>`;
+  `Arc` because embassy-sync 0.8 `Channel` is not `Clone`), attaches it to the
+  *launcher's* stack entry (`AppStackEntry::MenuApp.pending_result`), and pushes
+  the child. The child returns `AppAction::Result(r)` (or `Stop`, which is
+  delivered as `AppResult::Cancelled`) and is popped; the menu `try_send`s the
+  value into the parent's channel (capacity 1, so it never blocks) and
+  re-enters the parent's `run()` with an `AppRunContext` wired to the channel —
+  the first `ctx.next()` returns `AppRunEvent::Result(r)`. Apps that
+  `select!` over `next_input()`/`next_event()` directly should drain with
+  `ctx.try_next_result()` on (re-)entry.
+- **Current consumers:** `FilesApp` picker mode (Fire on a file →
+  `AppResult::Path`; back → `Cancelled`); `ConfirmationApp` (Yes/No →
+  `AppResult::Confirm(bool)`; boot/back → `Cancelled`). SSH pushes the picker
+  for its key field and the confirm dialog on a host-key change.
+- At the root menu `Push` degrades to a plain launch (results are dropped —
+  the root has no pending slot), so push from regular menu apps.
+
+### Per-app KV store (`app/src/kv.rs`)
+
+Every app gets a namespaced key-value store over `StorageHandle` via
+`MenuAppContext::kv("namespace") -> KvNamespace`: one JSON file per namespace
+at `/apps/<name>/kv.json`, with typed serde helpers
+(`kv.get::<T>("key")` / `kv.set(key, value)` / `remove` / `contains`).
+
+- **Atomicity:** `LocalFsTrait` has no `rename`, so writes are a single
+  truncate-and-write serialised by the filesystem mutex (the documented
+  fallback in `kv.rs` module docs). A torn file is tolerated: `load` treats a
+  corrupt/unreadable file as *empty* and logs a warning, so a torn KV file
+  costs an app its cached settings but never blocks it.
+- **Current adopters:** `SshApp` (namespace `"ssh"`): the connect form
+  (`host`/`user`/`key`/`port` under key `"connect"`, saved on each connect
+  attempt, restored on first `run()` entry) and per-host host-key
+  fingerprints (`host_key:<host>:<port>` → SHA-256 hex of the server host key
+  in SSH wire format, captured by `SshSession::server_host_key()` from the
+  first KEX reply).
+
+**SSH host-key TOFU:** on `SshEvent::Connected` the app checks the stored
+fingerprint: unknown → store + trust; match → continue; **changed → pause the
+handshake** (the session is parked in `SshApp.session`/`tcp_session`), push the
+`ConfirmationApp`, and on `Confirm(true)` resume the parked handshake via
+`resume_handshake` (the new key becomes the stored one) or on
+`Confirm(false)`/`Cancelled` close the connection and fail.
 
 The **root menu is a `MenuApp`** (`RootMenuApp` in `app/src/menu/mod.rs`):
 `AppAction::LoadMenuApp` launches built-ins; the boot button at root is a no-op
@@ -1255,7 +1325,8 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **AppSpawner:** `app/src/platform/spawner.rs`, firmware `firmware/src/platform/spawner.rs`, desktop `desktop/src/platform/common.rs`
 - **Menu apps:** `app/src/apps/mod.rs` (enum + list/load), `app/src/apps/*.rs`
 - **UI widget toolkit:** `app/src/ui/` (`text_input`, `list`, `form`, `terminal`, `progress`) — the shared building blocks the Editor, SSH connect form, root menu, OTA/App Store downloads build on
-- **SSH engine:** `app/src/ssh/mod.rs` (`SshSession`), SSH key → byte mapping in `app/src/ssh/keys.rs`, terminal widget in `app/src/ui/terminal.rs`
+- **SSH engine:** `app/src/ssh/mod.rs` (`SshSession`, incl. `server_host_key()` for TOFU fingerprinting), SSH key → byte mapping in `app/src/ssh/keys.rs`, terminal widget in `app/src/ui/terminal.rs`
+- **KV store:** `app/src/kv.rs` (`KvNamespace` over `StorageHandle`), accessor on `MenuAppContext`
 - **Protocol types:** `app/src/protocol.rs` (runtime supersets), `libs/wasm_protocol/src/lib.rs` (wire types), `sdk/src/protocol.rs` (SDK re-export + host functions)
 - **Domain types:** `app/src/types.rs`
 - **Firmware entry point:** `firmware/src/bin/rustagon.rs`
@@ -1274,4 +1345,4 @@ deserialises with the intended values — keep it in mind when adding fields.
 - **WatchedValue / EventQueue:** `app/src/utils/sync.rs` (`app::utils::{WatchedValue, EventQueue}`)
 - **ESP32-S3 flash driver:** `libs/esp32s3_embedded_tools/src/flash.rs`
 - **Generic LocalFs:** `libs/embedded_tools/src/local_fs.rs`
-- **Headless testing:** `app/src/testing/` (`MockPlatform` + `AppDriver`, `testing` feature), golden tests + fixtures in `app/tests/golden.rs` + `app/tests/golden/`
+- **Headless testing:** `app/src/testing/` (`MockPlatform` + `AppDriver`, `testing` feature), golden tests + fixtures in `app/tests/golden.rs` + `app/tests/golden/`, KV round-trip tests in `app/tests/kv.rs`, push/result flow tests in `app/tests/menu_results.rs`

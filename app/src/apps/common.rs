@@ -26,13 +26,17 @@
 //!   packets, button key handling). Filtered at runtime via `ESP_LOG`.
 //! - `error!`/`warn!` — recoverable failures the user may see.
 
-use crate::platform::{Platform, display::DisplayHandle};
+use crate::kv::KvNamespace;
+use crate::platform::{display::DisplayHandle, Platform};
 use crate::protocol::HostIpcSender;
 use crate::types::{DeviceEvent, HexButton, HexpansionEvent, Icon40};
 use crate::utils::sleep;
 use alloc::string::{String, ToString};
+use alloc::sync::Arc;
 use core::fmt;
 use display_types::LcdScreen;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 
 /// How long a `ctx.notify` toast stays up. Sourced from `display_types` (the
 /// single source of truth for the `LcdScreen::Notification` timing, also used
@@ -129,6 +133,13 @@ impl<P: Platform> MenuAppContext<P> {
     let _ = self.display.signal(LcdScreen::Notification(icon, msg.into()));
     sleep(NOTIFICATION_MS).await;
   }
+
+  /// A per-app key-value store namespace for this app's settings and state
+  /// (one JSON file per namespace under `/apps/<name>/` on the platform
+  /// storage). See the [`crate::kv`] module docs.
+  pub fn kv(&self, namespace: &str) -> KvNamespace {
+    KvNamespace::new(self.platform.storage_manager(), namespace)
+  }
 }
 
 impl<P: Platform> Clone for MenuAppContext<P> {
@@ -141,6 +152,35 @@ impl<P: Platform> Clone for MenuAppContext<P> {
   }
 }
 
+/// A small typed payload handed to a sub-app when it is pushed with
+/// [`AppAction::Push`]. Kept intentionally tiny: new kinds of sub-app
+/// interaction add a variant here (and a matching [`AppResult`]).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AppParams {
+  /// No parameters.
+  None,
+  /// Run the Files app in picker mode: Fire on a file returns
+  /// [`AppResult::Path`], back/boot returns `Cancelled`.
+  PickFile { message: String },
+  /// Run the confirmation dialog.
+  Confirm { title: String, message: String },
+}
+
+/// The value a sub-app hands back to the app that pushed it. Delivered to
+/// the parent as [`AppRunEvent::Result`] on the parent's re-entry (see
+/// [`AppRunContext::next`]).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AppResult {
+  /// A file path chosen in a picker.
+  Path(String),
+  /// The answer to a confirmation dialog.
+  Confirm(bool),
+  /// The sub-app was dismissed without a value (boot button, back).
+  Cancelled,
+}
+
 /// What the menu did with an app's run-loop result.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppAction {
@@ -149,7 +189,8 @@ pub enum AppAction {
   /// return paths, not the hot loop (loop inside `run()` instead).
   Continue,
   /// The user has quit the app (boot button, an explicit back action). The
-  /// menu calls `on_stop` and pops the app.
+  /// menu calls `on_stop` and pops the app. For a sub-app pushed with
+  /// [`AppAction::Push`], the parent receives [`AppResult::Cancelled`].
   Stop,
   /// Launch a WASM app by name (resolved by the host's app store).
   LaunchWasm(String),
@@ -157,7 +198,22 @@ pub enum AppAction {
   LaunchNative(String),
   /// Launch a built-in menu app by name (used by the root menu).
   LoadMenuApp(String),
+  /// Push a built-in sub-app (by name, resolved like [`AppAction::LoadMenuApp`])
+  /// and await its result. The menu re-enters this app's `run()` once the
+  /// sub-app returns; the result arrives as [`AppRunEvent::Result`] — a child
+  /// returning `Stop` without a result delivers [`AppResult::Cancelled`].
+  Push(String, AppParams),
+  /// The terminal action for a sub-app: hand `result` back to the app that
+  /// pushed this one.
+  Result(AppResult),
 }
+
+/// The per-push result channel the menu creates for a
+/// [`AppAction::Push`]: capacity 1, so the child's result is buffered until
+/// the parent's `run()` re-enters and drains it. `Arc`-wrapped because
+/// `embassy_sync::channel::Channel` is not `Clone` in embassy-sync 0.8 (all
+/// its methods take `&self`).
+pub type ResultChannel = Arc<Channel<CriticalSectionRawMutex, AppResult, 1>>;
 
 /// One input event for an app's run loop.
 #[derive(Debug, Clone)]
@@ -183,6 +239,9 @@ pub enum AppEvent {
 pub enum AppRunEvent {
   Input(AppInput),
   Event(AppEvent),
+  /// A sub-app this app pushed returned a result (see [`AppAction::Push`]).
+  /// Only possible after the menu has re-entered `run()` following a `Push`.
+  Result(AppResult),
 }
 
 impl AppRunEvent {
@@ -214,11 +273,32 @@ impl AppRunEvent {
 /// so apps never have to reason about their own hiding/showing.
 pub struct AppRunContext<'a, P: Platform> {
   platform: &'a P,
+  /// The pending sub-app result channel the menu created for a
+  /// [`AppAction::Push`], if the app is about to receive one. The result
+  /// (already buffered by the menu) is delivered as
+  /// [`AppRunEvent::Result`] by [`AppRunContext::next`].
+  result: Option<&'a ResultChannel>,
 }
 
 impl<'a, P: Platform> AppRunContext<'a, P> {
-  pub fn new(platform: &'a P) -> Self {
-    Self { platform }
+  pub fn new(platform: &'a P, result: Option<&'a ResultChannel>) -> Self {
+    Self { platform, result }
+  }
+
+  /// Non-blocking drain of a pending sub-app result, if the menu has already
+  /// delivered one. Apps that multiplex `next_input()`/`next_event()` directly
+  /// (instead of `next()`) should call this on (re-)entry after a `Push`.
+  pub fn try_next_result(&self) -> Option<AppResult> {
+    self.result.and_then(|channel| channel.try_receive().ok())
+  }
+
+  /// Wait for the pending sub-app result. Only meaningful when the menu
+  /// created a result channel for this re-entry (i.e. the app previously
+  /// returned [`AppAction::Push`]); panics otherwise — use
+  /// [`AppRunContext::next`], which includes the result branch when present.
+  pub async fn next_result(&self) -> AppResult {
+    let channel = self.result.expect("next_result requires a pending Push result");
+    channel.receive().await
   }
 
   /// A clone of the platform handle (storage, wifi, config, http, tcp,
@@ -254,10 +334,25 @@ impl<'a, P: Platform> AppRunContext<'a, P> {
   /// the common case for apps. Apps that also want to multiplex their own
   /// work (a TCP socket, a timer, a download) `select!` over `next()` and
   /// those branches directly.
+  ///
+  /// When the menu has a pending result for this re-entry (after the app
+  /// returned [`AppAction::Push`]), the result is an additional branch and
+  /// arrives first as [`AppRunEvent::Result`] (the menu buffers it before the
+  /// parent re-enters, so it never loses the race against a button press).
   pub async fn next(&self) -> AppRunEvent {
-    match embassy_futures::select::select(self.next_input(), self.next_event()).await {
-      embassy_futures::select::Either::First(input) => AppRunEvent::Input(input),
-      embassy_futures::select::Either::Second(event) => AppRunEvent::Event(event),
+    match self.result {
+      None => match embassy_futures::select::select(self.next_input(), self.next_event()).await {
+        embassy_futures::select::Either::First(input) => AppRunEvent::Input(input),
+        embassy_futures::select::Either::Second(event) => AppRunEvent::Event(event),
+      },
+      Some(channel) => {
+        let io = embassy_futures::select::select(self.next_input(), self.next_event());
+        match embassy_futures::select::select(io, channel.receive()).await {
+          embassy_futures::select::Either::First(embassy_futures::select::Either::First(input)) => AppRunEvent::Input(input),
+          embassy_futures::select::Either::First(embassy_futures::select::Either::Second(event)) => AppRunEvent::Event(event),
+          embassy_futures::select::Either::Second(result) => AppRunEvent::Result(result),
+        }
+      }
     }
   }
 }

@@ -117,7 +117,7 @@ Before any block starts, note what has **already landed** (so agents don't
 | 6 | Menu/app model: apps own their loop (`MenuApp::run` + spawner) | 5 | done |
 | 7 | `MockPlatform` + headless app driver + golden screens | 6 | done |
 | 8 | Shared widget toolkit (`app/src/ui/`) | 6 | done |
-| 9 | App navigation with results + per-app storage | 6 (8 recommended) | not started |
+| 9 | App navigation with results + per-app storage | 6 (8 recommended) | done |
 | 10 | Desktop platform parity (hexpansion/wifi sim, icons, key repeat) | 2, 6 | not started |
 | 11 | WASM SDK parity & tooling (games, emulator removal, size audit) | 3 | not started |
 | 12 | Interrupt-driven keyboard (requires hardware) | 4 | not started |

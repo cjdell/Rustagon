@@ -1,4 +1,8 @@
-use crate::{apps::MenuAppType, menu::RootMenuApp, platform::Platform};
+use crate::{
+  apps::{MenuAppType, ResultChannel},
+  menu::RootMenuApp,
+  platform::Platform,
+};
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -11,9 +15,24 @@ pub enum StackEntryType {
   HostedApp,
 }
 
+// The `MenuApp` variant is the largest (it carries the whole app state);
+// `RootMenu` is a close second. Boxing the second-largest variant would only
+// add indirection to the stack's hot path, so the padding is accepted.
+#[allow(clippy::large_enum_variant)]
 pub enum AppStackEntry<P: Platform> {
-  RootMenu { menu: RootMenuApp<P> },
-  MenuApp { app: MenuAppType<P> },
+  RootMenu {
+    menu: RootMenuApp<P>,
+  },
+  MenuApp {
+    app: MenuAppType<P>,
+    /// The result channel the menu created when *this* app pushed a sub-app
+    /// with `AppAction::Push`. The child's result is buffered here (the
+    /// channel has capacity of one) and delivered to the app as
+    /// `AppRunEvent::Result` on re-entry via `AppRunContext`. A new `Push`
+    /// overwrites the slot; otherwise it is dropped with the entry on pop.
+    /// An empty, unconsumed channel never fires, so a stale slot is harmless.
+    pending_result: Option<ResultChannel>,
+  },
   HostedApp,
 }
 

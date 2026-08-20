@@ -16,8 +16,8 @@
 use alloc::boxed::Box;
 use core::fmt;
 use core::future::Future;
-use core::pin::Pin;
 use core::marker::PhantomData;
+use core::pin::Pin;
 use core::ptr;
 use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
@@ -75,7 +75,7 @@ impl<'p, P: Platform> AppDriver<'p, P> {
   {
     let fut: Pin<Box<dyn Future<Output = AppAction> + 'p>> = Box::pin(async move {
       let mut app = app;
-      app.run(AppRunContext::new(platform)).await
+      app.run(AppRunContext::new(platform, None)).await
     });
     Self {
       fut: Some(fut),
@@ -131,8 +131,6 @@ impl<'p, P: Platform> AppDriver<'p, P> {
 
 impl<P: Platform> fmt::Debug for AppDriver<'_, P> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("AppDriver")
-      .field("done", &self.completed.is_some())
-      .finish()
+    f.debug_struct("AppDriver").field("done", &self.completed.is_some()).finish()
   }
 }

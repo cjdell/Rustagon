@@ -19,7 +19,10 @@ pub mod types;
 pub use types::*;
 
 use crate::{
-  apps::{AppAction, AppInput, AppRunContext, AppRunEvent, MenuApp, MenuAppContext, MenuAppType, nav_button_from_device_event},
+  apps::{
+    nav_button_from_device_event, AppAction, AppInput, AppParams, AppResult, AppRunContext, AppRunEvent, MenuApp, MenuAppContext,
+    MenuAppType, ResultChannel,
+  },
   menu::{menus::get_root_menu_options, state::*},
   platform::{DisplayHandle, Platform},
   protocol::{HostIpcMessage, HostRuntimeCommand},
@@ -28,20 +31,49 @@ use crate::{
 };
 use alloc::{boxed::Box, string::ToString, vec::Vec};
 use display_types::LcdScreen;
-use embassy_futures::select::{Either, select};
-use log::{debug, info};
+use embassy_futures::select::{select, Either};
+use embassy_sync::channel::Channel;
+use log::{debug, info, warn};
 use wasm_protocol::HostIpcMessage as WireHostIpcMessage;
 
 /// What a menu-app entry did when it returned.
 enum MenuAppOutcome<P: Platform> {
-  /// The app stopped (boot button or `Stop` action); pop it.
-  Popped,
+  /// The app stopped (boot button or `Stop` action) or returned an explicit
+  /// result (a sub-app popped after `AppAction::Push`); pop it. `result` is
+  /// `Some` only when the app returned `AppAction::Result(..)`; a plain `Stop`
+  /// of a pushed child is delivered to the parent as `Cancelled`.
+  Popped { result: Option<AppResult> },
   /// A hosted app must run; push a `HostedApp` entry.
   Hosted,
   /// A built-in sub-app was loaded; push it on top. Boxed to keep the enum
   /// small: `MenuAppType` carries an entire app (platform context and app
-  /// state), and the menu stack already heap-owns it.
-  Loaded(Box<MenuAppType<P>>),
+  /// state), and the menu stack already heap-owns it. `result_channel` is
+  /// set for `AppAction::Push` and must be attached to the launcher entry
+  /// (the current stack top) so the child's result is delivered on pop.
+  Loaded(Box<MenuAppType<P>>, Option<ResultChannel>),
+}
+
+/// Deliver a just-popped sub-app's result to the new stack top (the
+/// launcher), if it has a pending result channel. A `None` result (the
+/// child stopped without an explicit `Result`) is delivered as
+/// [`AppResult::Cancelled`] so the launcher never hangs waiting for its
+/// push to resolve. The channel has capacity 1 and no receiver is polling
+/// it yet, so `try_send` always succeeds and the value is buffered until
+/// the launcher re-enters `run()` (delivered as `AppRunEvent::Result`).
+fn deliver_child_result<P: Platform>(stack: &mut [AppStackEntry<P>], result: Option<AppResult>) {
+  match stack.last_mut() {
+    Some(AppStackEntry::MenuApp {
+      pending_result: Some(channel),
+      ..
+    }) => {
+      let _ = channel.try_send(result.unwrap_or(AppResult::Cancelled));
+    }
+    _ => {
+      if let Some(result) = result {
+        debug!("menu_task: child result {result:?} dropped (no menu-app parent to receive it)");
+      }
+    }
+  }
 }
 
 pub async fn menu_task<P: Platform + 'static>(mut runner_ctx: MenuRunnerContext<P>) {
@@ -72,11 +104,25 @@ pub async fn menu_task<P: Platform + 'static>(mut runner_ctx: MenuRunnerContext<
     match top_type {
       Some(StackEntryType::RootMenu) => run_root_menu(&mut stack, &runner_ctx, &display).await,
       Some(StackEntryType::MenuApp) => match run_menu_app(&mut stack, &runner_ctx, &display).await {
-        MenuAppOutcome::Popped => {
+        MenuAppOutcome::Popped { result } => {
           let _ = stack.pop();
+          deliver_child_result(&mut stack, result);
         }
         MenuAppOutcome::Hosted => stack.push(AppStackEntry::HostedApp),
-        MenuAppOutcome::Loaded(app) => stack.push(AppStackEntry::MenuApp { app: *app }),
+        MenuAppOutcome::Loaded(app, result_channel) => {
+          if let Some(channel) = result_channel {
+            // `run_menu_app` only produces `Loaded` for a MenuApp entry, so
+            // the current top is the launcher; it awaits the child's result
+            // on this channel after the child pops.
+            if let Some(AppStackEntry::MenuApp { pending_result, .. }) = stack.last_mut() {
+              *pending_result = Some(channel);
+            }
+          }
+          stack.push(AppStackEntry::MenuApp {
+            app: *app,
+            pending_result: None,
+          });
+        }
       },
       Some(StackEntryType::HostedApp) => run_hosted_app(&mut stack, &runner_ctx).await,
       None => {
@@ -181,7 +227,7 @@ async fn run_root_menu<P: Platform>(stack: &mut Vec<AppStackEntry<P>>, runner_ct
   };
   let _ = display.signal(menu.render());
 
-  let ctx = AppRunContext::new(&runner_ctx.platform);
+  let ctx = AppRunContext::new(&runner_ctx.platform, None);
   let action = select(menu.run(ctx), runner_ctx.stack_event_handle.receive()).await;
 
   match action {
@@ -195,8 +241,8 @@ async fn run_root_menu<P: Platform>(stack: &mut Vec<AppStackEntry<P>>, runner_ct
     Either::First(action) => match action {
       AppAction::LoadMenuApp(name) => {
         let mctx = MenuAppContext::new(runner_ctx.platform.clone(), runner_ctx.host_ipc_sender);
-        match MenuAppType::<P>::load_app_async(&name, mctx) {
-          Ok(app) => stack.push(AppStackEntry::MenuApp { app }),
+        match MenuAppType::<P>::load_app_async(&name, mctx, AppParams::None) {
+          Ok(app) => stack.push(AppStackEntry::MenuApp { app, pending_result: None }),
           Err(mctx) => {
             // Not a built-in: hand it to the platform's app loader (WASM).
             if let Some(loader) = runner_ctx.app_loader {
@@ -205,6 +251,19 @@ async fn run_root_menu<P: Platform>(stack: &mut Vec<AppStackEntry<P>>, runner_ct
             stack.push(AppStackEntry::HostedApp);
           }
         }
+      }
+      AppAction::Push(name, _params) => {
+        // The root menu has no pending slot, so a pushed child's result
+        // would be dropped; degrade to a plain launch.
+        warn!("run_root_menu: Push of {name} at the root cannot deliver a result");
+        let mctx = MenuAppContext::new(runner_ctx.platform.clone(), runner_ctx.host_ipc_sender);
+        match MenuAppType::<P>::load_app_async(&name, mctx, AppParams::None) {
+          Ok(app) => stack.push(AppStackEntry::MenuApp { app, pending_result: None }),
+          Err(_) => stack.push(AppStackEntry::HostedApp),
+        }
+      }
+      AppAction::Result(result) => {
+        debug!("run_root_menu: unhandled child result {result:?} at the root");
       }
       AppAction::LaunchWasm(name) => {
         debug!("run_root_menu: launching wasm {name}");
@@ -237,16 +296,21 @@ async fn run_menu_app<P: Platform>(
   display: &DisplayHandle,
 ) -> MenuAppOutcome<P> {
   let idx = stack.len() - 1;
-  let AppStackEntry::MenuApp { app } = &mut stack[idx] else {
+  let AppStackEntry::MenuApp { app, pending_result } = &mut stack[idx] else {
     unreachable!("run_menu_app only dispatches on MenuApp entries");
   };
+  // Clone the channel out of the entry borrow: it is the channel the menu
+  // created when this app pushed a sub-app with `AppAction::Push`, and on
+  // (re-)entry the child's result (if any) is buffered in it, delivered
+  // through `AppRunContext` as `AppRunEvent::Result`.
+  let pending_result = pending_result.clone();
 
   // (Re-)entry: show the app's current screen. Subsumes the old `on_shown` +
   // render — apps do their "refresh on show" work at the top of `run()`.
   let _ = display.signal(app.render());
 
   loop {
-    let ctx = AppRunContext::new(&runner_ctx.platform);
+    let ctx = AppRunContext::new(&runner_ctx.platform, pending_result.as_ref());
     let action = select(app.run(ctx), runner_ctx.stack_event_handle.receive()).await;
 
     match action {
@@ -266,7 +330,12 @@ async fn run_menu_app<P: Platform>(
         AppAction::Stop => {
           app.on_stop().await;
           debug!("run_menu_app: popped app");
-          return MenuAppOutcome::Popped;
+          return MenuAppOutcome::Popped { result: None };
+        }
+        AppAction::Result(result) => {
+          app.on_stop().await;
+          debug!("run_menu_app: sub-app returned {result:?}");
+          return MenuAppOutcome::Popped { result: Some(result) };
         }
         AppAction::LaunchWasm(name) => {
           debug!("run_menu_app: launching wasm {name}");
@@ -286,9 +355,25 @@ async fn run_menu_app<P: Platform>(
         }
         AppAction::LoadMenuApp(name) => {
           let mctx = MenuAppContext::new(runner_ctx.platform.clone(), runner_ctx.host_ipc_sender);
-          match MenuAppType::<P>::load_app_async(&name, mctx) {
-            Ok(app) => return MenuAppOutcome::Loaded(Box::new(app)),
+          match MenuAppType::<P>::load_app_async(&name, mctx, AppParams::None) {
+            Ok(app) => return MenuAppOutcome::Loaded(Box::new(app), None),
             Err(mctx) => {
+              if let Some(loader) = runner_ctx.app_loader {
+                loader(name, mctx).await;
+              }
+              return MenuAppOutcome::Hosted;
+            }
+          }
+        }
+        AppAction::Push(name, params) => {
+          debug!("run_menu_app: pushing sub-app {name} ({params:?})");
+          let mctx = MenuAppContext::new(runner_ctx.platform.clone(), runner_ctx.host_ipc_sender);
+          match MenuAppType::<P>::load_app_async(&name, mctx, params) {
+            // The menu attaches the result channel to this entry (the
+            // launcher) and delivers the child's result on pop.
+            Ok(app) => return MenuAppOutcome::Loaded(Box::new(app), Some(ResultChannel::new(Channel::new()))),
+            Err(mctx) => {
+              warn!("run_menu_app: Push of unknown built-in {name}; launching hosted (no result)");
               if let Some(loader) = runner_ctx.app_loader {
                 loader(name, mctx).await;
               }
@@ -306,7 +391,7 @@ async fn run_menu_app<P: Platform>(
 /// never stall the menu.
 async fn run_hosted_app<P: Platform>(stack: &mut Vec<AppStackEntry<P>>, runner_ctx: &MenuRunnerContext<P>) {
   loop {
-    let ctx = AppRunContext::new(&runner_ctx.platform);
+    let ctx = AppRunContext::new(&runner_ctx.platform, None);
     let event = select(ctx.next(), runner_ctx.stack_event_handle.receive()).await;
 
     match event {
@@ -337,6 +422,9 @@ async fn run_hosted_app<P: Platform>(stack: &mut Vec<AppStackEntry<P>>, runner_c
             .host_ipc_sender
             .try_send((0, HostIpcMessage::Wire(WireHostIpcMessage::HexButton(hex))))
             .ok();
+        }
+        AppRunEvent::Result(result) => {
+          debug!("run_hosted_app: unhandled child result {result:?} (no parent to deliver to)");
         }
         AppRunEvent::Event(ev) => {
           debug!("run_hosted_app: event {ev:?}");

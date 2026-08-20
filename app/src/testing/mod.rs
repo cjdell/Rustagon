@@ -15,4 +15,4 @@ pub mod driver;
 pub mod mock;
 
 pub use driver::{AppDriver, PollResult};
-pub use mock::{HttpScript, MockPlatform, MockTcp};
+pub use mock::{HttpScript, MockPlatform, MockStorage, MockTcp};

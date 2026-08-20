@@ -33,6 +33,11 @@ impl Field {
     self.input.value()
   }
 
+  /// Replace the field's value (cursor to the end).
+  pub fn set_value(&mut self, value: &str) {
+    self.input.set_value(value);
+  }
+
   /// The field's cursor (byte index into [`Field::value`]).
   pub fn cursor(&self) -> usize {
     self.input.cursor()
@@ -75,6 +80,12 @@ impl Form {
 
   pub fn field(&self, index: usize) -> Option<&Field> {
     self.fields.get(index)
+  }
+
+  /// The field at `index`, for editing (e.g. filling a field from a picker
+  /// result).
+  pub fn field_mut(&mut self, index: usize) -> Option<&mut Field> {
+    self.fields.get_mut(index)
   }
 
   /// The field under the cursor, if the active row is a field.
